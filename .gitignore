@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Database
+*.sqlite
+*.db
+*.sqlite3
+data/
+
+# Logs
+*.log
+logs/
+
+# Env
+.env
+.env.local
+
+# Uploads (dev only)
+uploads/
+
+# Temp / cache
+.cache/
+.tmp/
