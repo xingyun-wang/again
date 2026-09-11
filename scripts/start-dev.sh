@@ -155,10 +155,13 @@ start_service() {
     echo "[start-dev] ${LOG_PREFIX} 已启动（pid=${NEW_PID}, port=${PORT}, log=${LOG_FILE}）"
 }
 
-start_service 8000 "backend uvicorn" \
+# cd 进 backend/ 让 uvicorn CWD 与 seed/init-db 对齐——
+# DATABASE_URL 是 "sqlite:///./dev.db"（相对 CWD），若不 cd 会写到项目根 dev.db，
+# 与 backend/dev.db 分裂。T4 首次 API 写库才发现的 T1 遗留。
+(cd "${BACKEND_DIR}" && start_service 8000 "backend uvicorn" \
     "${PYTHON_BIN}" "-m" "uvicorn" "app.main:app" \
     "--host" "127.0.0.1" "--port" "8000" \
-    --app-dir "${BACKEND_DIR}"
+    --app-dir "${BACKEND_DIR}")
 
 # === Step 4: npm install（如已 node_modules 则跳过；必须在 frontend/ 里跑）===
 if [[ ! -d "${FRONTEND_DIR}/node_modules" ]]; then
