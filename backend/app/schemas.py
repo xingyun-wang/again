@@ -11,6 +11,8 @@ MVP 妥协（王星云 2026-09-11 09:59 拍板）：
 """
 from __future__ import annotations
 
+from datetime import datetime
+from enum import Enum as PyEnum
 from typing import Any, List, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
@@ -182,3 +184,73 @@ class QuestionOut(BaseModel):
                     # 解析失败 → 保留原字符串（出参拿到 str，下游决定怎么处理）
                     pass
         return data
+
+
+# ============ Homework（W3-T3 落地） ============
+
+
+class HomeworkStatusEnum(str, PyEnum):
+    """Pydantic 层的 HomeworkStatus 镜像枚举。
+
+    - 与 app.models.HomeworkStatus 同值集合
+    - 用 stdlib PyEnum（不是 sqlalchemy.types.Enum）— Pydantic v2 与 sqlalchemy
+      Enum 混用在 from_attributes 时校验路径不一致，所以单独定义一份
+    - str-mixin → Pydantic 自动把 ORM 返回的裸字符串（"draft" / "generated" /
+      "reviewed" / "published"）转成枚举实例
+    """
+
+    DRAFT = "draft"
+    GENERATED = "generated"
+    REVIEWED = "reviewed"
+    PUBLISHED = "published"
+
+
+class HomeworkCreate(BaseModel):
+    """创建作业请求体（W3-T3 MVP）。
+
+    MVP 妥协：class_id / teacher_id 由客户端 body 传入（W5+ auth 阶段再收紧）。
+    title 非空，长度 ≤ 200（与 DB 列对齐）。
+    status 故意不暴露在 Create schema 里 — 新建作业默认 DRAFT（手动建）；
+    引擎生成的状态变更走专用 endpoint（W3-T4 落地）。
+    """
+
+    class_id: int
+    teacher_id: int
+    title: str = Field(min_length=1, max_length=200)
+
+
+class HomeworkQuestionOut(BaseModel):
+    """作业-题目关联出参（read）。
+
+    关联表的轻量视图：只暴露 question_id / level / position，
+    不嵌 Question 详情 — Question 详情通过 /api/questions/{id} 单独取，避免 N+1。
+    """
+
+    id: int
+    question_id: int
+    level: Level          # 沿用现有 Level 枚举（D/C/B/A）
+    position: int
+
+    class Config:
+        from_attributes = True
+
+
+class HomeworkOut(BaseModel):
+    """作业详情出参（read）。
+
+    嵌 HomeworkQuestionOut 列表：前端拿到作业后直接拿到题目顺序 + 档位，
+    再按需去 QuestionOut 拉题干详情（两步拉取，避免一次响应过大）。
+    """
+
+    id: int
+    class_id: int
+    teacher_id: int
+    title: str
+    status: HomeworkStatusEnum
+    generated_at: Optional[datetime]
+    reviewed_at: Optional[datetime]
+    published_at: Optional[datetime]
+    questions: list[HomeworkQuestionOut] = []   # 关联题目列表（按 position 升序）
+
+    class Config:
+        from_attributes = True
