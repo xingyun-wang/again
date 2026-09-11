@@ -1,46 +1,41 @@
-import { useEffect, useState } from 'react'
-import './App.css'
+/**
+ * App — W4-T1 路由入口
+ *
+ * - /          → Dashboard
+ * - /questions → 题库（W4-T2）
+ * - /classes   → 班级 / 学生（W4-T2）
+ * - /homeworks → 作业（W4-T3/T4）
+ * - /settings  → 设置
+ */
 
-type HealthResponse = {
-  status: string
-  service: string
-}
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { ConfigProvider, App as AntApp } from 'antd'
+import zhCN from 'antd/locale/zh_CN'
+import { MainLayout } from './layouts/MainLayout'
+import { Dashboard } from './pages/Dashboard'
+import { QuestionList } from './pages/questions/QuestionList'
+import { ClassList } from './pages/classes/ClassList'
+import { HomeworkList } from './pages/homeworks/HomeworkList'
+import { SettingsPlaceholder } from './pages/settings/Placeholder'
 
 function App() {
-  const [health, setHealth] = useState<HealthResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    fetch('http://localhost:8000/health')
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
-      })
-      .then((data: HealthResponse) => {
-        setHealth(data)
-        setError(null)
-      })
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : String(e))
-        setHealth(null)
-      })
-  }, [])
-
   return (
-    <main>
-      <h1>tiered-homework frontend</h1>
-      <section>
-        <h2>Backend /health</h2>
-        {health ? (
-          <pre data-testid="health-ok">
-            status: {health.status}
-            {'\n'}service: {health.service}
-          </pre>
-        ) : (
-          <pre data-testid="health-err">error: {error ?? 'loading...'}</pre>
-        )}
-      </section>
-    </main>
+    <ConfigProvider locale={zhCN}>
+      <AntApp>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<MainLayout />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/questions" element={<QuestionList />} />
+              <Route path="/classes" element={<ClassList />} />
+              <Route path="/homeworks" element={<HomeworkList />} />
+              <Route path="/settings" element={<SettingsPlaceholder />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </AntApp>
+    </ConfigProvider>
   )
 }
 
