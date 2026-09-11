@@ -17,8 +17,9 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.types import TypeDecorator
 
 
 Base = declarative_base()
@@ -93,3 +94,104 @@ class Student(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     class_ = relationship("Class", back_populates="students")
+
+
+# ============ Question（W3-T1 落地，CHARTER §3 §4 §5） ============
+
+
+class Chapter(str, enum.Enum):
+    """章节枚举（CHARTER §3 — 选择性必修 1 自然地理基础，全 5 章）。
+
+    用 enum value 存 DB（ch1_earth_movement 等英文 slug），跨 SQLite/PostgreSQL 兼容。
+    MVP 写死 5 章；W3-T5 老师审阅阶段如需扩展，再考虑改数据库存（CHARTER 改动门槛）。
+    """
+
+    CH1_地球运动 = "ch1_earth_movement"
+    CH2_地表形态 = "ch2_landforms"
+    CH3_大气运动 = "ch3_atmosphere"
+    CH4_水的运动 = "ch4_water"
+    CH5_整体性差异性 = "ch5_integrity_difference"
+
+
+class QuestionType(str, enum.Enum):
+    """题型枚举（W3 决策 2026-09-11 王星云拍板 — 只客观题）。
+
+    SINGLE_CHOICE / MULTIPLE_CHOICE / TRUE_FALSE 三选一；essay/填空/解答题 MVP 不做。
+    """
+
+    SINGLE_CHOICE = "single_choice"       # 单选
+    MULTIPLE_CHOICE = "multiple_choice"   # 多选
+    TRUE_FALSE = "true_false"             # 判断
+
+
+class _EnumString(TypeDecorator):
+    """String 列 + ORM 层 Enum 白名单校验（跨 DB 兼容）。
+
+    - 存储层：SQLite → TEXT；PostgreSQL → VARCHAR(length)
+    - 校验层：process_bind_param 在 flush 时校验，非白名单值抛 ValueError
+    - 设计动机：SQLite 无原生 ENUM；纯 Column(String) 写到非法值也不会报错。
+      W3-T1 verify test 4 要求直接 `s.add(Question(question_type='essay', ...))` + commit
+      必须失败，所以必须在 ORM 层挡掉，不能依赖 Pydantic/业务层 helper。
+
+    使用：Column(_EnumString(QuestionType, length=16))
+    """
+
+    impl = String
+    cache_ok = True
+
+    def __init__(self, enum_cls: type, length: int = 16) -> None:
+        super().__init__(length=length)
+        self._enum_cls = enum_cls
+        self._valid = frozenset(e.value for e in enum_cls)
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        # str-mixin Enum 的实例本身就是 str（如 QuestionType.SINGLE_CHOICE == "single_choice"），
+        # 所以 isinstance(value, str) 一并能覆盖 Enum 实例和裸字符串两种写法。
+        if isinstance(value, str):
+            if value not in self._valid:
+                raise ValueError(
+                    f"非法 {self._enum_cls.__name__} 值 {value!r}；"
+                    f"必须在 {sorted(self._valid)} 之中"
+                )
+            return value
+        raise TypeError(
+            f"{self._enum_cls.__name__} 列只接受 str 或 str-mixin Enum 实例，"
+            f"实际收到 {type(value).__name__}"
+        )
+
+
+class Question(Base):
+    """题目表（W3-T1 落地）。
+
+    关键设计：
+    - options 用 SQLAlchemy JSON 类型（SQLite 自动序列化为 TEXT，PostgreSQL 存 JSONB）
+    - answer 字段：单选/判断直接存选项内容字符串；多选存 JSON 字符串如 '["A","C"]'
+      （统一存字符串，避免 list 与 JSON 列类型冲突；读回时上层按 question_type 解析）
+    - question_type / level / chapter 用 _EnumString 做 ORM 层白名单
+    - teacher_id FK → teacher.id（必须先 seed teacher 才能插入）
+    - 反马太规则（W3 决策 2026-09-11）：作业生成时实时计算每档题数；
+      本表只承载题目本身，反马太逻辑属于 W3-T4 作业生成模块。
+    """
+
+    __tablename__ = "question"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    content = Column(Text, nullable=False)
+    options = Column(JSON, nullable=False)
+    answer = Column(String(255), nullable=False)
+    question_type = Column(_EnumString(QuestionType, length=16), nullable=False)
+    level = Column(_EnumString(Level, length=1), nullable=False)
+    chapter = Column(_EnumString(Chapter, length=32), nullable=False)
+    teacher_id = Column(Integer, ForeignKey("teacher.id"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    # 注：暂不加 relationship("Teacher")，避免和现有 Teacher.classes 的 back_populates 链耦合。
+    # 后续 W3-T2 加 CRUD 路由时如需 ORM 导航再补，保持 T1 最小改动。
