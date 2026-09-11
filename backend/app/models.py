@@ -51,6 +51,8 @@ class Teacher(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     classes = relationship("Class", back_populates="teacher", cascade="all, delete-orphan")
+    # W3-T2 追加：老师 → 题库导航（坑 #2，PUT 时避免级联问题）
+    questions = relationship("Question", back_populates="teacher", cascade="all, delete-orphan")
 
 
 class Class(Base):
@@ -193,5 +195,5 @@ class Question(Base):
         onupdate=datetime.utcnow,
     )
 
-    # 注：暂不加 relationship("Teacher")，避免和现有 Teacher.classes 的 back_populates 链耦合。
-    # 后续 W3-T2 加 CRUD 路由时如需 ORM 导航再补，保持 T1 最小改动。
+    # W3-T2 追加（坑 #2）：老师 → 题目导航，避免 ORM 双向引用断链
+    teacher = relationship("Teacher", back_populates="questions")

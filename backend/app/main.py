@@ -12,7 +12,7 @@ CORS：allow http://localhost:5173（前端 Vite dev origin），T1 已配不动
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import classes, students, teachers
+from .api import classes, students, teachers, questions
 
 app = FastAPI(title="tiered-homework-backend")
 
@@ -29,6 +29,9 @@ app.add_middleware(
 app.include_router(teachers.router)
 app.include_router(classes.router)
 app.include_router(students.router)
+
+# === W3-T2 路由挂载 ===
+app.include_router(questions.router)
 
 
 @app.get("/health")
