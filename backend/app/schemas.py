@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum as PyEnum
+from typing import List
 from typing import Any, List, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
@@ -250,7 +251,43 @@ class HomeworkOut(BaseModel):
     generated_at: Optional[datetime]
     reviewed_at: Optional[datetime]
     published_at: Optional[datetime]
-    questions: list[HomeworkQuestionOut] = []   # 关联题目列表（按 position 升序）
+    questions: List[HomeworkQuestionOut] = []   # 关联题目列表（按 position 升序）
+
+    class Config:
+        from_attributes = True
+
+
+class HomeworkQuestionUpdate(BaseModel):
+    """老师审阅时的单题调整请求（W3-T5）。"""
+
+    homework_question_id: int = Field(gt=0)
+    new_level: Level  # D / C / B / A 任选
+
+
+class HomeworkReviewRequest(BaseModel):
+    """老师审阅请求（W3-T5）。
+
+    携带多题调整：teacher 在前端一次性改完所有需要动的题，
+    一次性 POST 过来。后端按 new_level UPDATE 每条 HomeworkQuestion。
+
+    设计决策（D-W3-03）：不自动重算反马太——老师手动调整是最终判断。
+    """
+
+    questions: List[HomeworkQuestionUpdate] = Field(default_factory=list)
+
+
+class HomeworkListOut(BaseModel):
+    """作业列表出参（W3-T5）—— 轻量，不嵌 questions。"""
+
+    id: int
+    class_id: int
+    teacher_id: int
+    title: str
+    status: HomeworkStatusEnum
+    generated_at: Optional[datetime]
+    reviewed_at: Optional[datetime]
+    published_at: Optional[datetime]
+    question_count: int = 0  # 作业总题数（不在主表，靠 SQL count）
 
     class Config:
         from_attributes = True

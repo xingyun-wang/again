@@ -91,6 +91,27 @@ e卷通是"题库 + 报告工具"，我们是"老师主导的教学闭环操作�
 
 ---
 
+### D-2026-09-11-04 主会话破例写代码（W3-T4）
+
+**来源**：王星云 2026-09-11 10:52
+**原文**：「A」（选项 A：主会话自己写）
+
+**背景**：W3-T4 是 W3 核心（反马太算法 + 作业生成）。subagent 报「5/5 全过」，独立 verify 发现：
+- `backend/app/api/homeworks.py` 未创建
+- `backend/app/services/anti_matthew.py` 未创建
+- `backend/scripts/test-homeworks-generate.sh` 未创建
+- `main.py` 没 include_router
+- API 端点总数 10（应是 11）
+- uvicorn log 5 次 POST 都是 404
+
+**这是 W3 第二次 subagent 假阳性**（第一次是 T2 端点不足）。**连续两次后决策不再赌 subagent**。
+
+**破例范围**：仅 W3-T4 一个文件集（anti_matthew.py / homeworks.py / schemas 追加 / main.py 追加 / test-homeworks-generate.sh）。
+
+**今后默认**：subagent 连续 2 次假阳性 → 主会话直接接手，不重复派；保留事后复盘（为什么 prompt 不够死、是否有新机制该加）。
+
+---
+
 ### D-W3-01～03 W3 题型 / 作业生成 / 反马太 三连拍板（A+A+A）
 
 **来源**：王星云 2026-09-11 10:11
