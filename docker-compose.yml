@@ -1,0 +1,79 @@
+# docker-compose.yml — M0 一键启动（PostgreSQL 15 + FastAPI backend + nginx + frontend）
+#
+# 启动：docker compose up -d
+# 停止：docker compose down
+# 看日志：docker compose logs -f backend
+
+name: tiered-homework-m0
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: thp-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tiered_homework
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - thp-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tiered_homework"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: thp-backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/tiered_homework
+      APP_ENV: development
+      APP_VERSION: "0.1.0"
+      CORS_ORIGINS: "http://localhost:5173,http://localhost"
+      LLM_PROVIDER: deepseek
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-sk-replace-me}
+      DEEPSEEK_BASE_URL: https://api.deepseek.com
+      DEEPSEEK_CHAT_MODEL: deepseek-chat
+      DEEPSEEK_EMBEDDING_MODEL: deepseek-embedding
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - thp-net
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # 构建阶段可选：跳过默认值（前端不需要 LLM key）
+        VITE_API_PREFIX: /api
+    container_name: thp-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    networks:
+      - thp-net
+    restart: unless-stopped
+
+networks:
+  thp-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+    name: thp-pgdata

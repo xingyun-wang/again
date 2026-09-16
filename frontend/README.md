@@ -1,42 +1,42 @@
-# 差异化作业工作台 — 前端
+# 差异化作业系统 — 前端 (M0 骨架)
 
-W4 完成（2026-09-11）：Ant Design 5 + React 19 + Vite + React Router。
+React 18 + TypeScript 5 + Vite 5 + Ant Design 5。
 
 ## 启动
 
+### 方式一：docker-compose（推荐，含 nginx + backend）
 ```bash
-# 前置：dev 服务跑后端
-bash scripts/start-dev.sh
-bash scripts/verify-dev.sh   # 确认 5173 + 8000 都通
-
-# 启动前端（自动跑在 5173）
-cd frontend
-npm run dev
+cd ..
+docker compose up -d
+# 访问 http://localhost
 ```
 
-访问 http://localhost:5173
+### 方式二：本地 dev（前后端分离）
+```bash
+# 前置：后端在 8000 跑（docker compose up backend，或本地 uvicorn）
+npm install
+npm run dev
+# 访问 http://localhost:5173
+# Vite 已配 /api → http://localhost:8000 的 proxy
+```
 
-## 路由
+## 验收
 
-| 路径 | 功能 | 后端端点（W3 已完成） |
-|---|---|---|
-| `/` | Dashboard（占位） | — |
-| `/questions` | 题库 CRUD（5 端点） | W3-T2 |
-| `/classes` | 班级/学生管理 + 批量导入 + 改密（5 端点） | W1-T4 |
-| `/homeworks` | 作业生成（含反马太）+ 审阅 + 发布（5 端点） | W3-T4 + T5 |
-| `/settings` | 占位（W4 后） | — |
+```bash
+npm run lint       # ESLint
+npm run build      # tsc + vite build
+npm run preview    # 预览 build 产物（端口 4173）
+```
 
-## 关键设计
+## 目录
 
-- **API 客户端**：`src/api/client.ts` —— 统一 fetch + `ApiError` 类型化错误处理
-- **主布局**：`src/layouts/MainLayout.tsx` —— Ant Design Layout + 侧边导航（题库 / 班级 / 作业 / 设置）
-- **页面**：4 个主页面 + Dashboard
-- **状态管理**：本地 useState（无 Redux/Zustand，MVP 简单）
-
-## 技术栈
-
-按 CHARTER §7：
-- React 19 + TypeScript
-- Vite 8 + 极速 dev server
-- Ant Design 5（中文 Locale zh_CN）
-- React Router 6
+```
+src/
+  main.tsx         # 入口（React + AntD ConfigProvider + Router）
+  App.tsx          # Layout + 路由表
+  pages/
+    Home.tsx       # 首页：调 /api/health 展示连接状态
+  api/
+    client.ts      # axios 实例
+    health.ts      # /api/health 封装
+```

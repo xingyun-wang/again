@@ -1,4 +1,4 @@
-# Python
+# === Python ===
 __pycache__/
 *.py[cod]
 *$py.class
@@ -8,11 +8,12 @@ venv/
 env/
 ENV/
 .venv/
-# W1-T1: backend FastAPI venv
 .venv-backend/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Node
+# === Node ===
 node_modules/
 dist/
 build/
@@ -20,33 +21,43 @@ build/
 tsconfig.tsbuildinfo
 .vite/
 
-# IDE
+# === IDE / OS ===
 .vscode/
 .idea/
 *.swp
 .DS_Store
+*.sublime-project
+*.sublime-workspace
 
-# Database
+# === Database / uploads ===
 *.sqlite
-*.db
 *.sqlite3
+*.db
 data/
+uploads/
+postgres-data/
+pgdata/
 
-# Logs
+# === Logs ===
 *.log
 logs/
 
-# Env
+# === Env ===
 .env
 .env.local
+.env.*.local
+!.env.example
 
-# Uploads (dev only)
-uploads/
-
-# Temp / cache
-.cache/
-.tmp/
-
-# Runtime artifacts (W1-T3 dev scripts)
+# === Docker runtime ===
 .run/
 *.pid
+.docker/
+
+# === Coverage ===
+.coverage
+htmlcov/
+coverage/
+
+# === Temp ===
+.cache/
+.tmp/

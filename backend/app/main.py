@@ -1,42 +1,46 @@
-"""FastAPI app — W1-T4 完整后端。
+"""FastAPI 应用入口（M0）。
 
-W1-T1 仅有 /health；T4 把 8 个 API + CSV 批量导入 + 改密接口接进来。
-
-CORS：allow http://localhost:5173（前端 Vite dev origin），T1 已配不动。
-路由分组：
-    - api/teachers.py    → /api/teachers（2 个端点）
-    - api/classes.py     → /api/classes（3 个端点）
-    - api/students.py    → /api/classes/{id}/students/* + /api/students/{id}/*（4 个端点）
-合计 9 个端点（含批量改密）。
+负责：
+- 创建 FastAPI app 实例
+- 配置 CORS（开发期允许本地前端）
+- 注册路由（health + v1）
+- 暴露 app 供 uvicorn 启动
 """
+
+from __future__ import annotations
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import classes, students, teachers, questions, homeworks
-
-app = FastAPI(title="tiered-homework-backend")
-
-# CORS：显式 allow 前端 dev origin，不用 *
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# === W1-T4 路由挂载 ===
-app.include_router(teachers.router)
-app.include_router(classes.router)
-app.include_router(students.router)
-
-# === W3-T2 路由挂载 ===
-app.include_router(questions.router)
-
-# === W3-T4 路由挂载 ===
-app.include_router(homeworks.router)
+from app.api.health import router as health_router
+from app.core.config import get_settings
 
 
-@app.get("/health")
-def health() -> dict:
-    return {"status": "ok", "service": "tiered-homework-backend"}
+def create_app() -> FastAPI:
+    """构造 FastAPI 应用实例。"""
+    settings = get_settings()
+
+    app = FastAPI(
+        title=settings.app_name,
+        version=settings.app_version,
+        description="差异化作业系统 — 后端 API（M0 骨架）",
+    )
+
+    # CORS（开发期放开；M1+ 收紧到生产前端域名）
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # 注册路由
+    app.include_router(health_router)
+    # M0 不挂 v1 业务路由（v1 目录留空，M1 才有真实端点）
+
+    return app
+
+
+# uvicorn app.main:app 入口
+app = create_app()
