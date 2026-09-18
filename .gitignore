@@ -61,3 +61,8 @@ coverage/
 # === Temp ===
 .cache/
 .tmp/
+
+# === User materials (PDF textbooks, large user content) ===
+materials/
+*.pdf
+!docs/**/*.pdf

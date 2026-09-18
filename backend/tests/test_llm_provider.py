@@ -151,17 +151,26 @@ def test_factory_returns_deepseek(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_llm_provider() 在默认配置下返回 DeepSeekProvider。"""
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key-from-monkeypatch")
     from app.core.config import get_settings as _get_settings
+    from app.core.llm.factory import reset_llm_provider_cache
 
     _get_settings.cache_clear()
+    reset_llm_provider_cache()
     provider = get_llm_provider()
     assert isinstance(provider, DeepSeekProvider)
 
 
 def test_factory_missing_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """未配置 API key 时工厂抛 ValueError。"""
+    """未配置 API key 时 factory log warning + provider 抛 ValueError（layered defense）。
+
+    M0 retro #1 之后：factory 不再 fail-fast，只 log warning。
+    真正空的 api_key 由 DeepSeekProvider.__init__ 的防御性检查抛错（保留既有行为）。
+    """
     monkeypatch.setenv("DEEPSEEK_API_KEY", "")
     from app.core.config import get_settings as _get_settings
+    from app.core.llm.factory import reset_llm_provider_cache
 
     _get_settings.cache_clear()
-    with pytest.raises(ValueError, match="DEEPSEEK_API_KEY 未配置"):
+    reset_llm_provider_cache()
+    # factory 层不 raise；改由 provider 抛 ValueError，message 是 "api_key 不能为空"
+    with pytest.raises(ValueError, match="api_key 不能为空"):
         get_llm_provider()

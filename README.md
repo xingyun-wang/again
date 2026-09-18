@@ -1,12 +1,12 @@
 # 差异化作业系统（tiered-homework-platform）
 
-> **M0 骨架阶段（2026-09-16）** —— v0.5 产品定义全定稿后的工程起点。
+> **M1-B B.2 业务 API 阶段（2026-09-18）** —— v0.5 §10 M1 范围内的学科知识库 + AI 备课助手 API 端到端就位。
 > 详见 [`docs/产品定义-v0.5.md`](docs/产品定义-v0.5.md) + [`docs/PROJECT-CHARTER.md`](docs/PROJECT-CHARTER.md)。
 
 ## 状态
 
 - **产品定义**：v0.5 §0-§11 全定稿（2026-09-14 收官）
-- **工程进度**：M0 准备（基础设施骨架）已完成，M1-M7 见 `docs/产品定义-v0.5.md §10.2`
+- **工程进度**：M1-B B.2 业务 API 已完成；M0 准备、M1-A 阶段 1、M1-B B.0/B.1 均已过
 - **技术栈**：PostgreSQL 15 + FastAPI (Python 3.11) + React 18 + TS 5 + Vite 5 + Ant Design 5 + Docker Compose
 
 ## 目录结构
@@ -39,6 +39,12 @@
 ├── docs/                   # 产品定义 / 宪法 / 决策 / 开放问题
 └── memory/                 # 决策室 daily logs
 ```
+
+## 镜像源策略
+
+- **国内 build**（家庭 / 公司网络）：Dockerfile 默认用 Aliyun apt + Aliyun PyPI + npmmirror 镜像源（build-time `--index-url` flag 形式，避免污染容器全局 pip 配置）
+- **CI / 官方源**（GitHub Actions）：通过 `docker build --build-arg PIP_INDEX_URL=...` 切换，或 Dockerfile 注释里说明 CI 走官方源
+- 决策背景：M0 retro 教训——PIP 默认源在国内 ~92kB/s（pymupdf 25.8MB 要 3+ 分钟），Aliyun ~5-10MB/s，build 时间压缩 50-100 倍
 
 ## 一键启动（验收标准）
 
@@ -111,6 +117,91 @@ npm run dev    # 5173 端口，已配 /api → localhost:8000
 **作用域**：仅 build-time 生效。CI（GitHub Actions）走官方源——Dockerfile flag/ENV 在 GitHub Actions runner 上不生效（境外网络默认官方源 OK）。
 
 **M1+ 模板默认带这些镜像源 + 注释**——避免每个 subagent 重新踩坑。
+
+## 业务 API（M1-B B.2）
+
+业务 API 路由统一挂载在 `/api/v1/academic` 前缀；浏览器 Swagger UI 入口：`http://localhost/docs`。
+
+### 8 个端点（B.2 spec 7 + judgment call 1）
+
+| # | 方法 | 路径 | 用途 | §7.4 / §7.5 |
+|---|---|---|---|---|
+| 1 | POST | `/api/v1/academic/textbooks/upload` | 上传教材（B.2 mock：metadata + 章节草稿；B.3 接真 PDF + extractor） | §7.5 pending |
+| 2 | GET | `/api/v1/academic/textbooks/{id}/chapters` | 列教材下的章节 | — |
+| 3 | POST | `/api/v1/academic/chapters/{id}/extract` | 调 LLM 抽取章节结构化信息（重点 / 难点 / 授课建议） | §7.4 + §7.5 pending |
+| 4 | GET | `/api/v1/academic/chapters/{id}` | 章节详情（含 §7.4 AI summary） | §7.4 + §7.5 字段标注 |
+| 5 | PATCH | `/api/v1/academic/chapters/{id}/review` | 章节审阅（reviewed / modified + 可改字段） | §7.5 硬约束 |
+| 6 | POST | `/api/v1/academic/lesson-plans/generate` | 基于章节 + 学情生成授课建议（chat 真值） | §7.4 + §7.5 pending |
+| 7 | GET | `/api/v1/academic/lesson-plans/{id}` | 授课建议详情 | §7.4 + §7.5 字段标注 |
+| 8 | PATCH | `/api/v1/academic/lesson-plans/{id}/review` | 授课建议审阅（reviewed / modified + 可改 content） | §7.5 硬约束（**judgment call**） |
+
+> **Judgment call #1**：B.2 spec 端点表只列了 7 个端点，但 §7.5 流程硬约束测试要求 lesson-plan 可 PATCH /review 才能跑端到端流程。本阶段补上第 8 个端点。
+
+### §7.4 AI 生成内容声明（每个 LLM 响应必带字段）
+
+```json
+{
+  "ai_generated": true,
+  "model": "deepseek-chat",
+  "generated_at": "2026-09-18T05:02:49.341265Z",
+  "requires_teacher_review": true,
+  "annotation": "本建议由 AI 生成，需教师审阅"
+}
+```
+
+> 所有 AI 生成实体（chapter extract / lesson-plan）的 response 都内嵌 `ai: AIAnnotation` 字段。
+
+### §7.5 教师最终审阅（流程节点硬约束）
+
+```json
+{
+  "review_status": "pending",        // pending / reviewed / modified
+  "reviewed_by": null,                 // user_id（B.2 从 X-User-Id header 取）
+  "reviewed_at": null,
+  "review_notes": null
+}
+```
+
+> **流程硬约束**：AI 生成的实体（extract / lesson-plan）创建时 `review_status=pending`；必须 PATCH `/review` 标记 `reviewed` 或 `modified` 才能用于下次备课（M1+ 闭环）。
+> **不允许**：未先 extract 就 review chapter（→ 409）。
+
+### 简化 Auth（M.2 + M.3 再升级完整 JWT）
+
+- `X-User-Id` header 取 user_id（如 `X-User-Id: 1`）
+- 缺失或非正整数 → 401
+- 未来：M1+ 接完整 JWT，本阶段简化（subagent 工地的烟测友好）
+
+### 调用示例（curl）
+
+```bash
+# 1. 上传教材（mock：metadata + 章节草稿）
+curl -X POST http://localhost/api/v1/academic/textbooks/upload \
+  -H 'Content-Type: application/json' \
+  -H 'X-User-Id: 1' \
+  -d '{
+    "name": "人教版地理选择性必修1",
+    "file_path": "/data/textbooks/dili-xz1.pdf",
+    "chapters": [
+      {"chapter_number": 1, "title": "第一章 地球的运动", "content_summary": "..."}
+    ]
+  }'
+# → 201 {"textbook_id": 1, "chapters": [{"id": 1, ...}], ...}
+
+# 2. 调 LLM 抽取章节（§7.4 + §7.5 pending）
+curl -X POST http://localhost/api/v1/academic/chapters/1/extract \
+  -H 'Content-Type: application/json' -H 'X-User-Id: 1' -d '{}'
+# → 201 {"ai": {...}, "review": {"review_status": "pending"}, ...}
+
+# 3. 教师审阅（§7.5 流程硬约束）
+curl -X PATCH http://localhost/api/v1/academic/chapters/1/review \
+  -H 'Content-Type: application/json' -H 'X-User-Id: 5' \
+  -d '{"status": "reviewed", "notes": "OK 通过"}'
+
+# 4. 生成授课建议
+curl -X POST http://localhost/api/v1/academic/lesson-plans/generate \
+  -H 'Content-Type: application/json' -H 'X-User-Id: 1' \
+  -d '{"chapter_id": 1, "duration_minutes": 45, "student_count": 50}'
+```
 
 ## 后续里程碑
 

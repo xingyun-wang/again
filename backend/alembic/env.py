@@ -1,6 +1,14 @@
 """Alembic env 配置。
 
 支持从 app.core.config.get_settings() 读取 DATABASE_URL，方便环境切换。
+
+# v0.5 M1-A 阶段 1 加的 judgment（§1.3）：
+# - compare_type=True：autogenerate 时识别 enum / column 类型变化
+# - render_as_batch=False：PG 不需要 batch mode（batch 是 SQLite ALTER TABLE 用）
+# - PG native enum 在 migration 里显式 create_type / drop_type，避免
+#   同一 enum 类型在多个 migration 里被重复创建（sa.Enum 加 create_type=False
+#   是 ORM model 层的标准做法，env.py 不再干预；migration 层每个 enum 独立
+#   控制 create_type 即可）。
 """
 
 from __future__ import annotations
@@ -17,6 +25,7 @@ from alembic import context
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from app import models  # noqa: E402,F401  # 注册所有 model 到 Base.metadata
 from app.core.config import get_settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 
@@ -39,6 +48,8 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        compare_type=True,
+        render_as_batch=False,
     )
 
     with context.begin_transaction():
@@ -54,7 +65,12 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            render_as_batch=False,
+        )
 
         with context.begin_transaction():
             context.run_migrations()

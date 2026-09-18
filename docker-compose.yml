@@ -24,6 +24,16 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    # 资源限制（M1-A 阶段 3 落地）。docker compose v2 用 deploy.resources，
+    # 不要写在顶层 resources（旧版语法在 v2 不识别）
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   backend:
     build:
@@ -45,6 +55,19 @@ services:
         condition: service_healthy
     networks:
       - thp-net
+    # 资源限制（M1-A 阶段 3 落地）
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    # 启动链：先 alembic upgrade head（建表），再 exec uvicorn。
+    # exec 让 uvicorn 继承 PID 1 —— docker stop 时正常收 SIGTERM，graceful shutdown。
+    # 注释：alembic 必须在 uvicorn 之前跑，否则 backend 表不存在，uvicorn 起不来 / 路由全 500。
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
       interval: 10s
@@ -68,6 +91,27 @@ services:
       - "80:80"
     networks:
       - thp-net
+    # 资源限制（M1-A 阶段 3 落地）。frontend 是 nginx serve 静态，
+    # CPU/内存都给得很小（nginx 默认 1 worker ≈ 几十 MB resident）
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    # healthcheck：用 wget --spider（nginx:alpine 默认带 wget，不带 curl）。
+    # 走 /healthz（nginx.conf 里直接返 200，不反代 backend）。
+    # 关键：用 127.0.0.1 而非 localhost —— wget 默认 localhost 解析到 IPv6 [::1]，
+    # 但 nginx:alpine 默认 listen 80 = IPv4 only（IPv6 编译进 nginx 但未启用 listen [::]:80），
+    # wget 连 IPv6 会 Connection refused。
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
 networks:

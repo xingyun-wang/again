@@ -38,6 +38,9 @@ class Settings(BaseSettings):
         description="SQLAlchemy 连接串",
     )
 
+    # 日志（M0 retro #3）
+    log_level: str = Field(default="INFO", description="日志级别（DEBUG/INFO/WARNING/ERROR）")
+
     # LLM Provider（M0 锁定 deepseek；M1+ 由配置切换）
     llm_provider: str = Field(default="deepseek", description="Provider 名")
     deepseek_api_key: str = Field(default="", description="DeepSeek API Key")
