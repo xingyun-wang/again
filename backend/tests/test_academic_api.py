@@ -15,6 +15,7 @@ PATCH /lesson-plans/{id}/review（judgment call）。
 from __future__ import annotations
 
 import json
+from io import BytesIO
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -46,43 +47,48 @@ def _build_test_client(
     return TestClient(app)
 
 
-# ─────────────────────────── 1. 教材上传 ────────────────────────────
+# ─────────────────────────── 1. 教材上传（B.3 升级 multipart/form-data） ────────────
+# B.3：B.2 mock（JSON body）已升级为 multipart/form-data + 真 PDF 抽取。
+# 旧的"chapters 列表为空 → 422"测试不再适用（multipart 不接空 chapters）；
+# 该场景在 test_textbook_upload_real_pdf.py::test_upload_real_pdf_extracts_chapters
+# 覆盖（真 PDF 解析出 ≥ 1 章节）。B.2 spec "chapters 必填"语义被 PDF 文件本身替代。
+
+
+def _build_minimal_pdf_bytes(title_line: str = "测试教材") -> bytes:
+    """构造一个最小可解析的 PDF（PyMuPDF 能打开 + 识别 chapter title）。
+
+    用 PyMuPDF 生成：1 页 + 1 行文本"第一章 测试章节"。PyMuPDF 章节正则识别
+    「第X章 title」格式。
+    """
+    import fitz  # PyMuPDF
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), f"{title_line} 测试章节内容", fontsize=12)
+    pdf_bytes_io = BytesIO()
+    doc.save(pdf_bytes_io)
+    doc.close()
+    return pdf_bytes_io.getvalue()
 
 
 def test_textbook_upload_creates_textbook_and_chapters(
     mock_db_session: Any, mock_llm_provider: Any
 ) -> None:
-    """POST /textbooks/upload 创建 Textbook + Chapter 行；返回结构正确。"""
+    """POST /textbooks/upload（B.3 multipart/form-data）创建 Textbook + Chapter。"""
     client = _build_test_client(mock_db_session, mock_llm_provider)
-    body = {
-        "name": "人教版数学七上",
-        "file_path": "/tmp/test.pdf",
-        "chapters": [
-            {"chapter_number": 1, "title": "第一章 有理数", "content_summary": "正负数概念"},
-            {"chapter_number": 2, "title": "第二章 整式", "content_summary": "单项式多项式"},
-        ],
-    }
-    resp = client.post("/api/v1/academic/textbooks/upload", json=body, headers={"X-User-Id": "1"})
+    pdf_bytes = _build_minimal_pdf_bytes("第一章")
+    resp = client.post(
+        "/api/v1/academic/textbooks/upload",
+        files={"file": ("test.pdf", pdf_bytes, "application/pdf")},
+        data={"name": "人教版数学七上"},
+        headers={"X-User-Id": "1"},
+    )
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data["textbook_id"] >= 1
     assert data["name"] == "人教版数学七上"
-    assert len(data["chapters"]) == 2
+    assert len(data["chapters"]) >= 1
     assert data["chapters"][0]["has_extracted"] is False
-
-
-def test_textbook_upload_requires_chapters(
-    mock_db_session: Any, mock_llm_provider: Any
-) -> None:
-    """chapters 列表为空 → 422 验证错误。"""
-    client = _build_test_client(mock_db_session, mock_llm_provider)
-    body = {
-        "name": "test",
-        "file_path": "/tmp/x.pdf",
-        "chapters": [],
-    }
-    resp = client.post("/api/v1/academic/textbooks/upload", json=body, headers={"X-User-Id": "1"})
-    assert resp.status_code == 422
 
 
 def test_textbook_upload_404_subject_not_found(
@@ -90,13 +96,13 @@ def test_textbook_upload_404_subject_not_found(
 ) -> None:
     """subject_id 不存在 → 404。"""
     client = _build_test_client(mock_db_session, mock_llm_provider)
-    body = {
-        "name": "test",
-        "file_path": "/tmp/x.pdf",
-        "subject_id": 9999,
-        "chapters": [{"chapter_number": 1, "title": "ch1"}],
-    }
-    resp = client.post("/api/v1/academic/textbooks/upload", json=body, headers={"X-User-Id": "1"})
+    pdf_bytes = _build_minimal_pdf_bytes()
+    resp = client.post(
+        "/api/v1/academic/textbooks/upload",
+        files={"file": ("test.pdf", pdf_bytes, "application/pdf")},
+        data={"name": "test", "subject_id": "9999"},
+        headers={"X-User-Id": "1"},
+    )
     assert resp.status_code == 404
 
 
@@ -452,9 +458,11 @@ def test_endpoints_require_x_user_id_header(
     client = _build_test_client(mock_db_session, mock_llm_provider)
     # 任意挑几个端点
     assert client.get("/api/v1/academic/chapters/1").status_code == 401
+    # multipart/form-data（即使空 body 也需要 X-User-Id → 401）
     assert client.post(
         "/api/v1/academic/textbooks/upload",
-        json={"name": "x", "file_path": "/x", "chapters": [{"chapter_number": 1, "title": "y"}]},
+        files={"file": ("x.pdf", b"%PDF-1.4\n", "application/pdf")},
+        data={"name": "x"},
     ).status_code == 401
     assert client.post(
         "/api/v1/academic/lesson-plans/generate", json={"chapter_id": 1}

@@ -38,6 +38,7 @@ RUN pip install --no-cache-dir --index-url https://mirrors.tencent.com/pypi/simp
         "psycopg[binary]>=3.2.3" "alembic>=1.14.0" "pymupdf>=1.24.0" \
         "pdfplumber>=0.11.0" "httpx>=0.27.0" "tenacity>=9.0.0" \
         "pydantic>=2.9.0" "pydantic-settings>=2.6.0" \
+        "python-multipart>=0.0.12" \
         "ruff>=0.7.0" "mypy>=1.13.0" "pytest>=8.3.0" "pytest-asyncio>=0.24.0"
 
 COPY . .
@@ -79,7 +80,8 @@ RUN pip install --no-cache-dir --index-url https://mirrors.tencent.com/pypi/simp
         "fastapi>=0.115.0" "uvicorn[standard]>=0.32.0" "sqlalchemy>=2.0.36" \
         "psycopg[binary]>=3.2.3" "alembic>=1.14.0" "pymupdf>=1.24.0" \
         "pdfplumber>=0.11.0" "httpx>=0.27.0" "tenacity>=9.0.0" \
-        "pydantic>=2.9.0" "pydantic-settings>=2.6.0"
+        "pydantic>=2.9.0" "pydantic-settings>=2.6.0" \
+        "python-multipart>=0.0.12"
 
 # 从 builder 复制源码（不含 dev 依赖）
 COPY --from=builder /app/app /app/app

@@ -1,6 +1,6 @@
 # STATE.md — 差异化作业工作台
 
-> **最后更新**：2026-09-17 23:35（**收工**。M0 retro + M1-A 全过 + M1-B B.0 代码到位；今晚 WSL2 网络抽风 image rebuild 失败，明早重试；30+ 文件未 commit，等明早拍板 remote 后 commit/push）
+> **最后更新**：2026-09-18 13:50（**M1-B B.3 端到端 5 章节验证 全过**。B.3.1 multipart upload + 真 PDF 抽取 ✅；B.3.2 真 LLM 5 章节 extract + lesson-plan + review ✅；B.3.3 §7.5 流程 + OpenAI schema + README/STATE ✅。pytest 146 passed / 8 skipped / ruff + mypy 全过；等决策室 commit/push）
 > **承载体**：本工作区 + `WAKEUP.md`（4 项唤醒清单） + `zaiyao-memory` 仓（每日 push，含本项目 4 项快照） + `.bak.2026-09-10/` 备份（**仅作载曜了解工程参考用，不接旧进度**）
 > **维护规则**：每节定稿 / W 阶段 commit 后 / 用户明确要求时更新
 
@@ -12,8 +12,8 @@
 |---|---|
 | **从哪来** | 8/12-8/15 研究 + v0.1~v0.4 四版定义 + W1~W4 工程（已封存于 `.bak.2026-09-10/`，参考用）→ 9/14 v0.5 §0-§5 定稿 → 9/14 晚上工作流重构 + 灾难恢复落地 |
 | **谁做的** | **王星云**（方向+拍板，本人析木高中地理老师）/ **载曜**（技术+想法/建议/问题+记录） |
-| **做到哪** | **v0.5 §0-§11 全定稿**；WAKEUP.md + 4 项灾难恢复已建；**M0 docker 验收 9/9 ✅**（含国内镜像源 patch）；旧工程代码保留为参考；新工程从 v0.5 §10 起写 |
-| **下一步** | 等决策室定 M1 方向（备课助手端到端最小路径 vs 题库 CRUD 地基）→ M1 → MVP 上线 → 星云 1 班验证（M6）→ Phase 2（M7） |
+| **做到哪** | **v0.5 §0-§11 全定稿**；WAKEUP.md + 4 项灾难恢复已建；**M0 docker 验收 9/9 ✅**（含国内镜像源 patch）；**M1-B B.0/B.1/B.2/B.3 全过**；旧工程代码保留为参考；新工程从 v0.5 §10 起写 |
+| **下一步** | 决策室 commit/push B.3 变更 → 开 M2 题库 CRUD（M2 = 作业生成 + 题库 + 4 档差异化 + 反马太 + PDF 导出） |
 
 ---
 
@@ -44,6 +44,7 @@
 - **2026-09-16 增**：v0.5 §11 变更日志定稿 = v0.5 期间每节定稿变更（§11.2）+ 演进里程碑（§11.1）+ v0.4→v0.5 全量追踪（§11.3，末尾表升级迁入）；原则=存在且精简，写给未来的载曜
 - **2026-09-16 晚增**：M0 docker 验收 9/9 全过（pull + build + up + /api/health + SPA bundle+proxy + ruff + mypy + pytest + npm lint）；patch = 国内镜像源（backend Aliyun apt+PyPI / frontend npmmirror）；judgment = #5 SPA 验收放宽 / alembic upgrade head 未入 compose 启动链路；教训 = 镜像源工程模板化 + exec tracker stale 实战对策
 - **2026-09-16 晚增**：M0 优化 = pip 镜像源 ENV → `--index-url` flag 形式（决策室 judgment；per-RUN 显式，避免污染容器全局 pip 配置）；README + .env.example 加国内镜像源注释；flag 形式 build 等 M1 复跑确认
+- **2026-09-18 增**：M1-B 实质收官 = B.3 端到端 5 章节验证全过。B.3.1 = `POST /textbooks/upload` 升级 multipart/form-data + PyMuPDF + pdfplumber 双库（adapter in service）；B.3.2 = 真 PDF + 真 LLM 5 章节 extract + lesson-plan + review 全跑通（`scripts/verify_end_to_end_5_chapters.py`，20 API + 10 LLM 调用 / 80s）；B.3.3 = §7.5 review_notes 持久化验证 + OpenAPI AIAnnotation/TeacherReviewStatus 完整 + README 更新。pytest 146 passed / 8 skipped；ruff + mypy 全过。judgment = #1 upload 暂不支持 batch / #2 LLM 失败 fail-fast / #3 review_notes 可选 / #4 adapter 放 service 层。教训 = FastAPI Form 依赖 python-multipart；nginx 默认 client_max_body_size=1M 不够；errookept handler 自定义 ErrorResponse{message}（无 detail 键）。等决策室 commit/push → M2 启动
 
 ---
 

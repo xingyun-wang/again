@@ -28,7 +28,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.v1.schemas.academic import (
@@ -49,7 +49,6 @@ from app.api.v1.schemas.academic import (
     LessonPlanReviewRequest,
     LessonPlanReviewResponse,
     TeacherReviewStatus,
-    TextbookUploadRequest,
     TextbookUploadResponse,
 )
 from app.core.llm.factory import get_llm_provider
@@ -67,6 +66,7 @@ from app.models import (
     TeachingSuggestion,
     Textbook,
 )
+from app.services.textbook_upload import TextbookUploadError, upload_textbook_with_extraction
 
 logger = logging.getLogger(__name__)
 
@@ -169,62 +169,70 @@ def _to_orm_review_status(api_status: str) -> KnowledgeReviewStatus:
     "/textbooks/upload",
     response_model=TextbookUploadResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="上传教材（B.2 mock：metadata + 章节草稿列表）",
+    summary="上传教材 PDF（M1-B B.3：multipart/form-data + PyMuPDF + pdfplumber 双库抽取）",
     tags=["academic"],
 )
 def upload_textbook(
-    body: TextbookUploadRequest,
+    file: Annotated[UploadFile, File(description="教材 PDF 文件（PyMuPDF + pdfplumber 双库解析章节）")],
+    name: Annotated[str, Form(min_length=1, max_length=256, description="教材名称")],
     db: Annotated[Session, Depends(get_db)],
     _user_id: Annotated[int, Depends(get_current_user_id)],
+    subject_id: Annotated[int | None, Form(description="学科 ID（可空；空则不归类）")] = None,
+    grade_level: Annotated[
+        Literal["junior_high", "senior_high"] | None,
+        Form(description="学段：junior_high / senior_high（可空）"),
+    ] = None,
 ) -> TextbookUploadResponse:
-    """B.2 mock 上传：body 含教材元数据 + 章节草稿列表，handler 创建 Textbook + Chapter 行。
+    """B.3：上传真 PDF → extractor 解析章节结构 → 持久化 Textbook + Chapter。
 
-    B.3 改为 multipart/form-data + PDF extractor（PyMuPDF + pdfplumber 双库）。
+    流程：
+    1. 接收 multipart/form-data（file + name + 可选 subject_id/grade_level）
+    2. 校验文件非空 + magic bytes（%PDF-）
+    3. 调 ``app.services.textbook_upload.upload_textbook_with_extraction``：
+       - 写 temp file
+       - 调 PDFExtractor.extract_chapter_structure（PyMuPDF 主 + pdfplumber fallback + 等分 last-resort）
+       - 持久化 Textbook + Chapter 行
+       - 清理 temp file
+    4. 返回 ``TextbookUploadResponse``（含 textbook_id + chapter_summaries）
+
+    错误码：
+    - 400：空文件 / 非 PDF / 解析无章节
+    - 404：subject_id 不存在
+    - 422：grade_level 非法 / Form 字段校验失败
+    - 500：DB 写入失败 / 抽取内部异常
     """
-    # 解析 grade_level（如提供）
-    gl_value: GradeLevel | None = None
-    if body.grade_level is not None:
-        try:
-            gl_value = GradeLevel(body.grade_level)
-        except ValueError as e:
-            raise HTTPException(status_code=422, detail=f"非法 grade_level: {body.grade_level}") from e
-
-    # 校验 subject_id（如果提供）
-    if body.subject_id is not None and db.get(Subject, body.subject_id) is None:
-        raise HTTPException(status_code=404, detail=f"subject_id {body.subject_id} 不存在")
-
-    try:
-        textbook = Textbook(
-            name=body.name,
-            file_path=body.file_path,
-            subject_id=body.subject_id,
-            grade_level=gl_value,
+    # 校验 subject_id（如提供）
+    if subject_id is not None and db.get(Subject, subject_id) is None:
+        raise HTTPException(
+            status_code=404, detail=f"subject_id {subject_id} 不存在"
         )
-        db.add(textbook)
-        db.flush()  # 取到 textbook.id
 
-        chapters: list[Chapter] = []
-        for c in body.chapters:
-            ch = Chapter(
-                textbook_id=textbook.id,
-                chapter_number=c.chapter_number,
-                title=c.title,
-                content_summary=c.content_summary,
-                page_range_start=c.page_range_start,
-                page_range_end=c.page_range_end,
-            )
-            db.add(ch)
-            chapters.append(ch)
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        logger.exception("textbook upload failed")
-        raise HTTPException(status_code=500, detail=f"upload failed: {e}") from e
+    # 读 PDF bytes（UploadFile.file 是 SpooledTemporaryFile；read() 拉全部 bytes）
+    try:
+        pdf_bytes = file.file.read()
+    except Exception as e:  # noqa: BLE001
+        logger.exception("PDF 文件读取失败: filename=%s", file.filename)
+        raise HTTPException(status_code=400, detail=f"文件读取失败：{e}") from e
+    finally:
+        # 关 UploadFile（释放 spooled temp）
+        import contextlib
 
-    # refresh 拿到 created_at
-    db.refresh(textbook)
-    for ch in chapters:
-        db.refresh(ch)
+        with contextlib.suppress(Exception):
+            file.file.close()
+
+    # 调 service（extractor + 持久化）
+    try:
+        textbook, chapters = upload_textbook_with_extraction(
+            db,
+            pdf_bytes=pdf_bytes,
+            name=name,
+            subject_id=subject_id,
+            grade_level=grade_level,
+        )
+    except TextbookUploadError as e:
+        # 业务异常 → 400（默认；空文件 / 非 PDF / 解析无章节 都是 400）
+        logger.warning("textbook upload failed (业务): %s", e)
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     return TextbookUploadResponse(
         textbook_id=textbook.id,
