@@ -30,7 +30,7 @@ import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -71,8 +71,13 @@ from app.models import (
     Textbook,
 )
 from app.services.textbook_upload import (
+    DEFAULT_MAX_UPLOAD_BYTES,
     DEFAULT_UPLOADS_DIR,
     TextbookUploadError,
+    UploadTooLargeError,
+    UploadValidationError,
+    check_magic_bytes,
+    stream_upload_to_disk,
     upload_textbook_with_extraction,
 )
 
@@ -80,14 +85,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-
-def _uploads_pending_dir() -> Path:
-    """路由层写的 pending 临时路径（容器内 /app/data/uploads/pending）。
-
-    跟 service 的 _uploads_root() 共用环境变量 UPLOADS_DIR，方便测试覆盖。
-    """
-    root = Path(os.environ.get("UPLOADS_DIR", DEFAULT_UPLOADS_DIR))
-    return root / "pending"
+# M1-B retro P0-C：上传根目录 + 应用层 size cap（环境变量可覆盖）。
+UPLOAD_ROOT: Path = Path(os.environ.get("UPLOAD_ROOT", DEFAULT_UPLOADS_DIR))
+MAX_UPLOAD_BYTES: int = int(
+    os.environ.get("UPLOAD_MAX_BYTES", str(DEFAULT_MAX_UPLOAD_BYTES))
+)
 
 
 # ─────────────────────────────── 依赖：user_id ──────────────────────────────
@@ -225,37 +227,35 @@ def upload_textbook(
             status_code=404, detail=f"subject_id {subject_id} 不存在"
         )
 
-    # 读 PDF bytes（UploadFile.file 是 SpooledTemporaryFile；read() 拉全部 bytes）
+    # 1. 流式 magic bytes 校验（前 5 字节；不全量入内存）
     try:
-        pdf_bytes = file.file.read()
+        magic_bytes = check_magic_bytes(file.file)
+    except UploadValidationError as e:
+        logger.warning("PDF magic bytes 校验失败: filename=%s err=%s", file.filename, e)
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:  # noqa: BLE001
         logger.exception("PDF 文件读取失败: filename=%s", file.filename)
         raise HTTPException(status_code=400, detail=f"文件读取失败：{e}") from e
+
+    # 2. 流式落盘（magic bytes 已被消费；前缀写到文件头）+ 500MB cap
+    pending_path: Path | None = None
+    try:
+        pending_path = stream_upload_to_disk(
+            file.file,
+            dst_dir=UPLOAD_ROOT,
+            prefix=magic_bytes,
+            max_bytes=MAX_UPLOAD_BYTES,
+        )
+    except UploadTooLargeError as e:
+        logger.warning("PDF 上传超 %d MB: filename=%s", MAX_UPLOAD_BYTES // (1024 * 1024), file.filename)
+        raise HTTPException(status_code=413, detail=str(e)) from e
     finally:
-        # 关 UploadFile（释放 spooled temp）
+        # 关 UploadFile（释放 spooled temp / 真实文件 fd）
         with contextlib.suppress(Exception):
             file.file.close()
 
-    # 写到 pending 路径（容器内 /app/data/uploads/pending/）。注意：
-    # - 防御性 try：service 失败后这里也 try 清 pending，service 也调 _cleanup_files
-    #   （双保险；service 自己 rollback 时会清；这里起防御作用）。
-    pending_dir = _uploads_pending_dir()
+    # 3. 调 service（extractor + 持久化 + file_path 落 DB）
     try:
-        pending_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as e:  # noqa: BLE001
-        logger.exception("创建 pending 目录失败: %s", pending_dir)
-        raise HTTPException(status_code=500, detail=f"创建上传目录失败：{e}") from e
-
-    pending_path: Path | None = None
-    try:
-        # 保留上传文件名作为落盘文件名（M2 工单 A 约定：uploads/{textbook_id}/{filename}.pdf）
-        original_name = file.filename or "uploaded.pdf"
-        # 防御：去除 path separator（multipart filename 可能包含 /../ 等）
-        safe_name = original_name.replace("/", "_").replace("..", "_")
-        pending_path = pending_dir / f"{uuid.uuid4().hex}_{safe_name}"
-        pending_path.write_bytes(pdf_bytes)
-
-        # 调 service（extractor + 持久化 + 落盘）
         textbook, chapters = upload_textbook_with_extraction(
             db,
             file_path=str(pending_path),
@@ -264,9 +264,9 @@ def upload_textbook(
             grade_level=grade_level,
         )
     except TextbookUploadError as e:
-        # 业务异常 → 400（默认；空文件 / 非 PDF / 解析无章节 / 落盘失败 都是 400）
+        # 业务异常 → 400；service 自身已清理 pending（落盘失败由 service 内部处理）
         logger.warning("textbook upload failed (业务): %s", e)
-        # service 自身已清理 pending 文件；这里不重复清（service 失败 → 清理已执行）
+        raise HTTPException(status_code=400, detail=str(e)) from e
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:  # noqa: BLE001
         logger.exception("教材上传意外失败: name=%s", name)
@@ -290,7 +290,7 @@ def upload_textbook(
                 page_range_start=ch.page_range_start,
                 page_range_end=ch.page_range_end,
                 has_extracted=False,  # 新建章节未抽取（key_points/difficulties/suggestions）
-                extraction_source=ch.extraction_source,
+                extraction_source=cast(Literal["detected", "pdfplumber_fallback", "equal_split_placeholder", "scanned_pdf_empty"], ch.extraction_source),
             )
             for ch in chapters
         ],
@@ -333,7 +333,7 @@ def list_textbook_chapters(
                 page_range_start=ch.page_range_start,
                 page_range_end=ch.page_range_end,
                 has_extracted=has_ai,
-                extraction_source=ch.extraction_source,
+                extraction_source=cast(Literal["detected", "pdfplumber_fallback", "equal_split_placeholder", "scanned_pdf_empty"], ch.extraction_source),
             )
         )
 
@@ -544,7 +544,7 @@ def get_chapter(
         content_summary=chapter.content_summary,
         page_range_start=chapter.page_range_start,
         page_range_end=chapter.page_range_end,
-        extraction_source=chapter.extraction_source,
+        extraction_source=cast(Literal["detected", "pdfplumber_fallback", "equal_split_placeholder", "scanned_pdf_empty"], chapter.extraction_source),
         knowledge_points=[
             KnowledgePointDetail(
                 id=kp.id, name=kp.name, concept=kp.concept, teaching_order=kp.teaching_order

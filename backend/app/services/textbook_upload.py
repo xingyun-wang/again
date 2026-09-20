@@ -28,11 +28,13 @@ Judgment call（M2 工单 A）：
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import shutil
+import uuid
 from pathlib import Path
-from typing import Literal
+from typing import BinaryIO, Literal
 
 from sqlalchemy.orm import Session
 
@@ -54,12 +56,120 @@ SRC_PDFPLUMBER_FALLBACK = "pdfplumber_fallback"
 SRC_EQUAL_SPLIT_PLACEHOLDER = "equal_split_placeholder"
 SRC_SCANNED_PDF_EMPTY = "scanned_pdf_empty"
 
+# 应用层上传 size cap（500 MB；nginx 300M < backend 500M 双重保险）
+DEFAULT_MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+
+# 流式写盘 chunk size（8KB；内存平稳 + 系统调用次数可控）
+DEFAULT_CHUNK_SIZE = 8 * 1024
+
+# pending 临时子目录名（router 写盘路径；A service 完成后会 move 到 {textbook_id}/...）
+PENDING_SUBDIR = "pending"
+
 
 class TextbookUploadError(Exception):
     """教材上传失败（业务层异常；router 转 HTTPException）。
 
     调用方根据 message 决定 HTTP status（400 / 422 / 500）。
     """
+
+
+class UploadValidationError(Exception):
+    """上传内容校验失败（magic bytes / 文件过小 / 空文件）。
+
+    router 转 HTTPException(400)。
+    """
+
+
+class UploadTooLargeError(Exception):
+    """上传超 size cap（默认 500MB）。
+
+    router 转 HTTPException(413)。
+    """
+
+
+def check_magic_bytes(src: BinaryIO) -> bytes:
+    """流式读前 5 字节校验 magic；不全量入内存（D-28 第 4 条可证伪）。
+
+    Args:
+        src: 二进制输入流（UploadFile.file / SpooledTemporaryFile）
+
+    Returns:
+        读到的 magic bytes（调用方要 prepend 到落盘文件）
+
+    Raises:
+        UploadValidationError: 文件为空 / 过小 / 非 %PDF- 开头
+    """
+    chunk = src.read(len(PDF_MAGIC_PREFIX))
+    if not chunk:
+        raise UploadValidationError("PDF 文件为空")
+    if len(chunk) < len(PDF_MAGIC_PREFIX):
+        raise UploadValidationError(
+            f"文件过小（{len(chunk)} bytes），不是有效 PDF"
+        )
+    if not chunk.startswith(PDF_MAGIC_PREFIX):
+        raise UploadValidationError(
+            f"文件不是 PDF（magic bytes 校验失败：开头 {chunk!r}，"
+            f"期望以 {PDF_MAGIC_PREFIX!r} 开头）"
+        )
+    return chunk
+
+
+def stream_upload_to_disk(
+    src: BinaryIO,
+    *,
+    dst_dir: Path,
+    prefix: bytes = b"",
+    max_bytes: int = DEFAULT_MAX_UPLOAD_BYTES,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+) -> Path:
+    """流式把 src 写到 ``dst_dir/pending/{uuid4}.pdf``（带 size cap + 自动清理）。
+
+    Args:
+        src: 二进制输入流（magic 已被 check_magic_bytes 消费）
+        dst_dir: 落盘根目录（容器内 = /app/data/uploads）
+        prefix: 已读 magic bytes（如 b"%PDF-"），写在文件头
+        max_bytes: 上限字节数（默认 500MB）
+        chunk_size: 每次 read 字节数（默认 8KB）
+
+    Returns:
+        落盘文件路径（dst_dir/pending/{uuid4}.pdf）
+
+    Raises:
+        UploadTooLargeError: 累计字节数 > max_bytes（关 fp + 删临时文件）
+    """
+    pending_dir = dst_dir / PENDING_SUBDIR
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    dst = pending_dir / f"{uuid.uuid4().hex}.pdf"
+
+    bytes_written = 0
+    try:
+        with open(dst, "wb") as f:
+            if prefix:
+                f.write(prefix)
+                bytes_written += len(prefix)
+            while True:
+                chunk = src.read(chunk_size)
+                if not chunk:
+                    break
+                bytes_written += len(chunk)
+                if bytes_written > max_bytes:
+                    raise UploadTooLargeError(
+                        f"文件超出 {max_bytes // (1024 * 1024)} MB 上限"
+                    )
+                f.write(chunk)
+    except BaseException:
+        # 任何异常都清理临时文件（UploadTooLargeError / OSError / KeyboardInterrupt / ...）
+        with contextlib.suppress(OSError):
+            dst.unlink(missing_ok=True)
+        raise
+
+    logger.info(
+        "流式上传落盘：path=%s bytes=%d cap=%d",
+        dst,
+        bytes_written,
+        max_bytes,
+    )
+    return dst
 
 
 def _uploads_root() -> Path:
