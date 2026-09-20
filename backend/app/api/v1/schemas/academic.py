@@ -95,8 +95,25 @@ class TextbookUploadRequest(BaseModel):
     chapters: list[ChapterInput] = Field(..., min_length=1)
 
 
+# extraction_source 字面量取值（与 alembic 0004 + extractor/ChapterStructureResult 对齐）
+ExtractionSourceLiteral = Literal[
+    "detected",
+    "pdfplumber_fallback",
+    "equal_split_placeholder",
+    "scanned_pdf_empty",
+]
+
+
 class ChapterSummary(BaseModel):
-    """教材下的章节摘要（用于 TextbookUploadResponse / ListChaptersResponse）。"""
+    """教材下的章节摘要（用于 TextbookUploadResponse / ListChaptersResponse）。
+
+    M2 工单 A：新增 ``extraction_source`` 字段，标记该章节的章节骨架 +
+    content_summary 来源（snake_case）：
+    - detected                — PyMuPDF/pdfplumber 主路径正常识别 + 抽到正文
+    - pdfplumber_fallback     — PyMuPDF 失败，pdfplumber 接管
+    - equal_split_placeholder — 主路径 + fallback 都识别不足，等分造章节（**真实造假，必须标记**）
+    - scanned_pdf_empty       — 文本为空（扫描型 PDF，需 OCR，§6.4 TWAIN 实测 blocker）
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -108,6 +125,10 @@ class ChapterSummary(BaseModel):
     has_extracted: bool = Field(
         default=False,
         description="是否存在 AI 抽取的内容（KeyPoint/Difficulty/TeachingSuggestion source='ai'）",
+    )
+    extraction_source: ExtractionSourceLiteral = Field(
+        ...,
+        description="M2 工单 A：链路真源标记（详见 model.Chapter.extraction_source 注释）",
     )
 
 
@@ -232,6 +253,8 @@ class ChapterDetailResponse(BaseModel):
     content_summary: str | None = None
     page_range_start: int | None = None
     page_range_end: int | None = None
+    # M2 工单 A：链路真源标记（详见 ChapterSummary.extraction_source）
+    extraction_source: ExtractionSourceLiteral
     knowledge_points: list[KnowledgePointDetail] = Field(default_factory=list)
     key_points: list[KPDetail] = Field(default_factory=list)
     difficulties: list[KPDetail] = Field(default_factory=list)

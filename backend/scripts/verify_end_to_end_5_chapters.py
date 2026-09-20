@@ -56,7 +56,12 @@ DEFAULT_USER_ID = 1
 
 
 class VerifyReport:
-    """验证报告聚合器（B.3.2 + B.3.3 共用）。"""
+    """验证报告聚合器（B.3.2 + B.3.3 + M2 工单 A 共用）。
+
+    M2 工单 A：D-28 硬规则 — 验收门槛必须可被最坏实现证伪。
+    旧门槛 `章节数 ≥ 3` 可被 equal_split_placeholder 恒真满足（P0-3）；
+    现改为 「全部 extraction_source == 'detected'」（A4 + A6）。
+    """
 
     def __init__(self) -> None:
         self.textbook_id: int | None = None
@@ -65,6 +70,9 @@ class VerifyReport:
         self.lesson_plans: list[dict[str, Any]] = []
         self.start_time: float = time.monotonic()
         self.errors: list[str] = []
+        # M2 工单 A：记录上传响应中所有 chapter 的 extraction_source
+        # （决策室验收要看「上传统计」+ 「检测路径」是否对齐）
+        self.chapter_sources: list[str] = []
 
     @property
     def elapsed_seconds(self) -> float:
@@ -80,6 +88,7 @@ class VerifyReport:
         n_difficulties: int,
         n_suggestions: int,
         review_id: int,
+        extraction_source: str = "detected",
     ) -> None:
         self.chapters.append(
             {
@@ -90,6 +99,7 @@ class VerifyReport:
                 "n_difficulties": n_difficulties,
                 "n_suggestions": n_suggestions,
                 "review_id": review_id,
+                "extraction_source": extraction_source,
             }
         )
 
@@ -122,13 +132,19 @@ class VerifyReport:
         """打印结构化报告（决策室验收用）。"""
         print()
         print("=" * 70)
-        print("  B.3.2 端到端 5 章节 LLM 真值验证报告")
+        print("  B.3.2 端到端 5 章节 LLM 真值验证报告（M2 工单 A：D-28 门槛）")
         print("=" * 70)
         print(f"  耗时：{self.elapsed_seconds:.1f}s")
         print(f"  教材：id={self.textbook_id} name={self.textbook_name!r}")
         print(f"  章节数：{len(self.chapters)}")
         print(f"  授课建议数：{len(self.lesson_plans)}")
         print(f"  错误数：{len(self.errors)}")
+        # M2 工单 A：上传时 extraction_source 统计（决策室验收要看是否都 detected）
+        if self.chapter_sources:
+            n_detected = sum(1 for s in self.chapter_sources if s == "detected")
+            print(
+                f"  extraction_source: {n_detected}/{len(self.chapter_sources)} detected"
+            )
         print("-" * 70)
         print()
 
@@ -137,7 +153,8 @@ class VerifyReport:
             print(
                 f"  chapter {ch['chapter_number']} (id={ch['chapter_id']}): extract ✅ "
                 f"(key_points={ch['n_key_points']}, difficulties={ch['n_difficulties']}, "
-                f"suggestions={ch['n_suggestions']}) review_id={ch['review_id']}"
+                f"suggestions={ch['n_suggestions']}) review_id={ch['review_id']} "
+                f"source={ch.get('extraction_source', 'detected')}"
             )
         print()
 
@@ -162,7 +179,9 @@ class VerifyReport:
         summary = (
             f"  总结：{'✅ 全部通过' if not self.errors else '❌ 有错误'}\n"
             f"  API 调用：20 次（1 upload + 5 extract + 5 lesson-plan + 5 review + 4 list/get 辅助）\n"
-            f"  真 LLM 调用：{len(self.chapters) + len(self.lesson_plans)} 次"
+            f"  真 LLM 调用：{len(self.chapters) + len(self.lesson_plans)} 次\n"
+            f"  D-28 门槛：全部 extraction_source == 'detected'"
+            f"{' ✅' if self.chapter_sources and all(s == 'detected' for s in self.chapter_sources) else ' ❌'}"
         )
         print(summary)
         print("=" * 70)
@@ -282,28 +301,47 @@ def verify_end_to_end(args: argparse.Namespace) -> VerifyReport:
         report.textbook_name = upload_resp["name"]
         chapter_ids: list[int] = []
         chapter_titles: list[str] = []
+        chapter_sources: list[str] = []
         for ch in upload_resp["chapters"]:
             chapter_ids.append(ch["id"])
             chapter_titles.append(ch["title"])
+            # M2 工单 A：上传响应里返 extraction_source；缺失时按 v0.5
+            # 本地测试遗留返 detected（兼容老 B.3 代码）。
+            chapter_sources.append(ch.get("extraction_source", "detected"))
+        report.chapter_sources = chapter_sources
         logger.info(
-            "  ✓ textbook_id=%d, %d chapters: %s",
+            "  ✓ textbook_id=%d, %d chapters: %s\n    extraction_source=%s",
             report.textbook_id,
             len(chapter_ids),
             chapter_titles,
+            chapter_sources,
         )
     except Exception as e:  # noqa: BLE001
         report.add_error(f"教材上传失败：{e}")
         return report
 
+    # M2 工单 A：D-28 硬规则 — 门槛可证伪
+    # 旧门槛 `章节数 ≥ 3` 可被 equal_split_placeholder 恒真满足（5 章等分）。
+    # 现改为 「全部 extraction_source == 'detected'」：如果 extractor 走
+    # pdfplumber_fallback / equal_split_placeholder，该教材不达「端到端」门槛，
+    # 决策室必须调查（可能是 PDF 本身扫描型、可能是 extractor 退化）。
     if len(chapter_ids) < 3:
         report.add_error(
             f"章节数 {len(chapter_ids)} 不足 3（§7.6 验收门槛要求 ≥ 3）"
         )
         return report
+    non_detected = [s for s in chapter_sources if s != "detected"]
+    if non_detected:
+        report.add_error(
+            f"门槛不齐：D-28 要求「全部 extraction_source == 'detected'」，"
+            f"实际 {chapter_sources}（非 detected = {non_detected}）。"
+            f"P0-3 修复后，走 fallback 的教材不应被计为端到端成功。"
+        )
+        # 不 return：仍继续走 extract/lesson-plan 以便报告齐，但门槛已在 errors。
 
     # ── Step 2: 5 章节 extract（LLM 真值）──
     logger.info("Step 2: %d 章节 extract（LLM 真值）", len(chapter_ids))
-    for cid, ctitle in zip(chapter_ids, chapter_titles, strict=True):
+    for cid, ctitle, csrc in zip(chapter_ids, chapter_titles, chapter_sources, strict=True):
         try:
             extract_resp = client.extract_chapter(cid)
             n_kp = len(extract_resp["key_points"])
@@ -322,6 +360,7 @@ def verify_end_to_end(args: argparse.Namespace) -> VerifyReport:
                 n_difficulties=n_diff,
                 n_suggestions=n_sug,
                 review_id=review_id,
+                extraction_source=csrc,
             )
             logger.info(
                 "  ✓ chapter %d (%s): kp=%d diff=%d sug=%d review_id=%d",

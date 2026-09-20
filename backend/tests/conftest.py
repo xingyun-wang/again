@@ -119,12 +119,15 @@ def mock_textbook(mock_db_session):
     fix（M1-B B.2.1 retro）：教材创建后 expire textbook.chapters 属性，
     避免子 fixture（mock_chapter）创建 chapter 后，父 mock_textbook.chapters
     仍是 stale 空 list（selectin cache 陷阱）。
+
+    M2 工单 A：file_path 改用 ``uploads/0/mock.pdf`` 样式（与 service 落盘
+    约定一致；测试不需要真落盘，只是占位相对路径）。
     """
     from app.models import Textbook
 
     tb = Textbook(
         name="人教版数学七上",
-        file_path="/tmp/mock-textbook.pdf",
+        file_path="uploads/0/mock-textbook.pdf",
     )
     mock_db_session.add(tb)
     mock_db_session.commit()
@@ -134,7 +137,11 @@ def mock_textbook(mock_db_session):
 
 @pytest.fixture()
 def mock_chapter(mock_db_session, mock_textbook):
-    """默认 mock 章节（有理数），含 content_summary。
+    """默认 mock 章节（有理数），含 content_summary + extraction_source。
+
+    M2 工单 A：显式设置 extraction_source='detected'（mock 教材是手工构造，
+    不是真 PDF抽取路径；选择 'detected' 是因为 mock 在测试语义上是“已知”状态，
+    与 service 产出的字段含义对齐）。
 
     创建后 expire mock_textbook.chapters，让下一次访问重发 SQL。
     """
@@ -148,6 +155,7 @@ def mock_chapter(mock_db_session, mock_textbook):
             "本章介绍正数、负数、有理数的概念。"
             "重点是正负数的运算规则，难点是符号判断与绝对值的理解。"
         ),
+        extraction_source="detected",
     )
     mock_db_session.add(ch)
     mock_db_session.commit()

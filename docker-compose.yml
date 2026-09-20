@@ -50,9 +50,18 @@ services:
       DEEPSEEK_BASE_URL: https://api.deepseek.com
       DEEPSEEK_CHAT_MODEL: deepseek-chat
       DEEPSEEK_EMBEDDING_MODEL: deepseek-embedding
+      # M2 工单 A：教材 PDF 原件落盘路径（容器内路径；与 host bind 一一对应）
+      UPLOADS_DIR: /app/data/uploads
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      # M2 工单 A：教材 PDF 原件落盘（M1-B B.3 阶段用 uploaded:{name}.pdf
+      # 假路径代替真路径，是 P0-2 造假源头；现在改真 bind mount，container
+      # 写 /app/data/uploads/{textbook_id}/{filename}.pdf = host 的
+      # ./data/uploads/{textbook_id}/{filename}.pdf）。
+      # 业务接口约定（与工单 C 共享）：service 写 uploads/{textbook_id}/{filename}.pdf。
+      - ./data/uploads:/app/data/uploads
     networks:
       - thp-net
     # 资源限制（M1-A 阶段 3 落地）

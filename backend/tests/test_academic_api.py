@@ -74,7 +74,10 @@ def _build_minimal_pdf_bytes(title_line: str = "测试教材") -> bytes:
 def test_textbook_upload_creates_textbook_and_chapters(
     mock_db_session: Any, mock_llm_provider: Any
 ) -> None:
-    """POST /textbooks/upload（B.3 multipart/form-data）创建 Textbook + Chapter。"""
+    """POST /textbooks/upload（B.3 multipart/form-data）创建 Textbook + Chapter。
+
+    M2 工单 A：响应里必须有 extraction_source 字段（链路真源标记）。
+    """
     client = _build_test_client(mock_db_session, mock_llm_provider)
     pdf_bytes = _build_minimal_pdf_bytes("第一章")
     resp = client.post(
@@ -89,6 +92,14 @@ def test_textbook_upload_creates_textbook_and_chapters(
     assert data["name"] == "人教版数学七上"
     assert len(data["chapters"]) >= 1
     assert data["chapters"][0]["has_extracted"] is False
+    # M2 工单 A：每章节都有 extraction_source 字段（取值在 Literal 4 选一之内）
+    for ch in data["chapters"]:
+        assert ch["extraction_source"] in {
+            "detected",
+            "pdfplumber_fallback",
+            "equal_split_placeholder",
+            "scanned_pdf_empty",
+        }, f"extraction_source 非法：{ch['extraction_source']!r}"
 
 
 def test_textbook_upload_404_subject_not_found(

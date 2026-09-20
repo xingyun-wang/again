@@ -1,35 +1,58 @@
-"""教材上传 service（M1-B B.3：v0.5 §9.1 PDF 抽取 → 持久化）。
+"""教材上传 service（M2 工单 A：知识链路真实性 — P0-1/P0-2/P0-3 合并修复）。
 
-职责：
-- 接收 PDF bytes + metadata（name, subject_id, grade_level）
-- 校验 magic bytes（%PDF-）
-- 写 temp file → 调 ``PDFExtractor.extract_chapter_structure`` → ``ChapterStructure`` 列表
-- 持久化 Textbook + N 个 Chapter 行
-- 清理 temp file
+职责（M2 工单 A 后）：
+- 接收 ``file_path: str`` + metadata（name, subject_id, grade_level）
+- 校验 magic bytes（%PDF-，A 阶段仍全量读 5 字节；C 工地可能改流式 peek，接口兼容）
+- 调 ``PDFExtractor.extract_chapter_structure_with_source`` → ``ChapterStructureResult``
+- 调 ``extract_pages`` 每章页范围抽正文，填 Chapter.content_summary
+  （空文本 → content_summary=None + extraction_source='scanned_pdf_empty'）
+- 持久化 Textbook + N 个 Chapter 行（含 extraction_source）
+- 把 PDF 从临时路径落到 ``uploads/{textbook_id}/{filename}.pdf``（DB 相对路径）
+- 清理失败回滚时的残留文件
 - 返回 (Textbook 实例, Chapter 列表)；调用方负责 response 构造
 
-Judgment call（B.3 spec §关键技术点 + §Judgment calls）：
-- 适配层放 service 层（便于复用 + 不动 extractor 内部逻辑）
-- batch 上传不支持（spec 没明；保持 MVP 极简）
-- 失败 fail-fast（任一持久化失败抛异常，事务回滚）
+设计要点：
+- 接口约定（与工单 C 共享）：service 签名接受 ``file_path: str``，C 工地接管后
+  可能从流式接收改为预写盘，但接口形态不变。
+- ``finally: tmp_path.unlink()`` 已删除（M2 工单 A P0-2 修复）：落盘文件 = 真
+  artifact，不再走 /tmp。
+- 失败回滚：DB rollback + 删已落盘文件 + 删残留 pending 文件（best effort）。
+
+Judgment call（M2 工单 A）：
+- 文件落盘失败（如磁盘满）→ 抛 TextbookUploadError，DB rollback；pending
+  路径下文件残留由 router 兜底清理。
+- extracted_source 优先级：service 一律采纳 extractor 的判定；content_summary
+  文本判空后单独把 extraction_source 改写为 'scanned_pdf_empty'（避免和
+  'equal_split_placeholder' 混淆）。
 """
 
 from __future__ import annotations
 
 import logging
-import tempfile
+import os
+import shutil
 from pathlib import Path
 from typing import Literal
 
 from sqlalchemy.orm import Session
 
 from app.models import Chapter, GradeLevel, Textbook
-from app.pdf.extractor import ChapterStructure, PDFExtractor
+from app.pdf.extractor import ChapterStructureResult, PDFExtractor
 
 logger = logging.getLogger(__name__)
 
 # PDF 文件 magic bytes：文件头 5 字节为 "%PDF-"
 PDF_MAGIC_PREFIX = b"%PDF-"
+
+# 落盘根目录（容器内路径）。docker-compose.yml backend 段 bind mount
+# ./data/uploads:/app/data/uploads；CI / 本地测试可用环境变量覆盖。
+DEFAULT_UPLOADS_DIR = "/app/data/uploads"
+
+# extraction_source 取值（snake_case；与 alembic 0004 + schemas.Literal 对齐）
+SRC_DETECTED = "detected"
+SRC_PDFPLUMBER_FALLBACK = "pdfplumber_fallback"
+SRC_EQUAL_SPLIT_PLACEHOLDER = "equal_split_placeholder"
+SRC_SCANNED_PDF_EMPTY = "scanned_pdf_empty"
 
 
 class TextbookUploadError(Exception):
@@ -39,61 +62,134 @@ class TextbookUploadError(Exception):
     """
 
 
+def _uploads_root() -> Path:
+    """读取 UPLOADS_DIR 环境变量，默认 /app/data/uploads。"""
+    raw = os.environ.get("UPLOADS_DIR", DEFAULT_UPLOADS_DIR)
+    return Path(raw)
+
+
+def _cleanup_files(
+    target_path: Path | None,
+    pending_path: Path | None,
+) -> None:
+    """失败回滚时清理已落盘的文件 + pending 残留。
+
+    Best effort：清失败只 warning，不抛（已在外层 except 中处理）。
+    """
+    if target_path is not None and target_path.exists():
+        try:
+            target_path.unlink()
+        except OSError as e:  # noqa: BLE001
+            logger.warning("清理落盘文件失败 %s: %s", target_path, e)
+        else:
+            # 如果目录空了，尝试删空目录（不删非空目录）
+            parent = target_path.parent
+            try:
+                if parent.exists() and not any(parent.iterdir()):
+                    parent.rmdir()
+            except OSError:  # noqa: BLE001
+                pass
+    if pending_path is not None and pending_path.exists() and (
+        target_path is None or pending_path != target_path
+    ):
+        try:
+            pending_path.unlink()
+        except OSError as e:  # noqa: BLE001
+            logger.warning("清理 pending 文件失败 %s: %s", pending_path, e)
+
+
 def upload_textbook_with_extraction(
     db: Session,
     *,
-    pdf_bytes: bytes,
+    file_path: str,
     name: str,
     subject_id: int | None,
     grade_level: Literal["junior_high", "senior_high"] | None,
 ) -> tuple[Textbook, list[Chapter]]:
-    """上传教材 PDF：extractor 解析章节 + 持久化 Textbook + Chapter。
+    """上传教材 PDF：从 file_path 读 PDF → 解析章节 + 摘要 → 落盘 → 持久化。
+
+    接口约定（与工单 C 共享；A 阶段最终固定）：
+    - 接收 ``file_path: str`` 而非 ``pdf_bytes: bytes``
+    - router / 调用方先把 UploadFile 字节写到 ``/app/data/uploads/pending/{uuid}.pdf``
+    - service 解析 + 落盘到 ``uploads/{textbook_id}/{filename}.pdf`` + DB 持久化
+    - 失败回滚：删 pending + target + DB rollback
 
     Args:
         db: SQLAlchemy Session（调用方控制事务；本函数内 commit）
-        pdf_bytes: PDF 文件 bytes
+        file_path: 已落地的 PDF 文件路径（router 写到 pending/）
         name: 教材名称
         subject_id: 学科 ID（可空）
         grade_level: 学段（"junior_high" / "senior_high"，可空）
 
     Returns:
-        (Textbook 实例, Chapter 列表) — 都已 refresh，含 id / created_at
+        (Textbook 实例, Chapter 列表) — 都已 refresh，含 id / created_at / file_path
 
     Raises:
-        TextbookUploadError: 校验失败 / 抽取失败 / DB 写入失败
+        TextbookUploadError: 校验失败 / 抽取失败 / DB 写入失败 / 落盘失败
     """
-    # 1. magic bytes 校验（空文件 / 非 PDF 直接抛）
-    if not pdf_bytes:
-        raise TextbookUploadError("PDF 文件为空")
-    if len(pdf_bytes) < len(PDF_MAGIC_PREFIX):
-        raise TextbookUploadError(
-            f"文件过小（{len(pdf_bytes)} bytes），不是有效 PDF"
-        )
-    if not pdf_bytes.startswith(PDF_MAGIC_PREFIX):
-        raise TextbookUploadError(
-            f"文件不是 PDF（magic bytes 校验失败：开头 {pdf_bytes[:8]!r}，期望以 {PDF_MAGIC_PREFIX!r} 开头）"
-        )
+    pending_path = Path(file_path)
+    target_path: Path | None = None  # 落盘目标，失败时回滚
+    textbook: Textbook | None = None
+    chapters: list[Chapter] = []
 
-    # 2. 写 temp file（PyMuPDF + pdfplumber 都从 file path 读，不接 bytes）
-    tmp_path: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
-            f.write(pdf_bytes)
-            tmp_path = Path(f.name)
+        # ───────── 1. magic bytes 校验（全量读 5 字节；C 工地可能改流式） ─────────
+        if not pending_path.exists():
+            raise TextbookUploadError(f"PDF 文件不存在: {file_path}")
+        if not pending_path.is_file():
+            raise TextbookUploadError(f"PDF 路径不是文件: {file_path}")
+        try:
+            with open(pending_path, "rb") as f:
+                head = f.read(len(PDF_MAGIC_PREFIX))
+        except OSError as e:  # noqa: BLE001
+            raise TextbookUploadError(f"PDF 文件读取失败：{e}") from e
+        if len(head) < len(PDF_MAGIC_PREFIX):
+            raise TextbookUploadError(
+                f"文件过小（{len(head)} bytes），不是有效 PDF"
+            )
+        if not head.startswith(PDF_MAGIC_PREFIX):
+            raise TextbookUploadError(
+                f"文件不是 PDF（magic bytes 校验失败：开头 {head!r}，"
+                f"期望以 {PDF_MAGIC_PREFIX!r} 开头）"
+            )
 
-        # 3. 调 extractor（PyMuPDF 主路径 + pdfplumber fallback + 等分 last-resort）
+        # ───────── 2. 解析章节结构（带回 extraction_source） ─────────
         extractor = PDFExtractor()
         try:
-            chapters_struct: list[ChapterStructure] = extractor.extract_chapter_structure(
-                str(tmp_path)
+            structure: ChapterStructureResult = (
+                extractor.extract_chapter_structure_with_source(str(pending_path))
             )
         except (FileNotFoundError, ValueError, RuntimeError) as e:
             raise TextbookUploadError(f"PDF 解析失败：{e}") from e
-
-        if not chapters_struct:
+        if not structure.chapters:
             raise TextbookUploadError("PDF 解析未识别到任何章节（文档可能损坏或为空）")
+        chapters_struct = structure.chapters
+        chapter_extraction_source = structure.extraction_source
 
-        # 4. 解析 grade_level
+        # ───────── 3. 抽取每章正文 → content_summary ─────────
+        # 多章节用 '\n\n---\n\n' 拼接（M1+ UI 拆分）；但目前每个 Chapter 行存
+        # 一段单章的 content_summary，拼接是 router 渲染的事（v0.5 §4.2）。
+        # 这里仍然单章存；判定文本为空 → content_summary=None + extraction_source='scanned_pdf_empty'
+        per_chapter_summary: list[str | None] = []
+        per_chapter_source: list[str] = []
+        for cs in chapters_struct:
+            try:
+                pages = extractor.extract_pages(
+                    str(pending_path), cs.page_range
+                )
+            except (ValueError, RuntimeError) as e:
+                raise TextbookUploadError(
+                    f"章节 {cs.chapter_number} 正文抽取失败：{e}"
+                ) from e
+            text = "\n".join(p.text for p in pages).strip()
+            if not text:
+                per_chapter_summary.append(None)
+                per_chapter_source.append(SRC_SCANNED_PDF_EMPTY)
+            else:
+                per_chapter_summary.append(text)
+                per_chapter_source.append(chapter_extraction_source)
+
+        # ───────── 4. 解析 grade_level ─────────
         gl_value: GradeLevel | None = None
         if grade_level is not None:
             try:
@@ -101,51 +197,92 @@ def upload_textbook_with_extraction(
             except ValueError as e:
                 raise TextbookUploadError(f"非法 grade_level: {grade_level}") from e
 
-        # 5. 持久化 Textbook + Chapter（commit 失败 → rollback → 抛异常）
-        try:
-            textbook = Textbook(
-                name=name,
-                file_path=f"uploaded:{name}.pdf",  # metadata placeholder；B.3 阶段不跟踪物理路径
-                subject_id=subject_id,
-                grade_level=gl_value,
-            )
-            db.add(textbook)
-            db.flush()  # 取到 textbook.id
+        # ───────── 5. 持久化 Textbook（占位 file_path）+ flush 取 ID ─────────
+        textbook = Textbook(
+            name=name,
+            file_path=str(pending_path),  # 临时占位；flush 后会被覆盖
+            subject_id=subject_id,
+            grade_level=gl_value,
+        )
+        db.add(textbook)
+        db.flush()  # 触发 INSERT 但不 commit；拿 textbook.id
 
-            chapters: list[Chapter] = []
-            for cs in chapters_struct:
-                ch = Chapter(
-                    textbook_id=textbook.id,
-                    chapter_number=cs.chapter_number,
-                    title=cs.title,
-                    content_summary=None,  # B.3.1 只入章节骨架；summary 由 /extract 填
-                    page_range_start=cs.page_range[0],
-                    page_range_end=cs.page_range[1],
-                )
-                db.add(ch)
-                chapters.append(ch)
+        # ───────── 6. 落盘：pending → uploads/{textbook_id}/{filename}.pdf ─────────
+        uploads_root = _uploads_root()
+        target_dir = uploads_root / str(textbook.id)
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:  # noqa: BLE001
+            raise TextbookUploadError(f"创建 uploads 目录失败 {target_dir}：{e}") from e
+
+        original_name = pending_path.name
+        target_path = target_dir / original_name
+        if target_path.exists():
+            # 极少见；同名加 _N 后缀
+            stem = pending_path.stem
+            suffix = pending_path.suffix
+            i = 1
+            while True:
+                candidate = target_dir / f"{stem}_{i}{suffix}"
+                if not candidate.exists():
+                    target_path = candidate
+                    break
+                i += 1
+
+        try:
+            shutil.move(str(pending_path), str(target_path))
+        except OSError as e:  # noqa: BLE001
+            raise TextbookUploadError(f"PDF 落盘失败：{e}") from e
+
+        # ───────── 7. 更新 file_path + 写入 Chapter 行 ─────────
+        textbook.file_path = (
+            f"uploads/{textbook.id}/{target_path.name}"  # 相对路径入 DB
+        )
+
+        for cs, summary, src in zip(
+            chapters_struct, per_chapter_summary, per_chapter_source, strict=True
+        ):
+            ch = Chapter(
+                textbook_id=textbook.id,
+                chapter_number=cs.chapter_number,
+                title=cs.title,
+                content_summary=summary,
+                page_range_start=cs.page_range[0],
+                page_range_end=cs.page_range[1],
+                extraction_source=src,
+            )
+            db.add(ch)
+            chapters.append(ch)
+
+        try:
             db.commit()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             db.rollback()
-            logger.exception("textbook upload DB write failed: name=%s", name)
             raise TextbookUploadError(f"DB 写入失败：{e}") from e
 
-        # 6. refresh 拿到 created_at + id
+        # ───────── 8. refresh 拿到 created_at + id ─────────
         db.refresh(textbook)
         for ch in chapters:
             db.refresh(ch)
 
         logger.info(
-            "教材上传成功：textbook_id=%s name=%s chapters=%d",
+            "教材上传成功：textbook_id=%s name=%s chapters=%d file=%s",
             textbook.id,
             name,
             len(chapters),
+            textbook.file_path,
         )
+        # 标记：target_path 已是真 artifact，失败回滚不应再清（finally 跳过）
+        target_path = None
+        pending_path = None
         return textbook, chapters
-    finally:
-        # 7. 清理 temp file（永远执行）
-        if tmp_path is not None and tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError as e:  # noqa: BLE001
-                logger.warning("temp PDF 清理失败 %s: %s", tmp_path, e)
+
+    except TextbookUploadError:
+        db.rollback()
+        _cleanup_files(target_path, pending_path)
+        raise
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        _cleanup_files(target_path, pending_path)
+        logger.exception("教材上传意外失败: name=%s", name)
+        raise TextbookUploadError(f"教材上传失败：{e}") from e
