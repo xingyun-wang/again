@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -495,6 +496,23 @@ def _check_extraction_source_gate(
 
 def main() -> int:
     args = parse_args()
+
+    # M1-B retro 工单 B3：脱敏打印 DATABASE_URL 前缀（CI 门禁可定位 DB 后端）。
+    # verify 脚本本身通过 HTTP 调 API，不直接连 DB；但 CI 走 PG 时这条日志
+    # 能确认上游 alembic upgrade 已指向正确后端。
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url:
+        # 仅前 30 字符 + 协议 / host 段（足够区分 postgresql / sqlite 后端）
+        # 不打印 query string / 用户名 / 密码
+        print(f"DATABASE_URL 前 30 字符={db_url[:30]}...")
+    else:
+        print("DATABASE_URL 未设置（verify 走 HTTP，DB 由后端容器自身处理）")
+
+    # 脱敏打印 LLM key 存在性（按用户授权，DEEPSEEK_API_KEY 由 SecretRef 注入；
+    # 仅打印 key present 布尔值，不打印 key 明文，避免 commit/log 泄漏）。
+    key_present = bool(os.environ.get("DEEPSEEK_API_KEY"))
+    print(f"DEEPSEEK_API_KEY present={key_present}")
+
     report = verify_end_to_end(args)
     report.print_report()
     return 0 if not report.errors else 1
