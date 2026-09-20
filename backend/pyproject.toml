@@ -43,7 +43,6 @@ files = ["app"]
 ignore_missing_imports = false
 warn_unused_ignores = true
 warn_redundant_casts = true
-disable_error_code = ["untyped-decorator"]
 
 [[tool.mypy.overrides]]
 module = ["fitz", "pdfplumber", "pymupdf", "tenacity"]
