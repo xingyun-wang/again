@@ -31,9 +31,10 @@ export default function Home() {
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <Card>
-        <Title level={3}>差异化作业系统 — M0 骨架</Title>
+        <Title level={3}>差异化作业系统 — M1 已上线（API）</Title>
         <Paragraph type="secondary">
-          本页用于验证前后端联通。M0 阶段后端仅暴露 <code>/api/health</code>。
+          M1 范围：学科知识库 + AI 备课助手 <strong>API 已就位</strong>；
+          前端 UI 仅占位（业务能力请走 <code>/api/v1/academic/*</code>）。
         </Paragraph>
 
         {state.kind === 'loading' && (
@@ -47,12 +48,18 @@ export default function Home() {
           <Alert
             type="success"
             showIcon
-            message="✅ 后端连接成功"
+            message="✅ 后端 API 进程存活（M1 UI 占位）"
             description={
-              <Space size="middle">
-                <Tag color="green">status: {state.data.status}</Tag>
-                <Tag color="blue">version: {state.data.version}</Tag>
-              </Space>
+              <div>
+                <Space size="middle" style={{ marginBottom: 8 }}>
+                  <Tag color="green">status: {state.data.status}</Tag>
+                  <Tag color="blue">version: {state.data.version}</Tag>
+                </Space>
+                <Paragraph type="warning" style={{ marginTop: 8, marginBottom: 0 }}>
+                  ⚠️ 仅表示 API 进程存活，不代表数据库 / 依赖可用。
+                  生产 readiness 拆分（M2+ 落地 <code>/api/health/live</code> + <code>/api/health/ready</code>）。
+                </Paragraph>
+              </div>
             }
           />
         )}

@@ -338,3 +338,46 @@ open-questions.md §9 三个问题全部 ✅：
 - embedding 决策推迟到 M4 不代表「永远不做」——M4 学情画像 + 备课助手都需要向量检索时再拍 provider
 - B.1 §7.6 #4 真值未通过是上游 API 限制，不是工程质量问题——subagent 工地已正确识别并 flag
 - 加 Gitee 仓 = 远程 git history 可追溯，与 zaiyao-memory 文档备份仓是两个独立维度
+
+---
+
+### D-28：验证闭环的三条硬约束（M1-B 复盘产出）
+
+**触发**：M1-B 收官后第二轮代码审查（2026-09-20）
+
+**背景**：
+- `backend/tests/verify_end_to_end_5_chapters.py` 的章节门槛（≥3 章）可被 `_fallback_equal_split` 恒真满足——一份完全无法解析的 PDF 也能让验收亮绿
+- `backend/tests/test_pdf_chapter_extraction.py:157-179` 用空白 PDF 断言"返回 5 章含'章'"，把可疑行为固化为正确行为
+- AGENTS.md 教训 #37「verifier 不信被验对象」被违反；§7.6 验收分阶段纪律执行认真，但门槛判据选得可被最坏实现满足
+
+**决定**：
+1. **可证伪性**：每条验收门槛必须能被"最坏实现"证伪。自检话术——"如果我用一个 mock / fallback / 空壳实现，这条门槛会不会仍然亮绿？"会 → 门槛作废。
+2. **verifier 独立**：verify 脚本不接受被验对象作者的单方签收。最轻的做法是换一个 agent / 换一个 prompt 重跑一次；或至少让脚本在输出里自陈"本次判据 + 未能覆盖的范围"。
+3. **降级行为留痕**：任何 fallback / 默认值 / 静默容错必须在数据模型上留痕（如 `extraction_source`），使其在下游可见、可统计、可被门槛捕获。
+
+**影响**：
+- M2 起的每个验收门槛设计需在开工前声明、验收时核对
+- `docs/STATE.md` 验收小节增加"门槛判据"字段
+- P1-11（测试底座 SQLite vs PG）**升 P0**：M2 题库 CRUD 第一行之前必须有 PG fixture 在 CI 跑（PG-only 特性 ≥ 5 处：tsvector / pg_trgm / JSONB / unique constraint 检查 / native enum）
+- backlog P1-7（breaker 把客户端错误算故障）需在 M3 切换多 Provider 前修复
+
+---
+
+### D-29：归属模型与审阅状态机（M1-B 遗留，分解到 A / B 工单）
+
+**触发**：M1-B 收官后第二轮代码审查（2026-09-20）
+
+**背景**：
+- §1.4「题库属于教师个人资产」在代码中未建模；6 个端点收下 `_user_id` 后直接丢弃
+- 当前无 users 表，鉴权靠 `X-User-Id` header 传 int（M1-B B.2 临时简化）
+- `KnowledgeReview` 当前 APPROVED ↔ MODIFIED 可互相反复覆写，`reviewed_by/at/notes` 就地覆盖，无 audit log
+- `Chapter.title` 无任何质量门槛，fallback 可退化为"第N章"
+
+**决定**：
+1. **owner_user_id 作为 §1.4 落地字段**
+   - 写入时机：所有 Subject / Textbook / Chapter 创建时（写路径）
+   - **回填策略**：alembic 0005 data migration 创建 root seed user (id=1, name='system-seed', 标记为 system-owned)，所有既有 Subject / Textbook / Chapter 的 owner_user_id 设为 1
+   - 跨用户可见性：A 读 B → **404**（不是 403，避免 id 存在性泄漏）
+   - close 由工单 B 完成
+2. **审阅状态机终态语义**：覆写改为"插新行 + 旧行标 superseded"，或引入独立 audit 表；close 由工单 A 内 D-29 子项完成
+3. **Chapter.title 质量门槛**：来源标记 + 最小长度 + 非模板化校验，随工单 A 的 `extraction_source` 一并设计
