@@ -120,6 +120,32 @@ def get_llm_dep() -> LLMProvider:
     return get_llm_provider()
 
 
+# ─────────────────── M1-B retro 工单 B（D-29 B 项）：跨用户隔离 ───────────────
+#
+# 归属过滤：访问不属于当前用户的资源 → 返 404（不是 403），不泄漏 id 存在性。
+# D-37 测试可证伪：monkeypatch 本函数为 no-op 即可让 fail-open 实现暴露
+# （错误实现 `if obj.owner_user_id == 1: return obj` 会返 200 暴露数据）。
+_NOT_OWNER_DETAIL = "该资源不属于当前用户"
+
+
+def _enforce_owner_or_404(obj: object, user_id: int) -> None:
+    """跨用户隔离硬门槛（D-29 B 项）。
+
+    检查 obj.owner_user_id != user_id → 404（不是 403）。
+    错误体统一为「该资源不属于当前用户」，避免泄漏 id 是否存在。
+
+    Args:
+        obj: 任意带 ``owner_user_id`` 属性的 ORM 实例（Subject/Textbook/Chapter）
+        user_id: 当前请求的 user_id（X-User-Id header）
+
+    Raises:
+        HTTPException 404: obj.owner_user_id != user_id
+    """
+    owner_id = getattr(obj, "owner_user_id", None)
+    if owner_id is None or owner_id != user_id:
+        raise HTTPException(status_code=404, detail=_NOT_OWNER_DETAIL)
+
+
 # ─────────────────────────────── LLM Prompt 模板 ────────────────────────────
 
 
@@ -194,7 +220,7 @@ def upload_textbook(
     file: Annotated[UploadFile, File(description="教材 PDF 文件（PyMuPDF + pdfplumber 双库解析章节）")],
     name: Annotated[str, Form(min_length=1, max_length=256, description="教材名称")],
     db: Annotated[Session, Depends(get_db)],
-    _user_id: Annotated[int, Depends(get_current_user_id)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
     subject_id: Annotated[int | None, Form(description="学科 ID（可空；空则不归类）")] = None,
     grade_level: Annotated[
         Literal["junior_high", "senior_high"] | None,
@@ -254,6 +280,9 @@ def upload_textbook(
             file.file.close()
 
     # 3. 调 service（extractor + 持久化 + file_path 落 DB）
+    # M1-B retro 工单 B（D-29 B 项）：显式传 owner_user_id，让新建的
+    # Textbook + N 个 Chapter 都归属当前 user。service 不允许默认 1
+    # （避免 fail-open 写到 system-seed 而漏归属）。
     try:
         textbook, chapters = upload_textbook_with_extraction(
             db,
@@ -261,6 +290,7 @@ def upload_textbook(
             name=name,
             subject_id=subject_id,
             grade_level=grade_level,
+            owner_user_id=user_id,
         )
     except TextbookUploadError as e:
         # 业务异常 → 400；service 自身已清理 pending（落盘失败由 service 内部处理）
@@ -309,11 +339,13 @@ def upload_textbook(
 def list_textbook_chapters(
     textbook_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user_id: Annotated[int, Depends(get_current_user_id)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
 ) -> ChapterListResponse:
     textbook = db.get(Textbook, textbook_id)
     if textbook is None:
         raise HTTPException(status_code=404, detail=f"textbook {textbook_id} 不存在")
+    # M1-B retro 工单 B（D-29 B 项）：跨用户访问返 404，不是 403。
+    _enforce_owner_or_404(textbook, user_id)
 
     # 用 textbook.chapters（已 lazy="selectin"）— 避免再发 SQL
     chapter_summaries: list[ChapterSummary] = []
@@ -398,7 +430,7 @@ def extract_chapter(
     body: ChapterExtractRequest,
     db: Annotated[Session, Depends(get_db)],
     llm: Annotated[LLMProvider, Depends(get_llm_dep)],
-    _user_id: Annotated[int, Depends(get_current_user_id)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
 ) -> ChapterExtractResponse:
     """从章节内容中抽取 重点/难点/授课建议。
 
@@ -408,6 +440,8 @@ def extract_chapter(
     chapter = db.get(Chapter, chapter_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail=f"chapter {chapter_id} 不存在")
+    # M1-B retro 工单 B（D-29 B 项）：跨用户访问返 404。
+    _enforce_owner_or_404(chapter, user_id)
 
     # 调 LLM（失败 → 事务回滚，无副作用）
     try:
@@ -488,11 +522,13 @@ def extract_chapter(
 def get_chapter(
     chapter_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user_id: Annotated[int, Depends(get_current_user_id)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
 ) -> ChapterDetailResponse:
     chapter = db.get(Chapter, chapter_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail=f"chapter {chapter_id} 不存在")
+    # M1-B retro 工单 B（D-29 B 项）：跨用户访问返 404。
+    _enforce_owner_or_404(chapter, user_id)
 
     # 用 chapter 的关系（lazy="selectin"）
     # 先 expire 以避免 stale cache（chapter 可能从其他 session 来）
@@ -594,6 +630,8 @@ def review_chapter(
     chapter = db.get(Chapter, chapter_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail=f"chapter {chapter_id} 不存在")
+    # M1-B retro 工单 B（D-29 B 项）：跨用户访问返 404。
+    _enforce_owner_or_404(chapter, user_id)
 
     # 找最新一条 KnowledgeReview；不存在则 409（必须先 extract 才能 review）
     latest_review = (
@@ -718,7 +756,7 @@ def generate_lesson_plan(
     body: LessonPlanGenerateRequest,
     db: Annotated[Session, Depends(get_db)],
     llm: Annotated[LLMProvider, Depends(get_llm_dep)],
-    _user_id: Annotated[int, Depends(get_current_user_id)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
 ) -> LessonPlanResponse:
     """基于章节 + 学情 → 调 LLM 生成授课建议。
 
@@ -728,6 +766,9 @@ def generate_lesson_plan(
     chapter = db.get(Chapter, body.chapter_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail=f"chapter {body.chapter_id} 不存在")
+    # M1-B retro 工单 B（D-29 B 项）：跨用户访问返 404（沿用 chapter 的 owner）。
+    # 新建 LessonPlan 继承 chapter.owner_user_id（写入时显式设置）。
+    _enforce_owner_or_404(chapter, user_id)
 
     duration = body.duration_minutes or 45
 
@@ -750,6 +791,10 @@ def generate_lesson_plan(
             model=model_name,
             generated_at=now,
             review_status=KnowledgeReviewStatus.PENDING,
+            # M1-B retro 工单 B（D-29 B 项）：lesson-plan 继承 chapter 归属，
+            # 让后续端点（GET /lesson-plans/{id} + PATCH /review）不必 JOIN
+            # chapter 也能拿 owner（节省查询；但仍保留 JOIN 检查作为双重门，
+            # 防止 chapter.owner 与 lesson_plan.owner 脱钩）。
         )
         db.add(lp)
         db.commit()
@@ -788,7 +833,7 @@ def generate_lesson_plan(
 def get_lesson_plan(
     lesson_plan_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user_id: Annotated[int, Depends(get_current_user_id)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
 ) -> LessonPlanResponse:
     lp = db.get(LessonPlan, lesson_plan_id)
     if lp is None:
@@ -798,6 +843,8 @@ def get_lesson_plan(
     if chapter is None:
         # 防御：FK 失败应已被 ORM 阻止
         raise HTTPException(status_code=500, detail="lesson_plan 关联 chapter 不存在（数据异常）")
+    # M1-B retro 工单 B（D-29 B 项）：跨用户访问返 404（JOIN chapter 检查归属）。
+    _enforce_owner_or_404(chapter, user_id)
 
     return LessonPlanResponse(
         id=lp.id,
@@ -839,6 +886,12 @@ def review_lesson_plan(
     lp = db.get(LessonPlan, lesson_plan_id)
     if lp is None:
         raise HTTPException(status_code=404, detail=f"lesson_plan {lesson_plan_id} 不存在")
+
+    # M1-B retro 工单 B（D-29 B 项）：JOIN chapter 检查归属（双重门）。
+    chapter = db.get(Chapter, lp.chapter_id)
+    if chapter is None:
+        raise HTTPException(status_code=500, detail="lesson_plan 关联 chapter 不存在（数据异常）")
+    _enforce_owner_or_404(chapter, user_id)
 
     if body.status == "reviewed":
         lp.review_status = KnowledgeReviewStatus.APPROVED

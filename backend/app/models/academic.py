@@ -21,7 +21,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -64,6 +64,58 @@ class KnowledgeReviewStatus(str, Enum):  # noqa: UP042
     MODIFIED = "modified"
 
 
+# ─────────────────────── M1-B retro 工单 B：归属（D-29 B 项） ──────────
+#
+# 工单 B 落「题库属于教师个人资产」建模：
+# - 新增 ``User`` 表（id / name / is_system_owned / created_at / updated_at）
+# - Subject / Textbook / Chapter 三个表加 ``owner_user_id`` FK → users.id
+#   （ondelete=``RESTRICT``：删 user 阻挡，避免连坐丢数据）
+# - system seed user（id=1, name='system-seed'）由 alembic 0005 插，
+#   代持 M3+ 用户系统接入前的既有数据
+#
+# 设计要点：
+# - ``is_system_owned``：标记系统种子用户；M3+ 接入真 user 系统后，迁移
+#   ``is_system_owned=True`` 行到对应真用户即可（owner_user_id 不动 schema）
+# - 关系方向：Subject / Textbook / Chapter 都加 ``relationship("User",
+#   lazy="selectin")``，让 ORM 访问 owner 时不触发额外 lazy load（v0.5 §1.3
+#   教训：避免 N+1）
+# - 不引入鉴权：本表只承担"归属元数据 + FK 完整性"，user 注册 / 登录 /
+#   JWT 都是 M3+ 范围（brief 明确划界）
+
+
+class User(Base):
+    """教师 / 系统用户（M1-B 工单 B：归属最小骨架，M3+ 才接鉴权）。
+
+    字段语义：
+    - id INTEGER PK auto：保持自增；alembic 0005 显式插入 id=1 作为 system-seed
+    - name VARCHAR(128) NOT NULL：用户显示名（暂未做唯一约束；M3+ 加）
+    - is_system_owned BOOLEAN NOT NULL DEFAULT false：标记系统种子用户；
+      M3+ 接入真 user 系统后，迁移此标志 = true 的行即可
+    - created_at / updated_at TIMESTAMPTZ NOT NULL server_default=now()
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    is_system_owned: Mapped[bool] = mapped_column(
+        # server_default 兜底：手写 INSERT / fixture 偶发省略时仍能落库
+        Boolean,
+        nullable=False,
+        server_default="false",
+        default=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 # ─────────────────────── 学情预留 (§4.1) ──────────────────────
 
 
@@ -83,6 +135,12 @@ class Subject(Base):
         ),
         nullable=False,
     )
+    # M1-B retro 工单 B（D-29 B 项）：归属字段。跨用户可见性 404（不是 403）。
+    owner_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -99,6 +157,7 @@ class Subject(Base):
     textbooks: Mapped[list[Textbook]] = relationship(
         "Textbook", back_populates="subject", lazy="selectin"
     )
+    owner: Mapped[User] = relationship("User", lazy="selectin")
 
 
 class Class(Base):
@@ -255,6 +314,12 @@ class Textbook(Base):
         ),
         nullable=True,
     )
+    # M1-B retro 工单 B（D-29 B 项）：归属字段。跨用户访问返 404。
+    owner_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -271,6 +336,7 @@ class Textbook(Base):
     chapters: Mapped[list[Chapter]] = relationship(
         "Chapter", back_populates="textbook", lazy="selectin"
     )
+    owner: Mapped[User] = relationship("User", lazy="selectin")
 
 
 class Chapter(Base):
@@ -295,6 +361,15 @@ class Chapter(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     textbook_id: Mapped[int] = mapped_column(
         ForeignKey("textbooks.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # M1-B retro 工单 B（D-29 B 项）：归属字段。跨用户访问返 404。
+    # 与 textbook.owner 冗余（chapter → textbook → owner），但保留 chapter
+    # 级 owner_user_id 让章节级过滤不必 JOIN textbook，避免 lesson-plan 路径
+    # 多走一次 join（lesson-plan → chapter → textbook → owner）。
+    owner_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
     )
     chapter_number: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(String(256), nullable=False)
@@ -321,6 +396,7 @@ class Chapter(Base):
     )
 
     textbook: Mapped[Textbook] = relationship("Textbook", back_populates="chapters")
+    owner: Mapped[User] = relationship("User", lazy="selectin")
     knowledge_points: Mapped[list[KnowledgePoint]] = relationship(
         "KnowledgePoint", back_populates="chapter", lazy="selectin"
     )

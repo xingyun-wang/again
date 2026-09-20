@@ -215,6 +215,7 @@ def upload_textbook_with_extraction(
     name: str,
     subject_id: int | None,
     grade_level: Literal["junior_high", "senior_high"] | None,
+    owner_user_id: int,
 ) -> tuple[Textbook, list[Chapter]]:
     """上传教材 PDF：从 file_path 读 PDF → 解析章节 + 摘要 → 落盘 → 持久化。
 
@@ -230,6 +231,8 @@ def upload_textbook_with_extraction(
         name: 教材名称
         subject_id: 学科 ID（可空）
         grade_level: 学段（"junior_high" / "senior_high"，可空）
+        owner_user_id: 归属 user_id（M1-B retro 工单 B：D-29 B 项 —
+            必须由调用方传，不允许默认 1。user 表需预创建。
 
     Returns:
         (Textbook 实例, Chapter 列表) — 都已 refresh，含 id / created_at / file_path
@@ -308,11 +311,16 @@ def upload_textbook_with_extraction(
                 raise TextbookUploadError(f"非法 grade_level: {grade_level}") from e
 
         # ───────── 5. 持久化 Textbook（占位 file_path）+ flush 取 ID ─────────
+        # M1-B retro 工单 B（D-29 B 项）：owner_user_id 显式落 DB；
+        # 不允许走 ORM Python default（失败时让 FK violation 立刻暴露，
+        # 避免 fail-open 写到 system-seed 而漏掉归属 — 与 G2 extraction_source
+        # 设计同源：D-37 关门原则）。
         textbook = Textbook(
             name=name,
             file_path=str(pending_path),  # 临时占位；flush 后会被覆盖
             subject_id=subject_id,
             grade_level=gl_value,
+            owner_user_id=owner_user_id,
         )
         db.add(textbook)
         db.flush()  # 触发 INSERT 但不 commit；拿 textbook.id
@@ -371,6 +379,7 @@ def upload_textbook_with_extraction(
                 page_range_start=cs.page_range[0],
                 page_range_end=cs.page_range[1],
                 extraction_source=src,
+                owner_user_id=owner_user_id,
             )
             db.add(ch)
             chapters.append(ch)
