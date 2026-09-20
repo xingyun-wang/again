@@ -96,6 +96,23 @@ class ChapterStructure:
     sections: list[object] = field(default_factory=list)
 
 
+@dataclass
+class ChapterStructureResult:
+    """M2 工单 A：章节抽取结果 + 链路真源标记。
+
+    - chapters: 抽到的 ChapterStructure 列表（按 chapter_number 升序）
+    - extraction_source: 抽取路径来源（snake_case）
+      - 'detected'                — PyMuPDF 主路径 ≥3 章，未走 fallback
+      - 'pdfplumber_fallback'     — PyMuPDF 识别不足 / 失败，pdfplumber fallback 接管
+      - 'equal_split_placeholder' — 主路径 + fallback 都识别不足，等分造章节
+    - service 据此填 Chapter.extraction_source + content_summary 判空决定是否
+      'scanned_pdf_empty'。
+    """
+
+    chapters: list[ChapterStructure]
+    extraction_source: str
+
+
 class PDFExtractor:
     """PDF 解析器：PyMuPDF + pdfplumber 组合。
 
@@ -266,6 +283,27 @@ class PDFExtractor:
             ValueError: 不是 PDF 文件
             RuntimeError: PDF 解析失败
         """
+        return self.extract_chapter_structure_with_source(file_path).chapters
+
+    def extract_chapter_structure_with_source(self, file_path: str) -> ChapterStructureResult:
+        """M2 工单 A：同 extract_chapter_structure，但额外返回 extraction_source。
+
+        返回 ``ChapterStructureResult``，含：
+        - chapters: ChapterStructure 列表
+        - extraction_source:
+            - 'detected'                — PyMuPDF 主路径 ≥3 章
+            - 'pdfplumber_fallback'     — PyMuPDF 识别不足 / 失败，pdfplumber 接管
+            - 'equal_split_placeholder' — 主路径 + fallback 都识别不足，等分造章节
+
+        service 据此填 Chapter.extraction_source；content_summary 抽到空文本时
+        service 单独再标 'scanned_pdf_empty'（不在 extractor 层做，因为 extract_pages
+        拿全文可能拿到图章等非章节文本，service 拿到 summary 后才判空更稳）。
+
+        Raises:
+            FileNotFoundError: 文件不存在
+            ValueError: 不是 PDF 文件
+            RuntimeError: PDF 解析失败
+        """
         path = Path(file_path)
         if not path.exists():
             raise FileNotFoundError(f"PDF 文件不存在: {file_path}")
@@ -273,14 +311,14 @@ class PDFExtractor:
             raise ValueError(f"PDF 路径不是文件: {file_path}")
 
         # 主路径：PyMuPDF
-        used_fallback = False
+        extraction_source = "detected"
         try:
             chapters, total_pages = self._scan_chapters_pymupdf(path)
         except RuntimeError as e:
             # PyMuPDF 完全失败（打不开文件、单页全报） → 降级到 pdfplumber
             logger.warning("PyMuPDF 章节扫描整体失败，降级到 pdfplumber: %s", e)
             chapters, total_pages = self._scan_chapters_pdfplumber(path)
-            used_fallback = True
+            extraction_source = "pdfplumber_fallback"
         if len(chapters) < 3:
             logger.warning(
                 "PyMuPDF 章节识别不足（%d 章），启用 pdfplumber fallback",
@@ -291,7 +329,7 @@ class PDFExtractor:
                 # fb_chapters 比当前更完整（>= 3 章 或单纯更多）才采纳
                 chapters = fb_chapters
                 total_pages = fb_total
-                used_fallback = True
+                extraction_source = "pdfplumber_fallback"
 
         # last resort：等分
         if len(chapters) < 3:
@@ -300,13 +338,18 @@ class PDFExtractor:
                 len(chapters),
             )
             chapters = self._fallback_equal_split(total_pages, target_count=5)
-            used_fallback = True
+            extraction_source = "equal_split_placeholder"
 
         # 构造 ChapterStructure（含 page_range 推断）
-        result = self._build_chapter_structures(chapters, total_pages)
-        if used_fallback:
-            logger.warning("extract_chapter_structure 走了 fallback 路径")
-        return result
+        result_chapters = self._build_chapter_structures(chapters, total_pages)
+        if extraction_source != "detected":
+            logger.warning(
+                "extract_chapter_structure_with_source 走 fallback 路径：%s",
+                extraction_source,
+            )
+        return ChapterStructureResult(
+            chapters=result_chapters, extraction_source=extraction_source
+        )
 
     # -------- extract_chapter_structure 内部辅助 --------
 

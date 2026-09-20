@@ -23,9 +23,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
+import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
@@ -66,11 +70,24 @@ from app.models import (
     TeachingSuggestion,
     Textbook,
 )
-from app.services.textbook_upload import TextbookUploadError, upload_textbook_with_extraction
+from app.services.textbook_upload import (
+    DEFAULT_UPLOADS_DIR,
+    TextbookUploadError,
+    upload_textbook_with_extraction,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _uploads_pending_dir() -> Path:
+    """路由层写的 pending 临时路径（容器内 /app/data/uploads/pending）。
+
+    跟 service 的 _uploads_root() 共用环境变量 UPLOADS_DIR，方便测试覆盖。
+    """
+    root = Path(os.environ.get("UPLOADS_DIR", DEFAULT_UPLOADS_DIR))
+    return root / "pending"
 
 
 # ─────────────────────────────── 依赖：user_id ──────────────────────────────
@@ -183,20 +200,21 @@ def upload_textbook(
         Form(description="学段：junior_high / senior_high（可空）"),
     ] = None,
 ) -> TextbookUploadResponse:
-    """B.3：上传真 PDF → extractor 解析章节结构 → 持久化 Textbook + Chapter。
+    """B.3 上传 + M2 工单 A 知识链路真实性修复。
 
-    流程：
+    流程（M2 工单 A 后）：
     1. 接收 multipart/form-data（file + name + 可选 subject_id/grade_level）
-    2. 校验文件非空 + magic bytes（%PDF-）
+    2. 读 PDF bytes → 写到 ``uploads/pending/{uuid}.pdf``（容器内 /app/data/uploads/pending）
     3. 调 ``app.services.textbook_upload.upload_textbook_with_extraction``：
-       - 写 temp file
-       - 调 PDFExtractor.extract_chapter_structure（PyMuPDF 主 + pdfplumber fallback + 等分 last-resort）
-       - 持久化 Textbook + Chapter 行
-       - 清理 temp file
-    4. 返回 ``TextbookUploadResponse``（含 textbook_id + chapter_summaries）
+       - 校验 magic bytes（%PDF-）
+       - 调 PDFExtractor.extract_chapter_structure_with_source
+       - 调 extract_pages 每章页范围抽正文 → content_summary
+       - 持久化 Textbook + N 个 Chapter（含 extraction_source）
+       - 移动 PDF 到 uploads/{textbook_id}/{filename}.pdf（DB 相对路径）
+    4. 返回 ``TextbookUploadResponse``（含 textbook_id + chapter_summaries + 每章 extraction_source）
 
     错误码：
-    - 400：空文件 / 非 PDF / 解析无章节
+    - 400：空文件 / 非 PDF / 解析无章节 / 落盘失败
     - 404：subject_id 不存在
     - 422：grade_level 非法 / Form 字段校验失败
     - 500：DB 写入失败 / 抽取内部异常
@@ -215,24 +233,48 @@ def upload_textbook(
         raise HTTPException(status_code=400, detail=f"文件读取失败：{e}") from e
     finally:
         # 关 UploadFile（释放 spooled temp）
-        import contextlib
-
         with contextlib.suppress(Exception):
             file.file.close()
 
-    # 调 service（extractor + 持久化）
+    # 写到 pending 路径（容器内 /app/data/uploads/pending/）。注意：
+    # - 防御性 try：service 失败后这里也 try 清 pending，service 也调 _cleanup_files
+    #   （双保险；service 自己 rollback 时会清；这里起防御作用）。
+    pending_dir = _uploads_pending_dir()
     try:
+        pending_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:  # noqa: BLE001
+        logger.exception("创建 pending 目录失败: %s", pending_dir)
+        raise HTTPException(status_code=500, detail=f"创建上传目录失败：{e}") from e
+
+    pending_path: Path | None = None
+    try:
+        # 保留上传文件名作为落盘文件名（M2 工单 A 约定：uploads/{textbook_id}/{filename}.pdf）
+        original_name = file.filename or "uploaded.pdf"
+        # 防御：去除 path separator（multipart filename 可能包含 /../ 等）
+        safe_name = original_name.replace("/", "_").replace("..", "_")
+        pending_path = pending_dir / f"{uuid.uuid4().hex}_{safe_name}"
+        pending_path.write_bytes(pdf_bytes)
+
+        # 调 service（extractor + 持久化 + 落盘）
         textbook, chapters = upload_textbook_with_extraction(
             db,
-            pdf_bytes=pdf_bytes,
+            file_path=str(pending_path),
             name=name,
             subject_id=subject_id,
             grade_level=grade_level,
         )
     except TextbookUploadError as e:
-        # 业务异常 → 400（默认；空文件 / 非 PDF / 解析无章节 都是 400）
+        # 业务异常 → 400（默认；空文件 / 非 PDF / 解析无章节 / 落盘失败 都是 400）
         logger.warning("textbook upload failed (业务): %s", e)
+        # service 自身已清理 pending 文件；这里不重复清（service 失败 → 清理已执行）
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        logger.exception("教材上传意外失败: name=%s", name)
+        # 防御性清 pending（service _cleanup_files 通常已做，但这里是兜底）
+        if pending_path is not None and pending_path.exists():
+            with contextlib.suppress(OSError):
+                pending_path.unlink()
+        raise HTTPException(status_code=500, detail=f"教材上传失败：{e}") from e
 
     return TextbookUploadResponse(
         textbook_id=textbook.id,
@@ -247,7 +289,8 @@ def upload_textbook(
                 title=ch.title,
                 page_range_start=ch.page_range_start,
                 page_range_end=ch.page_range_end,
-                has_extracted=False,  # 新建章节未抽取
+                has_extracted=False,  # 新建章节未抽取（key_points/difficulties/suggestions）
+                extraction_source=ch.extraction_source,
             )
             for ch in chapters
         ],
@@ -290,6 +333,7 @@ def list_textbook_chapters(
                 page_range_start=ch.page_range_start,
                 page_range_end=ch.page_range_end,
                 has_extracted=has_ai,
+                extraction_source=ch.extraction_source,
             )
         )
 
@@ -500,6 +544,7 @@ def get_chapter(
         content_summary=chapter.content_summary,
         page_range_start=chapter.page_range_start,
         page_range_end=chapter.page_range_end,
+        extraction_source=chapter.extraction_source,
         knowledge_points=[
             KnowledgePointDetail(
                 id=kp.id, name=kp.name, concept=kp.concept, teaching_order=kp.teaching_order

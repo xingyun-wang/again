@@ -274,7 +274,18 @@ class Textbook(Base):
 
 
 class Chapter(Base):
-    """教材章节。1-based chapter_number。"""
+    """教材章节。1-based chapter_number。
+
+    `extraction_source`（M2 工单 A 落地）：
+        标记该章节的章节骨架 + content_summary 来源
+        0.5 §9.1 §10 + D-28 硬规则：链路真实性必须可降级留痕
+        取值（snake_case；保守 default='detected'，让未显式 set 的 Chapter
+        也能落库；测试 fixture 在 conftest.py 也可显式覆盖）：
+        - detected                — PyMuPDF/pdfplumber 主路径正常识别章节 + 抽到正文
+        - pdfplumber_fallback     — PyMuPDF 主路径失败，pdfplumber fallback 接管
+        - equal_split_placeholder — 主路径 + fallback 都识别不足，等分造章节（**真实造假，必须标记**）
+        - scanned_pdf_empty       — 文本为空（扫描型 PDF，需 OCR，§6.4 TWAIN 实测 blocker）
+    """
 
     __tablename__ = "chapters"
     __table_args__ = (
@@ -290,6 +301,15 @@ class Chapter(Base):
     content_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     page_range_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     page_range_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # extraction_source：M2 工单 A 新增；nullable=False，default='detected' 让 conftest
+    # 等历史 fixture 不报缺字段。service 上传链路会按真实抽取结果覆盖。
+    extraction_source: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="detected",
+        server_default="detected",
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

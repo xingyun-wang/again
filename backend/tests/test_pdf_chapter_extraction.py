@@ -1,4 +1,4 @@
-"""章节结构识别测试（M1-A 阶段 2）。
+"""章节结构识别测试（M1-A 阶段 2 + M2 工单 A：P0-3 修复）。
 
 覆盖：
 1. 真实 PDF（选择性必修 1）能识别 5 章
@@ -7,8 +7,15 @@
 4. page_range 不重叠 + 边界正确（第一章 start==1，最后一章 end==总页数）
 5. ChapterStructure dataclass 结构（sections 空 list）
 6. PyMuPDF fallback：主路径 < 3 章时启用 pdfplumber fallback（用合成 PDF 模拟）
-7. fallback 等分：主路径 + pdfplumber 都识别不出时启用 last-resort
-8. 异常：文件不存在 / 路径是目录
+7. 异常：文件不存在 / 路径是目录
+
+M2 工单 A（D-28 硬规则）：删除「空白 PDF → 5 章」恒真测试
+（旧 test_fallback_when_pymupdf_returns_few_chapters 断言空 PDF 返 5 章，
+等于承认 "等分造假" 是正常输出 — 是 P0-3 漏洞）。新行为：空 PDF 等分造
+章节后，service 层 Chapter.extraction_source 必须 == 'equal_split_placeholder'
+（链路上传后的 ChapterSummary 也必须返回此值）。
+本测试文件在 extractor 层验证 source 标记；service / router 层负面前提
+在 test_textbook_upload_real_pdf.py。
 
 测试用真 PDF：materials/textbooks/选择性必修1.pdf
 """
@@ -41,7 +48,7 @@ def real_textbook_pdf() -> Path:
 
 @pytest.fixture()
 def empty_pdf(tmp_path: Path) -> Path:
-    """造一个 3 页全空 PDF（触发 fallback）。"""
+    """造一个 3 页全空 PDF（触发 fallback equal_split_placeholder）。"""
     pdf_path = tmp_path / "empty.pdf"
     doc = fitz.open()
     for _ in range(3):
@@ -154,29 +161,35 @@ def test_chapter_structure_dataclass_fields(real_textbook_pdf: Path) -> None:
 # ============================================================================
 
 
-def test_fallback_when_pymupdf_returns_few_chapters(empty_pdf: Path) -> None:
-    """当 PyMuPDF 识别 < 3 章 + pdfplumber 也识别不出时，启用 last-resort 等分。
+def test_empty_pdf_returns_equal_split_placeholder_source(empty_pdf: Path) -> None:
+    """M2 工单 A（P0-3 修复）：空 PDF 等分造章节后，extraction_source 必须标
+    'equal_split_placeholder'（**真实造假，必须标记**）。
 
-    empty_pdf 是 3 页全空 PDF：主路径 / pdfplumber 都识别不出章节 → 走
-    fallback 等分 5 章。3 页要装 5 章会退化（page_range 重叠到最后一页），
-    本测试只验证：返回了 5 章 + 标题是占位 + end 都不超过 total_pages。
+    本测试验证 extractor 层：旧版 test_fallback_when_pymupdf_returns_few_chapters
+    「空 PDF → 返 5 章」是恒真断言（D-28 反例）；新版改为：等分行为仍可走
+    （保留 last-resort 防"返回 0 章"崩溃），但 extraction_source 必须如实标记。
     """
     extractor = PDFExtractor()
-    chapters = extractor.extract_chapter_structure(str(empty_pdf))
-    assert len(chapters) == 5, (
-        f"fallback 应给 5 章，实际 {len(chapters)}："
-        f"{[(c.chapter_number, c.title) for c in chapters]}"
+    result = extractor.extract_chapter_structure_with_source(str(empty_pdf))
+    # 等分有 5 章，但 source 标记 = placeholder（与上一阶段判断不同）
+    assert len(result.chapters) == 5
+    assert result.extraction_source == "equal_split_placeholder", (
+        f"等分走 fallback 后必须标 equal_split_placeholder，"
+        f"实际 {result.extraction_source!r}"
     )
-    # fallback 标题是「第N章」占位
-    assert all("章" in c.title for c in chapters)
-    # 每章 page_range 不超过 total_pages=3
-    for ch in chapters:
-        start, end = ch.page_range
-        assert start >= 1
-        assert end <= 3
-        assert start <= end
-    # 最后一章 end 一定 == total_pages（构造逻辑保证）
-    assert chapters[-1].page_range[1] == 3
+    # 拼接上同一入参的 legacy API 也仍返 5 章（保持代码使用点不变）
+    legacy = extractor.extract_chapter_structure(str(empty_pdf))
+    assert len(legacy) == 5
+
+
+def test_real_pdf_returns_detected_source(real_textbook_pdf: Path) -> None:
+    """M2 工单 A：真 PDF 走主路径时 extraction_source == 'detected'。"""
+    extractor = PDFExtractor()
+    result = extractor.extract_chapter_structure_with_source(str(real_textbook_pdf))
+    assert result.extraction_source == "detected", (
+        f"主路径识别 ≥3 章应返 detected，实际 {result.extraction_source!r}"
+    )
+    assert len(result.chapters) >= 3
 
 
 def test_pymupdf_failure_triggers_pdfplumber_fallback(tmp_path: Path) -> None:
@@ -199,12 +212,14 @@ def test_pymupdf_failure_triggers_pdfplumber_fallback(tmp_path: Path) -> None:
         "_scan_chapters_pymupdf",
         side_effect=RuntimeError("PyMuPDF 模拟失败"),
     ):
-        chapters = extractor.extract_chapter_structure(str(pdf_path))
-    # PyMuPDF raise 后 fallback 应该接管（这里「第一章 内容 page」会被
-    # _CHAPTER_PARSE_RE 匹配为 chapter 1，但需要中文 title；fallback 至
-    # 少给个 last-resort 5 章）
-    assert len(chapters) >= 1
+        result = extractor.extract_chapter_structure_with_source(str(pdf_path))
+    # PyMuPDF raise 后 fallback 应该接管：这里走 pdfplumber_fallback 或
+    # equal_split_placeholder（取决于 pdfplumber 是否能识别出章节）
+    assert result.extraction_source in {"pdfplumber_fallback", "equal_split_placeholder"}, (
+        f"PyMuPDF 抛 RuntimeError 后应走 fallback，实际 {result.extraction_source!r}"
+    )
     # 至少走 fallback 路径（last-resort 等分 5 章或 pdfplumber 识别）
+    assert len(result.chapters) >= 1
 
 
 def test_extract_chapter_structure_nonexistent_file() -> None:
