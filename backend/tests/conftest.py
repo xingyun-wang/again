@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -68,28 +69,48 @@ def mock_llm_provider():
 
 @pytest.fixture()
 def mock_db_engine():
-    """SQLite in-memory DB engine，依赖 B.2 测试在 SQLite 跑。
+    """测试 DB engine；M1-B retro 工单 B3 支持 SQLite / PG 双兼容。
 
-    用法：override get_db + create_all + drop_all 隔离状态。
+    选择逻辑：
+    - ``DATABASE_URL`` 环境变量以 ``postgresql`` 开头 → 用 PG（CI 真 PG fixture）
+    - 否则 → 用 SQLite in-memory（本地 dev box 默认；保留旧行为）
+
+    注意（pre-existing baseline 已知约束，与本工单无关）：
+    - ``tests/test_academic_models.py`` 内部定义了同名 ``engine`` fixture 走
+      SQLite in-memory，不走本 fixture（pytest 同名 fixture 文件级优先）。
+    - 那批测试因 ``Subject.owner_user_id`` NOT NULL 与本地 fixture 未赋值
+      不一致而失败 — 是 M1-B 工单 B owner 字段迁移后的预存问题，CI 也
+      会失败，本工单不修（与 B3 范围无关）。
+
+    PG 路径（CI）：
+    - 假设运行 pytest 前 CI 已执行 ``alembic upgrade head``（ci.yml 保证）
+    - 测试结束后 ``drop_all`` 清表；PG schema 保留
+    - 不像 SQLite 那样 ``StaticPool``，PG 走默认连接池
     """
     from sqlalchemy import create_engine, event
     from sqlalchemy.pool import StaticPool
 
     from app.db.base import Base
 
-    eng = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-        future=True,
-    )
+    db_url = os.environ.get("DATABASE_URL", "")
+    is_pg = db_url.startswith(("postgresql", "postgres"))
 
-    # SQLite 默认不 enforce FK；PRAGMA 必须在每条新连接上设置
-    @event.listens_for(eng, "connect")
-    def _enable_fk(dbapi_conn: object, _conn_record: object) -> None:
-        cur = dbapi_conn.cursor()
-        cur.execute("PRAGMA foreign_keys=ON")
-        cur.close()
+    if is_pg:
+        eng = create_engine(db_url, future=True, pool_pre_ping=True)
+    else:
+        eng = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+            future=True,
+        )
+
+        # SQLite 默认不 enforce FK；PRAGMA 必须在每条新连接上设置
+        @event.listens_for(eng, "connect")
+        def _enable_fk(dbapi_conn: object, _conn_record: object) -> None:
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.close()
 
     Base.metadata.create_all(eng)
     yield eng
