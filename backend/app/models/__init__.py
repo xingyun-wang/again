@@ -23,6 +23,7 @@ from app.models.academic import (
     TeachingSuggestion,
     Textbook,
     Tier,
+    User,
 )
 
 __all__ = [
@@ -30,6 +31,8 @@ __all__ = [
     "GradeLevel",
     "Tier",
     "KnowledgeReviewStatus",
+    # M1-B retro 工单 B（D-29 B 项）：归属
+    "User",
     # academic (§4.1 + §4.2)
     "Subject",
     "Class",

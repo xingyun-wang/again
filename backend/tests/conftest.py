@@ -113,8 +113,8 @@ def mock_db_session(mock_db_engine):
 
 
 @pytest.fixture()
-def mock_textbook(mock_db_session):
-    """默认 mock 教材（人教版七年级数学上）。
+def mock_textbook(mock_db_session, mock_user_system_seed):
+    """默认 mock 教材（人教版七年级数学上）。owner=system-seed。
 
     fix（M1-B B.2.1 retro）：教材创建后 expire textbook.chapters 属性，
     避免子 fixture（mock_chapter）创建 chapter 后，父 mock_textbook.chapters
@@ -122,12 +122,15 @@ def mock_textbook(mock_db_session):
 
     M2 工单 A：file_path 改用 ``uploads/0/mock.pdf`` 样式（与 service 落盘
     约定一致；测试不需要真落盘，只是占位相对路径）。
+
+    M1-B retro 工单 B（D-29 B 项）：owner_user_id = system-seed id=1。
     """
     from app.models import Textbook
 
     tb = Textbook(
         name="人教版数学七上",
         file_path="uploads/0/mock-textbook.pdf",
+        owner_user_id=mock_user_system_seed.id,
     )
     mock_db_session.add(tb)
     mock_db_session.commit()
@@ -137,11 +140,14 @@ def mock_textbook(mock_db_session):
 
 @pytest.fixture()
 def mock_chapter(mock_db_session, mock_textbook):
-    """默认 mock 章节（有理数），含 content_summary + extraction_source。
+    """默认 mock 章节（有理数），含 content_summary + extraction_source + owner。
 
     M2 工单 A：显式设置 extraction_source='detected'（mock 教材是手工构造，
     不是真 PDF抽取路径；选择 'detected' 是因为 mock 在测试语义上是“已知”状态，
     与 service 产出的字段含义对齐）。
+
+    M1-B retro 工单 B（D-29 B 项）：owner_user_id = textbook.owner_user_id
+    （chapter 继承 textbook 的归属，避免 mismatch）。
 
     创建后 expire mock_textbook.chapters，让下一次访问重发 SQL。
     """
@@ -149,6 +155,7 @@ def mock_chapter(mock_db_session, mock_textbook):
 
     ch = Chapter(
         textbook_id=mock_textbook.id,
+        owner_user_id=mock_textbook.owner_user_id,
         chapter_number=1,
         title="第一章 有理数",
         content_summary=(
@@ -166,11 +173,31 @@ def mock_chapter(mock_db_session, mock_textbook):
 
 
 @pytest.fixture()
-def mock_subject(mock_db_session):
-    """默认 mock 学科（高中地理）。"""
+def mock_user_system_seed(mock_db_session):
+    """系统种子用户（id=1, is_system_owned=True）— 与 alembic 0005 对齐。
+
+    M1-B retro 工单 B（D-29 B 项）：默认 owner。test fixtures 默认 owner
+    都指向 system-seed（既有数据在 0005 migration 里也是被回填到 id=1）。
+    """
+    from app.models import User
+
+    user = User(id=1, name="system-seed", is_system_owned=True)
+    mock_db_session.add(user)
+    mock_db_session.commit()
+    mock_db_session.refresh(user)
+    return user
+
+
+@pytest.fixture()
+def mock_subject(mock_db_session, mock_user_system_seed):
+    """默认 mock 学科（高中地理）。owner=system-seed（M1-B 工单 B）。"""
     from app.models import GradeLevel, Subject
 
-    sub = Subject(name="高中地理", grade_level=GradeLevel.SENIOR_HIGH)
+    sub = Subject(
+        name="高中地理",
+        grade_level=GradeLevel.SENIOR_HIGH,
+        owner_user_id=mock_user_system_seed.id,
+    )
     mock_db_session.add(sub)
     mock_db_session.commit()
     mock_db_session.refresh(sub)
@@ -250,3 +277,41 @@ def _reset_logging_state():
         # 恢复原始 handlers / level
         root.handlers = saved_handlers
         root.level = saved_level
+
+
+# ────────────────── M1-B retro 工单 B（D-37 fixture） ────────────────────
+
+
+@pytest.fixture()
+def monkeypatch_owner_filter_to_constant_one(monkeypatch):
+    """D-37 fixture：把 _enforce_owner_or_404 替换为 fail-open 版本。
+
+    fail-open 版本语义：filter obj.owner_user_id == 1（只看 owner=1，
+    不看 user_id 参数）。等价于 "filter obj.owner_user_id == 1"。
+
+    预期行为（D-37 硬规则可证伪性）：
+    - 错误实现下，user_2 访问 user_1（owner=1）的资源 → 返 200（数据泄漏）。
+    - 正确实现（!= user_id）下，同请求 → 返 404。
+
+    用于：
+    1. D-37 负面测试（test_cross_user_isolation.py::test_d37_*）：
+       模拟错误实现，断言 "200（泄漏）" —— 证明错误实现是灾难性的。
+    2. Reviewer 一眼看到：如果谁把 _enforce_owner_or_404 写成 == 1 而非 != user_id，
+       数据泄漏后果。
+
+    用完自动还原（pytest monkeypatch fixture teardown）。
+    """
+    from fastapi import HTTPException
+
+    from app.api.v1.routers import academic
+
+    def _fail_open_owner_filter(obj: object, user_id: int) -> None:
+        """错误实现：filter obj.owner_user_id == 1（忽略 user_id）。"""
+        owner_id = getattr(obj, "owner_user_id", None)
+        # 只允许 owner == 1 的资源通过；user_2 访问 user_1 资源被错误放行。
+        if owner_id == 1:
+            return
+        raise HTTPException(status_code=404, detail="该资源不属于当前用户")
+
+    monkeypatch.setattr(academic, "_enforce_owner_or_404", _fail_open_owner_filter)
+    yield _fail_open_owner_filter
