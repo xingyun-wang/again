@@ -352,6 +352,17 @@ def upload_textbook_with_extraction(
         for cs, summary, src in zip(
             chapters_struct, per_chapter_summary, per_chapter_source, strict=True
         ):
+            # D-37 G2 fail-closed：service 必须显式传 extraction_source。
+            # alembic 0007 已拆 server_default='detected'，但 Chapter ORM model
+            # 仍保留 Python `default='detected'`（让历史 fixture / 测试构造不
+            # 报缺字段）。如走到 ORM Python default 兜底，是 silent fail-open
+            # — 上传响应里 source='detected' 但没真经过 extractor；verify 段 B
+            # 门槛抓不到但本质错。此处显式 raise：让 fail-open 实现立刻暴露。
+            if src is None:
+                raise TextbookUploadError(
+                    f"chapter {cs.chapter_number}: extraction_source 是 None，"
+                    "service 必须显式传 extraction_source（D-37 G2 fail-closed）"
+                )
             ch = Chapter(
                 textbook_id=textbook.id,
                 chapter_number=cs.chapter_number,

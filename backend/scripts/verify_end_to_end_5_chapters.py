@@ -56,11 +56,17 @@ DEFAULT_USER_ID = 1
 
 
 class VerifyReport:
-    """验证报告聚合器（B.3.2 + B.3.3 + M2 工单 A 共用）。
+    """验证报告聚合器（B.3.2 + B.3.3 + M2 工单 A + M1-B retro G2 共用）。
 
-    M2 工单 A：D-28 硬规则 — 验收门槛必须可被最坏实现证伪。
+    M2 工单 A（D-28）：验收门槛必须可被最坏实现证伪。
     旧门槛 `章节数 ≥ 3` 可被 equal_split_placeholder 恒真满足（P0-3）；
-    现改为 「全部 extraction_source == 'detected'」（A4 + A6）。
+    改为 「全部 extraction_source == 'detected'」（A4 + A6）。
+
+    M1-B retro G2（D-37）：D-28 门槛被 fail-open 实现利用 — stub extractor
+    走 server_default 兜底也能让「全部 detected」通过。本聚合器加段 B：
+    至少 1 个非 'detected' 路径必须观察到（如 'pdfplumber_fallback' /
+    'equal_split_placeholder' / 'scanned_pdf_empty'），证明 extractor 真
+    跑了主路径。
     """
 
     def __init__(self) -> None:
@@ -320,24 +326,14 @@ def verify_end_to_end(args: argparse.Namespace) -> VerifyReport:
         report.add_error(f"教材上传失败：{e}")
         return report
 
-    # M2 工单 A：D-28 硬规则 — 门槛可证伪
-    # 旧门槛 `章节数 ≥ 3` 可被 equal_split_placeholder 恒真满足（5 章等分）。
-    # 现改为 「全部 extraction_source == 'detected'」：如果 extractor 走
-    # pdfplumber_fallback / equal_split_placeholder，该教材不达「端到端」门槛，
-    # 决策室必须调查（可能是 PDF 本身扫描型、可能是 extractor 退化）。
-    if len(chapter_ids) < 3:
-        report.add_error(
-            f"章节数 {len(chapter_ids)} 不足 3（§7.6 验收门槛要求 ≥ 3）"
-        )
-        return report
-    non_detected = [s for s in chapter_sources if s != "detected"]
-    if non_detected:
-        report.add_error(
-            f"门槛不齐：D-28 要求「全部 extraction_source == 'detected'」，"
-            f"实际 {chapter_sources}（非 detected = {non_detected}）。"
-            f"P0-3 修复后，走 fallback 的教材不应被计为端到端成功。"
-        )
-        # 不 return：仍继续走 extract/lesson-plan 以便报告齐，但门槛已在 errors。
+    # 门槛 check 抽到 _check_extraction_source_gate（D-37 G2 加段 B 便于测试）
+    # 任一段不通过 → record.add_error → 段 A 第一项（<3）直接 return 后续跑不动；
+    # 段 A 第二项 / 段 B 不 return，仍继续走 extract/lesson-plan 让报告齐，
+    # 最终 exit code 由 errors 决定。
+    if not _check_extraction_source_gate(report, chapter_ids, chapter_sources):
+        if len(chapter_ids) < 3:
+            # 段 A 第一项硬阻断：章数 < 3 后续 extract/lesson-plan 没意义
+            return report
 
     # ── Step 2: 5 章节 extract（LLM 真值）──
     logger.info("Step 2: %d 章节 extract（LLM 真值）", len(chapter_ids))
@@ -424,6 +420,77 @@ def verify_end_to_end(args: argparse.Namespace) -> VerifyReport:
             report.add_error(f"lesson-plan {lp_id} review 失败：{e}")
 
     return report
+
+
+def _check_extraction_source_gate(
+    report: VerifyReport,
+    chapter_ids: list[int],
+    chapter_sources: list[str],
+) -> bool:
+    """extraction_source 门槛 check（D-28 段 A + D-37 G2 段 B）。
+
+    段 A（D-28，向后兼容保留）：
+      - len(chapter_ids) >= 3
+      - 全部 chapter 的 extraction_source == 'detected'
+        （旧 fail-open 漏洞：D-32 第 4 类 P0）
+
+    段 B（D-37 G2 fail-closed 新增）：
+      - 至少 1 个 chapter 的 extraction_source 是非默认路径
+        （'pdfplumber_fallback' / 'equal_split_placeholder' /
+         'scanned_pdf_empty'），证明 extractor 真跑了主路径
+        而非 stub 走 ORM Python default 兜底。
+
+    实现思路（D-37 G2）：
+      把 chapter_sources 分类 detected_count vs non_detected_count。
+      段 A 检查 non_detected_count == 0；
+      段 B 检查 non_detected_count >= 1。
+      两段都满足 → verify PASS；任一段不满足 → report.add_error。
+
+    Args:
+        report: VerifyReport 实例（errors 列表会被修改）
+        chapter_ids: 上传返回的 chapter id 列表
+        chapter_sources: 每个 chapter 的 extraction_source 字符串列表
+
+    Returns:
+        True if 段 A + 段 B 都满足（无新增 error）；False otherwise。
+    """
+    initial_error_count = len(report.errors)
+
+    # ── 段 A：D-28 原有门槛 ──
+    if len(chapter_ids) < 3:
+        report.add_error(
+            f"门槛 A 章节数不足：{len(chapter_ids)} < 3（§7.6 验收门槛要求 ≥ 3）"
+        )
+        return False
+
+    non_detected = [s for s in chapter_sources if s != "detected"]
+    if non_detected:
+        report.add_error(
+            f"门槛 A 不齐：D-28 要求「全部 extraction_source == 'detected'」，"
+            f"实际 {chapter_sources}（非 detected = {non_detected}）。"
+            f"P0-3 修复后，走 fallback 的教材不应被计为端到端成功。"
+        )
+        # 不 return：仍继续走 extract/lesson-plan 让报告齐；errors 已加。
+
+    # ── 段 B：D-37 G2 fail-closed 新增 ──
+    # 全部 chapter 都 'detected' 时无法区分：
+    #   (a) extractor 真跑了 PyMuPDF 主路径，5 章全部识别成功
+    #   (b) stub extractor 硬编码返回 'detected'，没真跑
+    # 段 B 强制 verify 至少观察到 1 个非 'detected' source（如扫描型 PDF
+    # 某章正文为空 → 'scanned_pdf_empty'；或 fallback 接管 → 'pdfplumber_fallback'
+    # / 'equal_split_placeholder'），从 (b) 中筛出 (a)。
+    if not non_detected:
+        report.add_error(
+            "门槛 B fail-open 未关闭（D-37 G2）："
+            "verify 必须至少观察到 1 个非默认 extraction_source 路径"
+            "（'pdfplumber_fallback' / 'equal_split_placeholder' / "
+            "'scanned_pdf_empty'）。全部 chapter 都是 'detected' 时，"
+            "无法排除 stub extractor 走 ORM Python default 兜底的"
+            " fail-open 实现（D-32 第 4 类 P0）。建议改测试 PDF"
+            " 选 fallback / 扫描型素材让段 B 自然触发。"
+        )
+
+    return len(report.errors) == initial_error_count
 
 
 def main() -> int:
