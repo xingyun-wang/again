@@ -27,8 +27,7 @@ import contextlib
 import json
 import logging
 import os
-import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
@@ -421,7 +420,7 @@ def extract_chapter(
         raise HTTPException(status_code=502, detail=f"LLM 调用失败：{e}") from e
 
     model_name = getattr(llm, "_chat_model", "deepseek-chat")
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)  # noqa: UP017 (3.8 兼容)
 
     try:
         # 删除已有 ai-sourced 行（仅当 force_reextract=True）
@@ -519,7 +518,7 @@ def get_chapter(
         ai=(
             AIAnnotation(
                 model="deepseek-chat",  # 模型名固定（B.2 锁定 deepseek）
-                generated_at=latest_review.created_at if latest_review else datetime.now(UTC),
+                generated_at=latest_review.created_at if latest_review else datetime.now(timezone.utc)  # noqa: UP017 (3.8 兼容),
             )
             if has_ai
             else None
@@ -627,7 +626,7 @@ def review_chapter(
 
     latest_review.status = target
     latest_review.reviewed_by = f"user:{user_id}"  # KnowledgeReview.reviewed_by 是 VARCHAR
-    latest_review.reviewed_at = datetime.now(UTC)
+    latest_review.reviewed_at = datetime.now(timezone.utc)  # noqa: UP017 (3.8 兼容)
     if body.notes is not None:
         latest_review.notes = body.notes
 
@@ -741,7 +740,7 @@ def generate_lesson_plan(
         raise HTTPException(status_code=502, detail=f"LLM 调用失败：{e}") from e
 
     model_name = getattr(llm, "_chat_model", "deepseek-chat")
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)  # noqa: UP017 (3.8 兼容)
 
     try:
         lp = LessonPlan(
@@ -847,7 +846,7 @@ def review_lesson_plan(
         lp.review_status = KnowledgeReviewStatus.MODIFIED
 
     lp.reviewed_by = user_id
-    lp.reviewed_at = datetime.now(UTC)
+    lp.reviewed_at = datetime.now(timezone.utc)  # noqa: UP017 (3.8 兼容)
     if body.notes is not None:
         lp.review_notes = body.notes
     if body.status == "modified" and body.content is not None:

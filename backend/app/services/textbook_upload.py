@@ -382,7 +382,7 @@ def upload_textbook_with_extraction(
             len(chapters),
             textbook.file_path,
         )
-        # 标记：target_path 已是真 artifact，失败回滚不应再清（finally 跳过）
+        # 标记：target_path 已是真 artifact，失败回滚不应再清（path 重赋值 None，避免清理已落盘文件）
         target_path = None
         pending_path = None
         return textbook, chapters
