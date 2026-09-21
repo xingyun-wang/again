@@ -354,3 +354,128 @@ class LessonPlanReviewResponse(BaseModel):
 
     id: int
     review: TeacherReviewStatus
+
+
+# ─────────────────────────── M2-A.0 题库 CRUD（v0.5 §3） ────────────────
+#
+# 范围锁定（brief §3）：
+# - Question 数据模型 + 5 端点（POST / GET / GET list / PATCH / DELETE）
+# - Choice 仅 choice 类型题目用
+# - KnowledgePoint 多对多通过 knowledge_point_ids 传
+# - 4 档位 D/C/B/A（字母升序=难度升序，v0.5 §3.2）
+# - 题型 choice / fill / subjective（v0.5 §3.4）
+#
+# 范围外（brief §3 锁）：
+# - 4 档差异化引擎（M2-A.1）
+# - 反马太逻辑（M2-A.1）
+# - PDF 导出（M2-A.2）
+# - 外部题库导入（M2-A.3）
+# - AI 出题（v0.5 §3.3 永久禁用）
+# - 共建题库 is_public（M2-A.0 不启用）
+
+
+from enum import Enum as _PyEnum  # noqa: E402  # 避让上面原生 Enum 别名
+
+
+class QuestionDifficulty(str, _PyEnum):  # noqa: UP042
+    """v0.5 §3.2 4 档位（字母升序 = 难度升序）。"""
+
+    D = "D"
+    C = "C"
+    B = "B"
+    A = "A"
+
+
+class QuestionType(str, _PyEnum):  # noqa: UP042
+    """v0.5 §3.4 题型标签。"""
+
+    CHOICE = "choice"
+    FILL = "fill"
+    SUBJECTIVE = "subjective"
+
+
+class ChoiceBase(BaseModel):
+    """Choice 通用字段。"""
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    label: str = Field(..., min_length=1, max_length=8)
+    content: str = Field(..., min_length=1)
+    is_correct: bool = False
+    order_index: int = 0
+
+
+class ChoiceRead(ChoiceBase):
+    """Choice 响应：加 id。"""
+
+    id: int
+
+
+class QuestionBase(BaseModel):
+    """Question 通用字段（POST / PATCH 共用基础）。
+
+    chapter_id：题目所属章节。
+    content：题目正文。
+    difficulty：4 档位（v0.5 §3.2）。
+    type：题型（v0.5 §3.4）。
+    knowledge_point_ids：题目关联的知识点 id 列表（可空）。
+    """
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    chapter_id: int = Field(..., ge=1)
+    content: str = Field(..., min_length=1)
+    difficulty: QuestionDifficulty
+    type: QuestionType
+    knowledge_point_ids: list[int] = Field(default_factory=list)
+
+
+class QuestionCreate(QuestionBase):
+    """POST /questions 请求 body。
+
+    choices：仅 choice 类型题目使用；fill / subjective 题目不传。
+    """
+
+    choices: list[ChoiceBase] = Field(default_factory=list)
+
+
+class QuestionUpdate(BaseModel):
+    """PATCH /questions/{id} 请求 body（所有字段可选）。
+
+    PATCH 语义：仅修改传 in body 的字段；未传字段不动。
+    choices 列表：若传则完全替换原 choices（删除原 + 添加新，cascade）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str | None = Field(default=None, min_length=1)
+    difficulty: QuestionDifficulty | None = None
+    type: QuestionType | None = None
+    knowledge_point_ids: list[int] | None = None
+    choices: list[ChoiceBase] | None = None
+
+
+class QuestionRead(QuestionBase):
+    """GET /questions/{id} 响应（也用于 POST /questions 返回）。
+
+    字段说明：
+    - id: 题目 id
+    - owner_user_id: 归属 user（D-29 §1.4 跨用户隔离）
+    - choices: 该题目的所有选项（仅 choice 类型有）
+    - created_at / updated_at: 时间戳
+    """
+
+    id: int
+    owner_user_id: int
+    choices: list[ChoiceRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class QuestionListResponse(BaseModel):
+    """GET /questions 列表响应。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[QuestionRead]
+    total: int = Field(..., ge=0)

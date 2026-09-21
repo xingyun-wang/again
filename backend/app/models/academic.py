@@ -21,8 +21,21 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy import Enum as SAEnum
+from sqlalchemy import false as SAFalse
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -113,6 +126,10 @@ class User(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+    # M2-A.0：User 下挂本老师拥有的所有 Question（无 cascade：删 user 触发 RESTRICT FK 拦下）
+    questions: Mapped[list[Question]] = relationship(
+        "Question", back_populates="owner"
     )
 
 
@@ -416,6 +433,10 @@ class Chapter(Base):
     lesson_plans: Mapped[list[LessonPlan]] = relationship(
         "LessonPlan", back_populates="chapter", lazy="selectin"
     )
+    # M2-A.0：Chapter 下挂本老师的所有 Question（cascade 自动清空 chapter 删除时连带题目）
+    questions: Mapped[list[Question]] = relationship(
+        "Question", back_populates="chapter", cascade="all, delete-orphan", lazy="selectin"
+    )
 
 
 class KnowledgePoint(Base):
@@ -443,6 +464,10 @@ class KnowledgePoint(Base):
     chapter: Mapped[Chapter] = relationship("Chapter", back_populates="knowledge_points")
     student_links: Mapped[list[StudentKnowledgePoint]] = relationship(
         "StudentKnowledgePoint", back_populates="knowledge_point", lazy="selectin"
+    )
+    # M2-A.0：KP 反向题目集合（多对多关联表 question_knowledge_points）
+    questions: Mapped[list[Question]] = relationship(
+        "Question", secondary="question_knowledge_points", back_populates="knowledge_points"
     )
 
 
@@ -607,3 +632,192 @@ class LessonPlan(Base):
     )
 
     chapter: Mapped[Chapter] = relationship("Chapter", back_populates="lesson_plans")
+
+
+# ──────────────────── M2-A.0 题库 CRUD（v0.5 §3 / D-29 §1.4） ───────────────
+#
+# 范围锁定（brief §3 / v0.5 §3）：
+# - Question 数据模型（题库基础）— 老师个人资产（D-29 §1.4）
+# - Choice 数据模型（多选项题目）
+# - KnowledgePoint 多对多关联（题目 → 知识点）
+# - 4 档位 D/C/B/A（字母升序=难度升序，v0.5 §3.2）
+# - 题型 choice / fill / subjective（v0.5 §3.4）
+# - owner_user_id 字段（D-29 跨用户隔离）
+#
+# 范围外（brief §3 锁）：
+# - 4 档差异化引擎（M2-A.1）
+# - 反马太逻辑（M2-A.1）
+# - PDF 导出（M2-A.2）
+# - 外部题库导入（M2-A.3）
+# - AI 出题（v0.5 §3.3 永久禁用）
+# - 共建题库 is_public（M2-A.0 不启用，v0.5 §5.4 lock MVP）
+
+
+class QuestionDifficulty(str, Enum):  # noqa: UP042
+    """v0.5 §3.2 4 档位（字母升序 = 难度升序）。
+
+    D = 基础（最易）
+    C = 进阶
+    B = 挑战
+    A = 扩展（最难）
+
+    字母升序 = 难度升序：和现有 Tier enum（学术场景）共用值空间。
+    本 enum 命名用 QuestionDifficulty 避免与学情 Tier 字段同名（属背景，
+    Tier 用于 Student.current_tier；QuestionDifficulty 用于 Question.difficulty）。
+    """
+
+    D = "D"
+    C = "C"
+    B = "B"
+    A = "A"
+
+
+class QuestionType(str, Enum):  # noqa: UP042
+    """v0.5 §3.4 题型标签。
+
+    - CHOICE = 选择题（单选 / 多选；M2-A.0 仅支持单选，多选为后续切片）
+    - FILL = 填空题
+    - SUBJECTIVE = 主观题
+    """
+
+    CHOICE = "choice"
+    FILL = "fill"
+    SUBJECTIVE = "subjective"
+
+
+# 题目-知识点多对多关联表（M2-A.0 新增）。
+# KnowledgePoint 自身无 owner_user_id（KP 归属 = chapter.owner_user_id），
+# 因此 KP 的归属校验走 chapter 路径（router 层 _enforce_owner_or_404 chapter）。
+# 关联表本身无业务归属字段。
+question_knowledge_points = Table(
+    "question_knowledge_points",
+    Base.metadata,
+    Column(
+        "question_id",
+        Integer,
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "knowledge_point_id",
+        Integer,
+        ForeignKey("knowledge_points.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+
+class Question(Base):
+    """题库基础模型（v0.5 §3 差异化作业）。
+
+    归属（D-29 §1.4 题库属于教师个人资产）：owner_user_id FK → users.id，
+    RESTRICT 阻止删除 user 时连坐丢题（与 Subject/Textbook/Chapter 行为一致）。
+
+    4 档位：D/C/B/A 字母升序 = 难度升序（v0.5 §3.2）。
+
+    题型：v0.5 §3.4 不限制，choice / fill / subjective 都可。
+
+    KnowledgePoint 多对多：题目可关联 0+ 个知识点（沿用 M1 已有 KnowledgePoint）。
+    Choice 1 对多：选择题 0+ 个选项（仅 choice 类型使用）。
+    """
+
+    __tablename__ = "questions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    owner_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    chapter_id: Mapped[int] = mapped_column(
+        ForeignKey("chapters.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    difficulty: Mapped[QuestionDifficulty] = mapped_column(
+        SAEnum(
+            QuestionDifficulty,
+            name="question_difficulty_enum",
+            native_enum=True,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        nullable=False,
+    )
+    type: Mapped[QuestionType] = mapped_column(
+        SAEnum(
+            QuestionType,
+            name="question_type_enum",
+            native_enum=True,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        nullable=False,
+    )
+    knowledge_points: Mapped[list[KnowledgePoint]] = relationship(
+        KnowledgePoint,
+        secondary="question_knowledge_points",
+        back_populates="questions",
+        lazy="selectin",
+    )
+    choices: Mapped[list[Choice]] = relationship(
+        "Choice",
+        back_populates="question",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    chapter: Mapped[Chapter] = relationship("Chapter", back_populates="questions")
+    owner: Mapped[User] = relationship("User", lazy="selectin")
+
+    __table_args__ = (
+        Index(
+            "ix_questions_owner_chapter_difficulty",
+            "owner_user_id",
+            "chapter_id",
+            "difficulty",
+        ),
+    )
+
+
+class Choice(Base):
+    """选择题选项（仅 choice 类型题目有）。
+
+    label：A/B/C/D 字母标签（最大 8 字符为后续"选项 K" 留位）。
+    content：选项正文。
+    is_correct：是否为正确选项。
+    order_index：排序（M2-A.0 渲染按此字段排序）。
+
+    与 Question 是 1 对多；删 Question 时 cascade 自动清空。
+    """
+
+    __tablename__ = "choices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    label: Mapped[str] = mapped_column(String(8), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    is_correct: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=SAFalse()
+    )
+    order_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+
+    question: Mapped[Question] = relationship("Question", back_populates="choices")
+
+    __table_args__ = (
+        Index("ix_choices_question_order", "question_id", "order_index"),
+    )

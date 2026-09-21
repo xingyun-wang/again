@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from app.models.academic import (
     Chapter,
+    Choice,
     Class,
     Difficulty,
     GradeLevel,
@@ -17,6 +18,9 @@ from app.models.academic import (
     KnowledgeReview,
     KnowledgeReviewStatus,
     LessonPlan,
+    Question,
+    QuestionDifficulty,
+    QuestionType,
     Student,
     StudentKnowledgePoint,
     Subject,
@@ -24,6 +28,7 @@ from app.models.academic import (
     Textbook,
     Tier,
     User,
+    question_knowledge_points,
 )
 
 __all__ = [
@@ -31,6 +36,9 @@ __all__ = [
     "GradeLevel",
     "Tier",
     "KnowledgeReviewStatus",
+    # M2-A.0：题库 4 档位 + 题型
+    "QuestionDifficulty",
+    "QuestionType",
     # M1-B retro 工单 B（D-29 B 项）：归属
     "User",
     # academic (§4.1 + §4.2)
@@ -47,4 +55,8 @@ __all__ = [
     "KnowledgeReview",
     # M1-B B.2 §7.5 lesson-plan
     "LessonPlan",
+    # M2-A.0：题库基础模型 + 选项 + 关联表
+    "Question",
+    "Choice",
+    "question_knowledge_points",
 ]

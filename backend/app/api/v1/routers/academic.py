@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.v1.schemas.academic import (
@@ -51,6 +51,12 @@ from app.api.v1.schemas.academic import (
     LessonPlanResponse,
     LessonPlanReviewRequest,
     LessonPlanReviewResponse,
+    QuestionCreate,
+    QuestionDifficulty,
+    QuestionListResponse,
+    QuestionRead,
+    QuestionType,
+    QuestionUpdate,
     TeacherReviewStatus,
     TextbookUploadResponse,
 )
@@ -59,15 +65,24 @@ from app.core.llm.provider import LLMProvider
 from app.db.session import get_db
 from app.models import (
     Chapter,
+    Choice,
     Difficulty,
     GradeLevel,
     KeyPoint,
+    KnowledgePoint,
     KnowledgeReview,
     KnowledgeReviewStatus,
     LessonPlan,
+    Question,
     Subject,
     TeachingSuggestion,
     Textbook,
+)
+from app.models import (
+    QuestionDifficulty as ORMQuestionDifficulty,
+)
+from app.models import (
+    QuestionType as ORMQuestionType,
 )
 from app.services.textbook_upload import (
     DEFAULT_MAX_UPLOAD_BYTES,
@@ -929,3 +944,293 @@ def review_lesson_plan(
             review_notes=lp.review_notes,
         ),
     )
+
+# ──────────────────── M2-A.0 题库 CRUD 5 端点（v0.5 §3 / D-29 §1.4） ─────────
+#
+# 范围锁定（brief §3）：
+# - POST /questions：创建题目（教师个人资产）
+# - GET /questions/{id}：获取单个题目
+# - GET /questions：列题目（按 chapter_id / difficulty / type 过滤）
+# - PATCH /questions/{id}：更新题目
+# - DELETE /questions/{id}：删除题目
+#
+# 跨用户隔离（D-29 §1.4 硬规则）：
+# - 所有端点过 _enforce_owner_or_404（!= user_id → 404）
+# - D-29 反 ID 泄漏：404 不是 403
+#
+# D-37 风格：复用 fbb7275 _enforce_owner_or_404 helper + db.flush() 拿 ID（避免
+# P1-1 重复 bug：FK 写入时 child.id 为 None → FK violation）。
+#
+# KnowledgePoint 归属校验：KP 自身无 owner_user_id；归属通过 chapter 走。
+# 校验路径 = 查 KP → JOIN chapter → chapter.owner_user_id == user_id。
+#
+# 范围外（brief §3 锁）：
+# - 4 档差异化引擎（M2-A.1）
+# - 反马太（M2-A.1）
+# - PDF 导出（M2-A.2）
+# - 外部题库导入（M2-A.3）
+# - AI 出题（永久禁用）
+# - 共建 is_public（M2-A.0 不启用）
+
+
+def _check_knowledge_point_ownership(
+    db: Session, kp_ids: list[int], user_id: int
+) -> list[KnowledgePoint]:
+    """校验 knowledge_point_ids 全部归属当前 user。
+
+    KP 自身无 owner_user_id，归属通过 chapter 路径。
+    返回：合法 KP 列表（按传序 id 列表过滤后存 DB）。
+    raises：404 if any KP not found / 跨用户。
+    """
+    if not kp_ids:
+        return []
+    kps = db.query(KnowledgePoint).filter(KnowledgePoint.id.in_(kp_ids)).all()
+    found_ids = {kp.id for kp in kps}
+    missing = set(kp_ids) - found_ids
+    if missing:
+        raise HTTPException(
+            status_code=404,
+            detail=f"knowledge_point_id 不存在：{sorted(missing)}",
+        )
+    for kp in kps:
+        # KP 归属 = chapter 归属
+        chapter = db.get(Chapter, kp.chapter_id)
+        if chapter is None:
+            # 数据异常：KP 关联 chapter 一定存在（FK），但 PG schema 假定无 FK RESTRICT→CASCADE
+            raise HTTPException(
+                status_code=500,
+                detail=f"knowledge_point {kp.id} 关联 chapter 不存在（数据异常）",
+            )
+        _enforce_owner_or_404(chapter, user_id)
+    return kps
+
+
+# ────────────── 1. POST /questions ──────────────
+
+
+@router.post(
+    "/questions",
+    response_model=QuestionRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="创建题目（D-29 §1.4 题库个人资产 + v0.5 §3.2 4 档位）",
+    tags=["academic"],
+)
+def create_question(
+    body: QuestionCreate,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> Question:
+    """POST /api/v1/academic/questions — 创建题目。
+
+    必填：chapter_id / content / difficulty / type
+    可选：choices（仅 choice 类型）/ knowledge_point_ids
+
+    校验：
+    1. chapter 归属当前 user（D-29 §1.4）
+    2. type=choice 必传 choices；type≠choice 不能传 choices
+    3. knowledge_point_ids 全部归属当前 user（通过 chapter）
+    """
+    # 1. 校验 chapter 归属（D-29 §1.4）
+    chapter = db.get(Chapter, body.chapter_id)
+    if chapter is None:
+        raise HTTPException(
+            status_code=404, detail=f"chapter_id {body.chapter_id} 不存在"
+        )
+    _enforce_owner_or_404(chapter, user_id)
+
+    # 2. 校验 type 与 choices 一致性
+    if body.type == QuestionType.CHOICE and not body.choices:
+        raise HTTPException(
+            status_code=400, detail="choice 类型题目必须传 choices"
+        )
+    if body.type != QuestionType.CHOICE and body.choices:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{body.type.value} 类型题目不能传 choices",
+        )
+
+    # 3. 校验 knowledge_point_ids 归属
+    kps = _check_knowledge_point_ownership(
+        db, body.knowledge_point_ids, user_id
+    )
+
+    # 4. 创建 Question（P1-1-1 修复模式：db.flush() 拿 q.id，避免后续 FK 写 None）
+    q = Question(
+        owner_user_id=user_id,
+        chapter_id=body.chapter_id,
+        content=body.content,
+        difficulty=ORMQuestionDifficulty(body.difficulty.value),
+        type=ORMQuestionType(body.type.value),
+    )
+    for c in body.choices:
+        q.choices.append(Choice(**c.model_dump()))
+    if kps:
+        q.knowledge_points = kps
+    db.add(q)
+    db.flush()  # 拿 q.id（fbb7275 P1-1-1 fix narrow 模式）
+    db.commit()
+    db.refresh(q)
+    return q
+
+
+# ────────────── 2. GET /questions/{id} ──────────────
+
+
+@router.get(
+    "/questions/{question_id}",
+    response_model=QuestionRead,
+    summary="获取题目（D-29 §1.4 跨用户 404）",
+    tags=["academic"],
+)
+def get_question(
+    question_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> Question:
+    """GET /api/v1/academic/questions/{id} — 获取单个题目。"""
+    q = db.get(Question, question_id)
+    if q is None:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+    _enforce_owner_or_404(q, user_id)
+    return q
+
+
+# ────────────── 3. GET /questions ──────────────
+
+
+@router.get(
+    "/questions",
+    response_model=QuestionListResponse,
+    summary="列题目（D-29 §1.4 仅看自己）",
+    tags=["academic"],
+)
+def list_questions(
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+    chapter_id: Annotated[int | None, Query(description="按章节过滤")] = None,
+    difficulty: Annotated[
+        QuestionDifficulty | None, Query(description="按档位过滤")
+    ] = None,
+    type: Annotated[
+        QuestionType | None, Query(description="按题型过滤")
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> QuestionListResponse:
+    """GET /api/v1/academic/questions — 列题目。
+
+    仅返回当前 user 拥有的题目（D-29 §1.4 题库个人资产）。
+    过滤：chapter_id / difficulty / type（任意组合）。
+    分页：limit + offset。
+    """
+    query = db.query(Question).filter(Question.owner_user_id == user_id)
+    if chapter_id is not None:
+        query = query.filter(Question.chapter_id == chapter_id)
+    if difficulty is not None:
+        query = query.filter(Question.difficulty == difficulty.value)
+    if type is not None:
+        query = query.filter(Question.type == type.value)
+    total = query.count()
+    items = (
+        query.order_by(Question.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return QuestionListResponse(
+        items=[QuestionRead.model_validate(q) for q in items],
+        total=total,
+    )
+
+
+# ────────────── 4. PATCH /questions/{id} ──────────────
+
+
+@router.patch(
+    "/questions/{question_id}",
+    response_model=QuestionRead,
+    summary="更新题目（D-29 §1.4 仅自己可改）",
+    tags=["academic"],
+)
+def update_question(
+    question_id: int,
+    body: QuestionUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> Question:
+    """PATCH /api/v1/academic/questions/{id} — 更新题目。
+
+    PATCH 语义：仅修改传 in body 的字段；未传字段不动。
+    choices 列表：若传则完全替换原 choices（删原 + 添加新，cascade）。
+    knowledge_point_ids：若传则完全替换原 KP 关联。
+    type 修改时若新 type ≠ CHOICE，必须确保 choices 为空（业务规则）。
+    """
+    q = db.get(Question, question_id)
+    if q is None:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+    _enforce_owner_or_404(q, user_id)
+
+    if body.content is not None:
+        q.content = body.content
+    if body.difficulty is not None:
+        q.difficulty = ORMQuestionDifficulty(body.difficulty.value)
+    if body.type is not None:
+        q.type = ORMQuestionType(body.type.value)
+        # 业务规则：若新 type ≠ CHOICE 但当前有 choices，必须清空
+        if body.type.value != ORMQuestionType.CHOICE.value and q.choices:
+            q.choices.clear()
+            db.flush()  # flush 让 cascade 实际执行（避免 commit 时再批量）
+    if body.knowledge_point_ids is not None:
+        kps = _check_knowledge_point_ownership(
+            db, body.knowledge_point_ids, user_id
+        )
+        q.knowledge_points = kps
+    if body.choices is not None:
+        # 完全替换：删原 + 添加新（cascade 自动删 old Choice rows）
+        q.choices.clear()
+        db.flush()
+        # 若新 type ≠ CHOICE 但 choices 仍 in body → 业务规则：400
+        if q.type != ORMQuestionType.CHOICE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{q.type.value} 类型题目不能传 choices",
+            )
+        for c in body.choices:
+            q.choices.append(Choice(**c.model_dump()))
+
+    db.commit()
+    db.refresh(q)
+    return q
+
+
+# ────────────── 5. DELETE /questions/{id} ──────────────
+
+
+@router.delete(
+    "/questions/{question_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="删除题目（D-29 §1.4 仅自己可删）",
+    tags=["academic"],
+)
+def delete_question(
+    question_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> None:
+    """DELETE /api/v1/academic/questions/{id} — 删除题目。
+
+    Choice rows 由 cascade 自动清理（all, delete-orphan）。
+    question_knowledge_points 关联表由 FK CASCADE 自动清理。
+    """
+    q = db.get(Question, question_id)
+    if q is None:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+    _enforce_owner_or_404(q, user_id)
+    db.delete(q)
+    db.commit()
