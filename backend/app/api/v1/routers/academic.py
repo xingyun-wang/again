@@ -246,11 +246,18 @@ def upload_textbook(
     - 422：grade_level 非法 / Form 字段校验失败
     - 500：DB 写入失败 / 抽取内部异常
     """
-    # 校验 subject_id（如提供）
-    if subject_id is not None and db.get(Subject, subject_id) is None:
-        raise HTTPException(
-            status_code=404, detail=f"subject_id {subject_id} 不存在"
-        )
+    # 校验 subject_id（如提供）+ 归属（D-32 第 3 类 安全/归属边界 — D-35 不可豁免）
+    # P0-N1 修复（M1-B retro 第二轮审查发现）：原实现只校验存在性，未校验
+    # subject.owner_user_id == user_id，user_2 可挂 user_1 的 subject 上传
+    # 教材，造成跨用户归属污染。现加 _enforce_owner_or_404 守卫（404 而非
+    # 403，避免 id 存在性泄漏 — D-29 反 ID 泄漏硬规则）。
+    if subject_id is not None:
+        subject = db.get(Subject, subject_id)
+        if subject is None:
+            raise HTTPException(
+                status_code=404, detail=f"subject_id {subject_id} 不存在"
+            )
+        _enforce_owner_or_404(subject, user_id)
 
     # 1. 流式 magic bytes 校验（前 5 字节；不全量入内存）
     try:

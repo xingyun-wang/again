@@ -33,6 +33,36 @@ _CHAPTER_PARSE_EN_RE = re.compile(
     r"^Chapter\s+(\d+)\s*([\u4e00-\u9fffA-Za-z]+)"
 )
 
+# D-29 第 3 条：Chapter.title 退化为「第N章」模板判定（M1-B retro P1-5）
+# 命中模式：第[一-十百千0-9]章（可含任意空白；其他字符不行）
+TEMPLATE_TITLE_PATTERN = re.compile(
+    r"^第\s*[一二三四五六七八九十百千0-9]+\s*章\s*$"
+)
+
+
+def is_template_title(title: str) -> bool:
+    """判定 Chapter.title 是否退化为「第N章」模板（P1-5 service 层标记用）。
+
+    D-29 第 3 条：Chapter.title 质量门槛；extraction_source='equal_split_placeholder'
+    时 title 通常是「第1章」「第N章」之类占位字符串，需触发人工审阅流程（§7.5）。
+
+    命中模式示例（True）：
+        - 「第一章」「第 3 章」「第十二章」「第N章」「第 9 章」
+    命中非模式示例（False）：
+        - 「地球运动」「大气受热过程」「Chapter 1: Earth」「第三章 地球运动」
+
+    Args:
+        title: 待判定字符串（None/空 → True，空字符串等同模板）
+
+    Returns:
+        True  = 模板化标题（需标 PENDING 审阅）
+        False = 真实标题（保留默认 flow）
+    """
+    if not title:
+        return True
+    return bool(TEMPLATE_TITLE_PATTERN.match(title.strip()))
+
+
 # 中文数字 → int（支持到「九十九」够用，M1 教材不超过二十）
 _CN_NUM_MAP: dict[str, int] = {
     "零": 0, "一": 1, "二": 2, "三": 3, "四": 4,

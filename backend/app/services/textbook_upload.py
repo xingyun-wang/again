@@ -38,8 +38,15 @@ from typing import BinaryIO, Literal
 
 from sqlalchemy.orm import Session
 
-from app.models import Chapter, GradeLevel, Textbook
-from app.pdf.extractor import ChapterStructureResult, PDFExtractor
+from app.models import (
+    Chapter,
+    GradeLevel,
+    KnowledgeReview,
+    KnowledgeReviewStatus,
+    Subject,
+    Textbook,
+)
+from app.pdf.extractor import ChapterStructureResult, PDFExtractor, is_template_title
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +252,20 @@ def upload_textbook_with_extraction(
     textbook: Textbook | None = None
     chapters: list[Chapter] = []
 
+    # ───────── 0. defense-in-depth：subject 归属校验（P0-N1 / D-32 第 3 类） ─────────
+    # router 层已加 _enforce_owner_or_404；此处为 service 层兜底（即使 router
+    # 漏了或被未来重写，service 也会拒绝跨用户挂载 subject 写教材）。
+    # 不允许走 ORM Python default 兜底 — D-37 关门原则：fail-open 实现
+    # 立刻暴露。
+    if subject_id is not None:
+        subject = db.get(Subject, subject_id)
+        if subject is None:
+            raise TextbookUploadError(f"subject_id {subject_id} 不存在")
+        if subject.owner_user_id != owner_user_id:
+            raise TextbookUploadError(
+                f"subject_id {subject_id} 不属于当前用户"
+            )
+
     try:
         # ───────── 1. magic bytes 校验（全量读 5 字节；C 工地可能改流式） ─────────
         if not pending_path.exists():
@@ -383,6 +404,21 @@ def upload_textbook_with_extraction(
             )
             db.add(ch)
             chapters.append(ch)
+
+            # P1-5 修复（D-29 第 3 条子项）：等分 fallback 退化为「第N章」模板时，
+            # 必须标 review_status=PENDING 触发人工审阅流程（§7.5）。
+            # 不靠 reject 阻断（避免同 fail-open — 阻断会让「能上传但全部失败」
+            # 沦为另一层 D-28 fail-open 复发）。
+            # Chapter 模型无 review_status 字段；按 §7.5 创建 KnowledgeReview
+            # 行作为审阅标记（status=PENDING + notes 说明）。
+            if src == SRC_EQUAL_SPLIT_PLACEHOLDER and is_template_title(cs.title):
+                db.add(
+                    KnowledgeReview(
+                        chapter_id=ch.id,
+                        status=KnowledgeReviewStatus.PENDING,
+                        notes="title 退化为模板，需教师审阅（D-29 第 3 条 / P1-5）",
+                    )
+                )
 
         try:
             db.commit()
