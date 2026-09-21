@@ -531,6 +531,72 @@ open-questions.md §9 三个问题全部 ✅：
 
 ---
 
+### D-40：CI 托管 GitHub 镜像（2026-09-21）
+
+**触发**：M1-B retro Step 1 拍板书 + D-36 重读（路径 1 不可执行证明）
+
+**问题**：D-36 第 1 条写"执行者不限"——但默认"必须 CI"被默认理解。CI 是 GitHub Actions，但项目托管在 Gitee（v0.5 §9.5 MVP 单机）+ 远程仅 Gitee。从 dev box 触发 GitHub Actions 的链路断在 3 处（N-1 三重失效）。
+
+**拍板**：
+1. **加 GitHub 镜像 remote `github`**：`git@github.com:xingyun-wang/again.git`（SSH form）
+2. **push 策略 = master:main 显式 refspec**：local `master` → GitHub `main`，触发 `ci.yml` 的 `branches: [main]` 规则；同步 push 到 Gitee `origin master`
+3. **`${{ secrets.DEEPSEEK_API_KEY }}` 进 GitHub Actions Secrets**：用户已授权（2026-09-21）
+4. **不上 GitHub 仓库源码敏感信息**：仓库为公开镜像，所有源码都是开源 spec，无 PII/密钥
+5. **dev box 本地 SSH key 已存在**（`~/.ssh/id_ed25519` zaiyao@openclaw）但**未注册到 GitHub 账户 xingyun-wang**——用户行动项
+
+**未来警惕**：
+- "必须有 CI"≠"必须机器证据"；后者是 D-36 核心，前者是实现细节
+- 网络层 fail-open 与代码层 fail-open 同构——任何"默认会跑"都是高风险假设
+
+---
+
+### D-41：收工必须留痕（2026-09-21）
+
+**问题**：`~/zaiyao-memory/backup.sh` 在目录存在、有可执行位、最近一次 push 09-18，但 09-19 / 09-20 / 09-21 三天**无人触发也无人察觉**——D-14 灾难恢复控制事实上静默失效 3 天（fail-open 同构第 3 层复发，见 D-42）。
+
+**拍板**：
+1. **收工 4 步第 3 步（backup.sh）必须把 EXIT_CODE + push 结果写进当日 memory**：`bash ~/zaiyao-memory/backup.sh; echo "BACKUP_EXIT=$?" >> memory/$(date +%F).md`
+2. **EXIT != 0 或 push 失败 = 下次收工必查项**：不能静默吞
+3. **backup.sh 静默超过 2 天无 push = 触发 §7.0 例外条款**：载曜主动拦截 + flag
+
+**未来警惕**：
+- "脚本在目录"≠"脚本在跑"——两个独立事实
+- D-14 是项目硬约束但从未被显式验证（D-36 精神缺位）
+
+---
+
+### D-42：fail-open 三层复发 + D-36 操作化（2026-09-21）
+
+**问题**：M1-B retro 一周内 fail-open 在三个独立层级复发，**结构性问题而非单点事件**：
+
+| 层级 | 实例 | 性质 |
+|---|---|---|
+| **代码门槛** | verify 段 A 被 `_fallback_equal_split` 恒真满足 | 主动造假（P0-3 → 30325f6 + G2 259aed3） |
+| **部署门** | CI `alembic-prep` scaffold 掩盖 0007 VARCHAR(32) 上限 | 静默掩盖（N-2） |
+| **运维控制** | backup.sh 静默停跑 3 天，脚本在目录但无人确认退出码 | 静默失效（D-14 → D-41）|
+
+**拍板**——D-36 操作化为 D-36-A/B/C 三子条款，所有审查材料必须含三锚：
+
+1. **D-36-A 环境钉死**：commit SHA + 镜像 digest + PG 版本 + 依赖锁文件 hash（缺失任一 = 不可复现 = 不清 P0）
+2. **D-36-B 证据优先级**：机器证据（CI artifact / API log） > 人工转录 > 口述。**人工转录是 D-36 要消灭的对象**，不是降级路径
+3. **D-36-C 降级声明**：CI 跑不动时必须显式声明「静态审查」+ 不得用于清 P0（D-36 第 4 条硬规则，已存在，重申）
+
+**失败模式防护三原则**：
+1. **代码层**：门槛必须可被最坏实现证伪（D-28 已建）
+2. **部署层**：CI 脚手架 = 隐式让步，commit message 必须显式声明「scaffold 解决 X 问题」否则违规
+3. **运维层**：所有「必须 X 跑」的控制必须**留退出码 + 结果到 memory**，把「记得跑」变成「留痕才算跑过」（D-41 已建）
+
+**影响**：
+- AGENTS.md §代码审查纪律 + PROJECT-CHARTER §7.6 必须引用 D-36-A/B/C + D-42（用户已授权，2026-09-21）
+- 每个 milestone 收官审查材料必须三锚齐全
+- §7.0 例外条款收紧：跨层 fail-open 复用 = 强制升级流程审查（D-38 第 1 条第 3 子条扩用）
+
+**未来警惕**：
+- fail-open 复发 = 不是 bug 是结构——打地鼠式修没用，要建三原则护栏
+- 下次里程碑若再发现 fail-open，无论层级，先查 D-42 三原则是否被破坏
+
+---
+
 ### D-39：审查材料归档（2026-09-20，可选）
 
 **问题**：所有审查结论都活在聊天记录里，三个月后无法回溯"凭哪条证据判的通过"。

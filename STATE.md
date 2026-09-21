@@ -1,6 +1,6 @@
 # STATE.md — 差异化作业工作台
 
-> **最后更新**：2026-09-20 22:26（**M1-B retro 集量收口**。代码审查报出 13 处 P0/P1/P2，3 件 P0 合并修复 P0-A (30325f6/3499010) + P0-B (43ff33a) + P0-C 补位G2 解封 (259aed3/19b1fc2) 。**D-31~D-39 审查纪律 9 条决策全部落地**（3a71cbb）。**第一轮独立审查不通过 → B4 + B3 解封尝试**（15f03a0 mypy config 修 + 9d149c3/663b1f7 CI 闸门 + tag review/m1b-retro-b3-663b1f7）。**第二轮独立审查 status=done 但报告未投到主会话**——明早接手第一件事。**M2 题库 CRUD 启动仍卡**：B3 解封配置闭环、执行未跑（需用户触发 CI），review2 报告未到位）
+> **最后更新**：2026-09-21 11:05（**M1-B retro 关键路径拍板 + D-40/D-41/D-42 落字**。Step 1 拍板书 7 问 + D-40 CI 托管 GitHub 镜像全拍：原子 rename 验证命令已跑（V1 git grep 0007 仅 3 处创建 commit 无应用证据 + V2 全文件系统 alembic_version 0 命中 → atomic 安全）。**SSH 认证失败**——dev box 本地 `~/.ssh/id_ed25519` 已存在（公钥 `ssh-ed25519 AAAAC...JwMLA zaiyao@openclaw`）但**未注册到 xingyun-wang GitHub 账户**，需用户行动。**CHARTER §7.6 已改**：D-36 操作化为 D-36-A/B/C 三锚 + D-42 fail-open 三层复发 + 防护三原则（D-25 升级）。**Step 1 + P0-N1/P1-5 brief 已起草**待派工地）
 > **承载体**：本工作区 + `WAKEUP.md`（4 项唤醒清单） + `zaiyao-memory` 仓（每日 push，含本项目 4 项快照） + `.bak.2026-09-10/` 备份（**仅作载曜了解工程参考用，不接旧进度**）
 > **维护规则**：每节定稿 / W 阶段 commit 后 / 用户明确要求时更新
 
