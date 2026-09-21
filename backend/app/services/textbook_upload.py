@@ -403,6 +403,12 @@ def upload_textbook_with_extraction(
                 owner_user_id=owner_user_id,
             )
             db.add(ch)
+            # P1-1-1 fix: 等分 fallback 路径 KnowledgeReview FK bug
+            # review3 报告 §3 P1-1 (line 135-194)
+            # autoflush=False 会话下，db.add(ch) 后 ch.id 仍为 None
+            # 直接 db.add(KnowledgeReview(chapter_id=ch.id)) 会让 PG 报 FK NOT NULL violation
+            # 解法：循环内每个 chapter 单独 db.flush() 让 ch.id 落地后再创建 KnowledgeReview
+            db.flush()  # 拿 ch.id（fbb7275 已在 textbook 处用过 db.flush()）
             chapters.append(ch)
 
             # P1-5 修复（D-29 第 3 条子项）：等分 fallback 退化为「第N章」模板时，
