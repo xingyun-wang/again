@@ -87,44 +87,13 @@ jobs:
         run: mypy app
         continue-on-error: true
 
+      # M1-B retro Step 1（2026-09-21）：alembic-prep step 已删。
+      # 历史背景：N-2 失败模式——CI 脚手架掩盖 G2 迁移文件名 33 字符超过
+      # alembic 默认 VARCHAR(32) 上限（StringDataRightTruncation）。
+      # 删脚手架 + G2 rename 后：迁移 ID 字符数回到 32 以内，scaffold 无必要。
+      # 决策依据：docs/decisions.md D-42 部署层失败模式防护 + D-36-B 机器证据。
       # M1-B retro 工单 B3：CI 必须真跑 alembic upgrade head 落到 PG
       # （不能只 collect），否则 conftest PG fixture 拿不到 schema。
-      #
-      # 已知 pre-existing 约束（不在本工单修复范围）：
-      # alembic 默认建 ``alembic_version.version_num VARCHAR(32)``，但
-      # 0007_drop_extraction_source_default 迁移文件名 33 字符超过 32 上限
-      # → alembic 在 UPDATE alembic_version 时报 StringDataRightTruncation。
-      # workaround：CI 在 alembic upgrade 前 pre-create alembic_version 用
-      # VARCHAR(64)，alembic 看到表已存在就跳过自建（保留我们设的宽度）。
-      # 这是 CI 编排层 infra scaffold，不改 migration 文件本身。
-      - id: alembic-prep
-        name: Alembic pre-step (widen alembic_version column on PG)
-        env:
-          PG_HOST: postgres
-          PG_PORT: 5432
-          PG_USER: postgres
-          PG_PASSWORD: postgres
-          PG_DB: tiered_homework_test
-        run: |
-          python - <<'PY'
-          import os
-          import psycopg
-          c = psycopg.connect(
-              host=os.environ["PG_HOST"],
-              port=int(os.environ["PG_PORT"]),
-              user=os.environ["PG_USER"],
-              password=os.environ["PG_PASSWORD"],
-              dbname=os.environ["PG_DB"],
-              autocommit=True,
-          )
-          with c.cursor() as cur:
-              cur.execute(
-                  "CREATE TABLE IF NOT EXISTS alembic_version "
-                  "(version_num VARCHAR(64) NOT NULL)"
-              )
-          print("alembic_version pre-created (VARCHAR 64) — alembic upgrade ready")
-          PY
-
       - id: alembic
         name: Alembic upgrade (PG)
         run: alembic upgrade head

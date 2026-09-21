@@ -376,13 +376,14 @@ class Chapter(Base):
     content_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     page_range_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     page_range_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # extraction_source：M2 工单 A 新增；nullable=False，default='detected' 让 conftest
-    # 等历史 fixture 不报缺字段。service 上传链路会按真实抽取结果覆盖。
+    # extraction_source：M2 工单 A 新增；nullable=False。
+    # M1-B retro Step 1（2026-09-21，D-37 G2 解封）：删 ORM Python default
+    # 与 server_default——fail-open 防护收口在 service 路径（textbook_upload
+    # 显式 set extraction_source = src；conftest fixture 不再依赖 ORM 兜底）。
+    # 若 service 漏传 → PG NOT NULL violation（fail-closed，与 0005 迁移行为一致）。
     extraction_source: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
-        default="detected",
-        server_default="detected",
         index=True,
     )
     created_at: Mapped[datetime] = mapped_column(
