@@ -602,9 +602,18 @@ open-questions.md §9 三个问题全部 ✅：
 **问题**：所有审查结论都活在聊天记录里，三个月后无法回溯“凭哪条证据判的通过”。
 
 **拍板**：
-1. 每轮审查产出冻结为 `docs/reviews/<date>-<sha7>.md`
+1. 每轮审查产出冻结为 `docs/reviews/<date>-<sha7>.md`。
+   **`<sha7>` 定义（2026-09-23 补登）**：指**被审查 commit 的冻结 SHA**（冻结点），不是归档 commit 自身的 SHA。
+   命名惯例遵循 review3/4 模式：`<date>-<冻结 SHA 前 7 位>.md`。
+   错误示例：`docs/reviews/2026-09-23-f949e91.md`（f949e91 是归档 commit 的 amend 中间 SHA，非冻结 SHA → 命名漂移）。
+   来源：收口决策书 2026-09-23 §二.2 + §四。
 2. 内容含：brief / 原始输出 / 清单 / 豁免记录 / baseline 状态复核
 3. Baseline 单独冻结为 `docs/reviews/<date>-<sha7>-baseline.md`
+4. **出口检查（2026-09-23 补登）**：审查报告末行必须显式引用 baseline 文件路径（`<path>` + 「baseline 已冻结 / baseline 缺失」明示）；未引用 = 本轮审查未完成，**不得作为解封依据**。这是 D-39 第 3 条自落字起 0 次执行的教训（4 review 归档 / 0 baseline = 规则自身 fail-open，D-42 第 4 层）。来源：外部核源回执 2026-09-23 §修正四。
+5. **归档 commit freeze（2026-09-23 补登）**：归档 commit（review / baseline / 决策收口等）一旦 push 到远端，**禁止再 amend**。
+   原因：amend 会让 git history 出现「commit 被 force-push 替换」的污染；命名基于 SHA 的归档（<sha7> 模式）会因 amend 失效。
+   例外：归档 commit 自身的 review 仍在工地侧、push 之前，可 amend。
+   来源：收口决策书 2026-09-23 §二.2 + N-4 amend 链实测（427694d → f949e91 → ab27433 → 0194c4f 共 3 次 amend）。
 
 **未来警惕**：归档不是仪式；3 个月后某条豁免触发“失效触发条件”时，归档是**唯一可追溯证据**。
 
@@ -651,9 +660,33 @@ open-questions.md §9 三个问题全部 ✅：
 **问题**：CI 跑 3 次 run 全部 failure，但 M2 解封不该依赖 CI 5 命令全绿。
 
 **拍板**：
-1. **回滚 commit `8d3e3be` / `3c21dd1` / `171aabe`**：force push main 到 `fbb7275` （用户拍板）
-2. **review3 冻结点**：`fbb7275` (M1-B retro P0-N1 + P1-5)
+1. **force push main 到 `fbb7275`**（用户拍板）：从可达链移除决策室越权 commit `3c21dd1`（CI working-directory fix）+ `171aabe`（B1 cast fix）；`8d3e3be`（M1-B retro CI-1 本体 commit）保留为 `fbb7275` 父提交
+
+> **2026-09-23 措辞修正（升级）**：原条目「回滚 `8d3e3be` / `3c21dd1` / `171aabe`」**自相矛盾**——`fbb7275` 的父提交就是 `8d3e3be`，「force push 到 fbb7275」这个动作在物理上不可能回滚 `8d3e3be`（回滚落点恰好包含它）。
+>
+> **物理事实**（git 验证 2026-09-23）：`fbb7275^` = `8d3e3be`（M1-B retro CI-1）；`8d3e3be^` = `a4d49d3`（Step 1 段 1）。reflog 还原链：`a4d49d3` → `8d3e3be` → `fbb7275` → `3c21dd1` → `171aabe` → reset → `fbb7275`（force push）。
+>
+> **实际风险**（非文字难看）：未来载曜读 D-44 会得出「8d3e3be 已被移除」，然后在 log 里看到它 —— 要么困惑，要么把它当残留「再清一次」，**把 CI-1 本体一起删掉**。
+>
+> **正确表述**：`回滚 commit 3c21dd1 / 171aabe（2 次越权）；保持 8d3e3be（CI-1 本体）与 fbb7275 均在链上`。越权实为 2 次（3c21dd1 / 171aabe）。来源：外部核源回执 2026-09-23 §修正一。
+
+> **2026-09-23 后续命运补登**：C 路径回滚后两次越权 commit 在 HEAD 的命运不同：
+>
+> | 越权 commit | 内容 | HEAD 现状 | 状态 |
+> |---|---|---|---|
+> | `3c21dd1` | ci.yml `working-directory: backend` | `4e73c65`（CI-1-1）已重做 — 7 个 backend step 显式 `working-directory: backend`，删 defaults.run.working-directory | ✅ 已补 |
+> | `171aabe` | `cast(Path, None)` 解 mypy narrowing | HEAD `textbook_upload.py` 中 `grep -c "cast("` = 0 | ⚠️ 未补（待 N-1 处置） |
+>
+> 来源：外部核源回执 2026-09-23 §修正二。
+
+2. **review3 冻结点**：`fbb7275`（M1-B retro P0-N1 + P1-5）
 3. **M2 解封路径**：独立审查员 subagent 拿着 review2 baseline + 三次 CI run evidence 判通过/不通过，**不依赖 CI 5 命令全绿**
+
+> **2026-09-23 判定位置补登**：
+>   - `docs/reviews/2026-09-21-fbb7275.md`（review3）：判定在 §7 末段
+>   - `docs/reviews/2026-09-21-27515d2.md`（review4）：判定在 §6.1（line 244）+ §6.2（line 288）；文件末行 = 冻结 SHA `27515d2`（不是判定）
+>
+> 来源：外部核源回执 2026-09-23 §修正三。
 
 **影响**：
 - 三方 HEAD 一致：本地 master / Gitee origin/master / GitHub main 都 = `fbb7275`
