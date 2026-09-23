@@ -34,7 +34,7 @@ import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import BinaryIO, Literal
+from typing import BinaryIO, Literal, cast
 
 from sqlalchemy.orm import Session
 
@@ -446,7 +446,7 @@ def upload_textbook_with_extraction(
         )
         # 标记：target_path 已是真 artifact，失败回滚不应再清（path 重赋值 None，避免清理已落盘文件）
         target_path = None
-        pending_path = None
+        pending_path = cast(Path, None)  # 紧接 return，下面 except 走不到，运行时仍为 None
         return textbook, chapters
 
     except TextbookUploadError:
