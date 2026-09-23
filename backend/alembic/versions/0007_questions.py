@@ -11,7 +11,7 @@ from typing import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0008_questions"
+revision: str = "0007_questions"
 down_revision: str | None = "0006_owner_user_id"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
