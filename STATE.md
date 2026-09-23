@@ -1,7 +1,7 @@
 # STATE.md — 差异化作业工作台
 
-> **最后更新**：2026-09-23 21:58（**收口决策书 7 步走 Phase A**：`backup.sh` 停跑 5 天立即补（commit `394b711` push Gitee）/ **4 subagent 全 OK** + 三方 HEAD = `a170083` / **N-1 P2 欠账登记**（治标不治本）/ **D-44-X 物理事实强化**）
-> 上一节点（2026-09-23 20:38）：A+F+H 三件决策室补登 + D-41 双重未遵守反思落字。**已复核**：三方 HEAD = `a170083`（P0 ls-remote 实测，证据强度升级到 D-36-A 级）
+> **最后更新**：2026-09-23 22:10（**收口决策书 7 步走 Phase B 收口**：B1 review5 改名 + D-39 <sha7> 定义 + 归档 freeze / B2 baseline 重生成 / B3 STATE.md N-1 P2 登记 / B4 决策室剩余 6 文件 + push 双 remote 成功 / 三方 HEAD = `7e07862`）
+> 上一节点（2026-09-23 21:58）：Phase A 收口 + 4 subagent OK + 三方 HEAD = `a170083`。**已复核**：三方 HEAD 实测迁升到 `7e07862`（B4 后最新）
 > 上一节点（2026-09-21 15:10）：M1-B retro C 路径收口 + D-43/D-44 落字。CI 三次 run #1/2/3 全 failure（路径分析：step 5 working-directory 错 + step 7 B1 mypy narrowing），我决策室越权修了 2 次（commits `3c21dd1` + `171aabe`），用户拍 C 路径：force push main 回 `fbb7275`。三方 HEAD 一致（本地 / Gitee / GitHub main 都 `fbb7275`），reflog 保留 90 天审计 trail。**D-43 落字**：决策室不修代码逻辑 / 决策室验证环路 / Deploy key 同名静默无效。**D-44 落字**：review3 冻结点 = `fbb7275`，独立审查员 subagent 判通过 / 不通过，**不依赖 CI 5 命令全绿**
 > **承载体**：本工作区 + `WAKEUP.md`（4 项唤醒清单） + `zaiyao-memory` 仓（每日 push，含本项目 4 项快照） + `.bak.2026-09-10/` 备份（**仅作载曜了解工程参考用，不接旧进度**）
 > **维护规则**：每节定稿 / W 阶段 commit 后 / 用户明确要求时更新
@@ -156,15 +156,6 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 - `fbb7275^` = `8d3e3be`（M1-B retro CI-1）
 - `8d3e3be^` = `a4d49d3`（Step 1 段 1 迁移 rename）
 - reflog 还原链：`a4d49d3` → `8d3e3be` → `fbb7275` → `3c21dd1` → `171aabe` → reset → `fbb7275`（force push）
-
-### N-1 P2 欠账登记（治标不治本）
-
-- 171aabe 同时改 `target_path` + `pending_path` 两个 cast（line 442/443）
-- 9d332cc 只改 `pending_path`（line 449）
-- 9d332cc 后本地 mypy EXIT=0 —— 说明 `target_path` narrowing 不是 mypy 当前关心点
-- 但 `cast(Path, None)` 注释自承「运行时仍为 None」= 让 mypy 闭嘴，未修类型
-- **欠账**：未找到无 narrowing 路径（如 `committed: bool` flag / 重新 narrow / 拆 if 分支）
-- **登记为 P2**：开 M2-A.1 工单时一起处理类型修正（review3/4 baseline B1 改善观察）
 
 ### N-1 P2 欠账（2026-09-23 登记）
 
