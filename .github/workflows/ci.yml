@@ -93,14 +93,58 @@ jobs:
       # ❌ failed with "failed to resolve host 'postgres'"（services.postgres 容器
       # healthcheck 配了，但 DNS 传播瞬时失败 = race condition）。
       # 显式等 TCP 5432 可达（最多 30 × 2s = 60s）。
-      - id: wait-postgres
-        name: Wait for postgres ready
+      # S1-⑨ 诊断（2026-09-24）：services.postgres 不可达调试。
+      # S1-⑧ (44624f2) wait-postgres 修复未生效——60s 内 30 次 TCP 全失败。
+      # 此前 run #17 (5ac7a62) alembic 同样报"failed to resolve host 'postgres'"。
+      # 2 次 DNS 解析失败 = DNS 本身不通（不是 race condition）。
+      # debug-postgres 步诊断：DNS 解析 / 进程监听 / 网络接口 / 多 probe 方法对比。
+      # 此步**替换** wait-postgres（避免 60s 等待拖慢诊断）。
+      - id: debug-postgres
+        name: Debug postgres connectivity
         run: |
-          for i in {1..30}; do
-            (echo > /dev/tcp/postgres/5432) 2>/dev/null && break
-            sleep 2
-          done
-          (echo > /dev/tcp/postgres/5432) 2>/dev/null || { echo "postgres not reachable after 60s"; exit 1; }
+          echo "=== Environment ==="
+          echo "DATABASE_URL: ${DATABASE_URL}"
+          echo ""
+          echo "=== /etc/hosts ==="
+          cat /etc/hosts 2>&1 || echo "no /etc/hosts"
+          echo ""
+          echo "=== DNS resolution ==="
+          echo "--- getent hosts postgres ---"
+          getent hosts postgres 2>&1 || echo "FAIL"
+          echo "--- nslookup postgres ---"
+          nslookup postgres 2>&1 || echo "FAIL"
+          echo "--- python socket.getaddrinfo ---"
+          python3 -c "import socket; print(socket.getaddrinfo('postgres', 5432))" 2>&1 || echo "FAIL"
+          echo ""
+          echo "=== TCP connectivity ==="
+          echo "--- bash /dev/tcp ---"
+          (timeout 5 bash -c "echo > /dev/tcp/postgres/5432") 2>&1 || echo "FAIL /dev/tcp"
+          echo "--- nc -zv ---"
+          nc -zv postgres 5432 2>&1 || echo "FAIL nc"
+          echo "--- curl telnet ---"
+          curl -sv --max-time 5 telnet://postgres:5432 2>&1 | head -10 || echo "FAIL curl"
+          echo ""
+          echo "=== Postgres process ==="
+          ps auxf 2>&1 | grep -i postgres | head -10 || echo "no postgres process"
+          echo ""
+          echo "=== Network interfaces ==="
+          ip -4 addr 2>&1 | head -10 || echo "no ip"
+          echo ""
+          echo "=== Listening ports ==="
+          ss -tln 2>&1 | head -20 || netstat -tln 2>&1 | head -20 || echo "no ss/netstat"
+          echo ""
+          echo "=== Python direct test ==="
+          python3 -c "
+          import socket
+          s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+          s.settimeout(5)
+          try:
+              s.connect(('postgres', 5432))
+              print('CONNECTED')
+              s.close()
+          except Exception as e:
+              print(f'FAIL: {e}')
+          "
 
       # M1-B retro 工单 B3：CI 必须真跑 alembic upgrade head 落到 PG
       # （不能只 collect），否则 conftest PG fixture 拿不到 schema。
