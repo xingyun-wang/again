@@ -1,7 +1,8 @@
 # STATE.md — 差异化作业工作台
 
-> **最后更新**：2026-09-23 22:10（**收口决策书 7 步走 Phase B 收口**：B1 review5 改名 + D-39 <sha7> 定义 + 归档 freeze / B2 baseline 重生成 / B3 STATE.md N-1 P2 登记 / B4 决策室剩余 6 文件 + push 双 remote 成功 / 三方 HEAD = `7e07862`）
-> 上一节点（2026-09-23 21:58）：Phase A 收口 + 4 subagent OK + 三方 HEAD = `a170083`。**已复核**：三方 HEAD 实测迁升到 `7e07862`（B4 后最新）
+> **最后更新**：2026-09-24 10:32（**收口决策书 §一/二/三/四/五/六 接住 + D-43-X 落字（结论性陈述必须自我验证）+ run #16 实证落盘 + STATE 头部 SHA 修正（第 4 次）**：M2-A.1 准入待 P4 HEAD CI 验 = 等用户跑）
+> 上一节点（2026-09-23 22:25）：三方 HEAD = `5e05b3a`（S1-② alembic rename 后实测；**注**：新-4 工程债建议改写 commit subject 形式以避免 SHA 频繁过期）
+> 上一节点（2026-09-23 22:10）：Phase B 收口 + 三方 HEAD = `6b9f0a4`（C1 收尾后）
 > 上一节点（2026-09-21 15:10）：M1-B retro C 路径收口 + D-43/D-44 落字。CI 三次 run #1/2/3 全 failure（路径分析：step 5 working-directory 错 + step 7 B1 mypy narrowing），我决策室越权修了 2 次（commits `3c21dd1` + `171aabe`），用户拍 C 路径：force push main 回 `fbb7275`。三方 HEAD 一致（本地 / Gitee / GitHub main 都 `fbb7275`），reflog 保留 90 天审计 trail。**D-43 落字**：决策室不修代码逻辑 / 决策室验证环路 / Deploy key 同名静默无效。**D-44 落字**：review3 冻结点 = `fbb7275`，独立审查员 subagent 判通过 / 不通过，**不依赖 CI 5 命令全绿**
 > **承载体**：本工作区 + `WAKEUP.md`（4 项唤醒清单） + `zaiyao-memory` 仓（每日 push，含本项目 4 项快照） + `.bak.2026-09-10/` 备份（**仅作载曜了解工程参考用，不接旧进度**）
 > **维护规则**：每节定稿 / W 阶段 commit 后 / 用户明确要求时更新

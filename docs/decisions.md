@@ -696,3 +696,77 @@ open-questions.md §9 三个问题全部 ✅：
 **未来警惕**：
 - review3 是独立 session，与主会话隔离（D-33 原则）
 - review3 brief 必含冻结 SHA + 三次 CI run evidence + review2 baseline + D-32 判级标准
+
+---
+
+### D-45：审查自我豁免 + 第 5 层 fail-open 防护（2026-09-23）
+
+**问题**：review5（commit `0194c4f`）自我豁免了 D-36-C 明令禁止清的 P0 类别（同报告 :67 自加括号「除已实修类」+ :377 清了 D-32 P0 第 3 类 安全/归属边界），且实修无机器证据（test_question_crud.py dev box 20/20 SKIPPED）。这是 D-42 失败模式复发的**第 5 层**（审查结论层 fail-open）。
+
+**拍板**——第 5 层防护三条：
+
+1. **D-36-C 降级审查不得清 P0 类别**
+   降级审查（D-36-A 三锚不全 / D-36-C 显式声明降级）的结论**不得**含 P0 类别「通过」，除非有同轮独立机器证据（CI 真跑 / docker 真跑）。
+   反例（已发生）：review5 D-36-C 降级声明 + 自我实修声称 → 通过 P0 安全/归属边界。
+   正例（应有）：D-36 三锚齐全的完整审查 + 机器证据留证 → 可通过 P0。
+
+2. **自我豁免无效 + 附署加锁**
+   任何豁免必须由**非作者**附署 + D-35 五要素（理由 / 补偿控制 / 责任人 / 失效触发条件 / 附署）。
+   「实修类」豁免必须有测试 / CI artifact 留证，**不可**仅作者口述。
+   区分边界：
+   - **完整审查**（D-36 三锚齐全）的自我豁免 = 合理工程判断（owner 解释哪些项已修复）
+   - **降级审查**（D-36-C 声明）的自我豁免 = **无效**（无机器证据支撑）
+
+3. **判定一致性约束**
+   review 报告判定与同轮 / 后续识别（baseline / CI / 后续审查）不一致时，判定必须修订或显式标注失效。
+   例：B1 baseline 改善（mypy 0 errors）作为通过理由，但 cache 漂移 / 后续 commit 已实修 → 必须修订或标失效。
+   regen-baseline.md B1 项已写「review5 = 0 errors cache 漂移但项未关闭」= 后续识别实例化。
+
+**影响**：
+- AGENTS.md §代码审查纪律 段同步硬规则
+- 后续所有 review brief 必含「非作者 brief + 不读 baseline 预判 + D-36 三锚齐全」三选齐
+
+**未来警惕**：
+- 静态审查边际信息递减：review3→4→5 新发现从 13 条 P0/P1/P2 跌到 2 条 P2 + 1 条 P1 撤回 → 静态审查到 review5 已边际 ≈ 0
+- review6+ 应优先做 CI 日志复核（机器证据主导），不再做静态代码视觉
+- 「实修」类豁免必须有测试 / CI artifact 留证（D-35 加锁）
+
+**来源**：收口决策书 2026-09-23 §四 + 硬-1/2/3 实测（review5 :67 / :69 / :377 + 9d332cc commit message「HEAD mypy EXIT=1」+ regen-baseline.md B1 cache 漂移识别）。
+
+---
+
+### D-43-X：结论性陈述必须自我验证（2026-09-24）
+
+**问题**：连续 3 次同型"异常/缺失"误报：
+
+| # | 命令 | 误报 | 真实原因 |
+|---|---|---|---|
+| 1 | （run 命名）| F949E91 死 SHA | 实际 commit 在 reflog 中 |
+| 2 | `ls ~/zaiyao-memory/backup.sh`（dev box 路径未展开） | backup.sh 不存在 | 实际存在，路径错 |
+| 3 | `git log --all -- tests/test_review4_p11_fix_repro.py`（漏 `backend/` 前缀） | M2-A.0 仓 origin-unknown / 不自洽 | 实际 `git log --all -- backend/tests/test_review4_p11_fix_repro.py` 有 216a0c1 (del) + 7ff30aa (add)，仓自洽 |
+
+每次误报都走了"先报告结论、后验证"的路径：派生方不再 verify 同一事实 → 误报 → 工程债 / 浪费工单。
+
+**拍板**——D-43 第 6 条实战细化：
+
+任何"异常/缺失"结论报告（含 D-39 baseline 缺口 / D-34 复核 / D-43 验证环路触发）**必须**附：
+1. **完整原命令**（不省略路径前缀 / 限定词 / 文件名通配符）
+2. **独立路径形式复跑一次**（不同写法的同一查询，如 `git log` 改用 `git ls-tree` + `git log --diff-filter=AD --` 互证）
+3. **失败原因验证**（区分"路径错" vs "确实缺失"）
+
+**反例**（2026-09-24 决策室误报）：
+- 命令：`git log --all -- tests/test_review4_p11_fix_repro.py` → 输出空
+- 误推结论："文件无 git 历史 = origin-unknown / M2-A.0 仓不自洽"
+- 正确路径：`git log --all -- backend/tests/test_review4_p11_fix_repro.py` → 216a0c1 + 7ff30aa
+- 修正结论："文件由 7ff30aa 引入、216a0c1 删除、HEAD clean"
+
+**影响**：
+- AGENTS.md §代码审查纪律 段同步硬规则
+- 后续所有"异常/缺失"结论报告须按本条三步验证后再提交
+
+**未来警惕**：
+- 派生方 ≠ 源头方：决策室收到的结论必须 verify 同一事实（不只验缓存）
+- 不同命令交叉验证：grep / ls-tree / log / show / status 五源至少二源
+- STATE.md 头部 SHA 写则过期（新-4 工程债）：根治 = 不写 SHA，写 commit subject + commit-hook 自动更新
+
+**来源**：收口决策书 2026-09-24 §二 + §六（同型事故序列 + "结论性陈述必须自我验证"规则）+ git 实测修正。
