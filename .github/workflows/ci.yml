@@ -89,6 +89,19 @@ jobs:
       # alembic 默认 VARCHAR(32) 上限（StringDataRightTruncation）。
       # 删脚手架 + G2 rename 后：迁移 ID 字符数回到 32 以内，scaffold 无必要。
       # 决策依据：docs/decisions.md D-42 部署层失败模式防护 + D-36-B 机器证据。
+      # M2-A.1 准入前置修复（2026-09-24）：HEAD CI run 7c87abd 实证 alembic upgrade
+      # ❌ failed with "failed to resolve host 'postgres'"（services.postgres 容器
+      # healthcheck 配了，但 DNS 传播瞬时失败 = race condition）。
+      # 显式等 TCP 5432 可达（最多 30 × 2s = 60s）。
+      - id: wait-postgres
+        name: Wait for postgres ready
+        run: |
+          for i in {1..30}; do
+            (echo > /dev/tcp/postgres/5432) 2>/dev/null && break
+            sleep 2
+          done
+          (echo > /dev/tcp/postgres/5432) 2>/dev/null || { echo "postgres not reachable after 60s"; exit 1; }
+
       # M1-B retro 工单 B3：CI 必须真跑 alembic upgrade head 落到 PG
       # （不能只 collect），否则 conftest PG fixture 拿不到 schema。
       - id: alembic
