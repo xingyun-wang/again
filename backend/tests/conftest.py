@@ -194,19 +194,13 @@ def mock_chapter(mock_db_session, mock_textbook):
 
 
 @pytest.fixture()
-def user_1(mock_db_session):  # type: ignore[no-untyped-def]
-    """测试用 user_1（id=1，非系统种子）。test_question_crud.py 等用户隔离场景用。
+def user_1(mock_user_system_seed):
+    """id=1 的测试用户。**就是** mock_user_system_seed 那一行（PG 主键唯一）。
 
-    M2-A.0 CI 修复（2026-09-26）：与 test_question_crud.py 文件级同名 fixture 协同；
-    conftest 提供 user_1_chapter 依赖的 user_1，本文件可被其他测试共享。
+    M2-A.0 CI 修复（2026-09-26）：之前 fixture 各自插 id=1 → b20023a commit 后 18 条 ERROR at setup = PK 冲突。
+    现在 user_1 直接复用 system-seed 那一行（id=1）= 解决 PK 冲突 + 维持 D-37 fail-open fixture 语义（if owner_id == 1）。
     """
-    from app.models import User
-
-    u = User(id=1, name="user-1", is_system_owned=False)
-    mock_db_session.add(u)
-    mock_db_session.commit()
-    mock_db_session.refresh(u)
-    return u
+    return mock_user_system_seed
 
 
 @pytest.fixture()

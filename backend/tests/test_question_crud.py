@@ -73,17 +73,6 @@ def _build_test_client(db_session: Any, llm_provider: Any) -> Any:
 
 
 @pytest.fixture()
-def user_1(mock_db_session):  # type: ignore[no-untyped-def]
-    from app.models import User
-
-    u = User(id=1, name="user-1", is_system_owned=False)
-    mock_db_session.add(u)
-    mock_db_session.commit()
-    mock_db_session.refresh(u)
-    return u
-
-
-@pytest.fixture()
 def user_2(mock_db_session):  # type: ignore[no-untyped-def]
     from app.models import User
 
