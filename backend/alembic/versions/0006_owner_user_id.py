@@ -37,7 +37,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0006_owner_user_id"
-down_revision: str | None = "0005_drop_extraction_source_default"
+down_revision: str | None = "0005_drop_extraction_default"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
