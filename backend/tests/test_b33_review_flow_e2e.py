@@ -76,7 +76,10 @@ def test_b33_lesson_plan_review_notes_persisted_to_db(
         json={"status": "reviewed", "notes": notes_value},
         headers={"X-User-Id": "5"},
     )
-    assert resp.status_code == 200
+    # D-29/D-37：user_5 评审 user_1 资源 → 404（不豁免）
+    assert resp.status_code == 404, (
+        f"D-29 不可豁免：user_5 评审 user_1 资源应返 404，实际 {resp.status_code}：{resp.text}"
+    )
     assert resp.json()["review"]["review_status"] == "reviewed"
     assert resp.json()["review"]["review_notes"] == notes_value
 
@@ -121,7 +124,10 @@ def test_b33_lesson_plan_modified_with_content_and_notes(
         },
         headers={"X-User-Id": "3"},
     )
-    assert resp.status_code == 200
+    # D-29/D-37：user_3 评审 user_1 资源 → 404（不豁免）
+    assert resp.status_code == 404, (
+        f"D-29 不可豁免：user_3 评审 user_1 资源应返 404，实际 {resp.status_code}：{resp.text}"
+    )
     assert resp.json()["review"]["review_status"] == "modified"
 
     # DB 直查
@@ -168,7 +174,10 @@ def test_b33_chapter_review_pending_to_reviewed_with_notes(
         json={"status": "reviewed", "notes": notes_value},
         headers={"X-User-Id": "9"},
     )
-    assert resp.status_code == 200
+    # D-29/D-37：user_9 评审 user_1 资源 → 404（不豁免）
+    assert resp.status_code == 404, (
+        f"D-29 不可豁免：user_9 评审 user_1 资源应返 404，实际 {resp.status_code}：{resp.text}"
+    )
     assert resp.json()["review"]["review_status"] == "reviewed"
     assert resp.json()["review"]["review_notes"] == notes_value
 

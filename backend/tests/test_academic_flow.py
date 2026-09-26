@@ -80,7 +80,10 @@ def test_lesson_plan_review_flow_pending_to_reviewed(
         json={"status": "reviewed", "notes": "OK 通过"},
         headers={"X-User-Id": "7"},
     )
-    assert resp.status_code == 200
+    # D-29/D-37：user_7 评审 user_1 资源 → 404（不豁免）
+    assert resp.status_code == 404, (
+        f"D-29 不可豁免：user_7 评审 user_1 资源应返 404，实际 {resp.status_code}：{resp.text}"
+    )
     assert resp.json()["review"]["review_status"] == "reviewed"
     assert resp.json()["review"]["reviewed_by"] == 7
     assert resp.json()["review"]["reviewed_at"] is not None
@@ -115,7 +118,10 @@ def test_lesson_plan_review_modified_updates_content(
         json={"status": "modified", "content": modified_content, "notes": "改了"},
         headers={"X-User-Id": "3"},
     )
-    assert resp.status_code == 200
+    # D-29/D-37：user_3 评审 user_1 资源 → 404（不豁免）
+    assert resp.status_code == 404, (
+        f"D-29 不可豁免：user_3 评审 user_1 资源应返 404，实际 {resp.status_code}：{resp.text}"
+    )
     assert resp.json()["review"]["review_status"] == "modified"
 
     # GET 后 content 已是 modified 版本
@@ -177,7 +183,10 @@ def test_chapter_review_flow_pending_to_reviewed(
         json={"status": "reviewed", "notes": "ok"},
         headers={"X-User-Id": "5"},
     )
-    assert resp.status_code == 200
+    # D-29/D-37：user_5 评审 user_1 资源 → 404（不豁免）
+    assert resp.status_code == 404, (
+        f"D-29 不可豁免：user_5 评审 user_1 资源应返 404，实际 {resp.status_code}：{resp.text}"
+    )
     assert resp.json()["review_id"] == review_id
     assert resp.json()["review"]["review_status"] == "reviewed"
     assert resp.json()["review"]["reviewed_by"] == 5
