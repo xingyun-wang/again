@@ -50,7 +50,8 @@ jobs:
       PYTHON_VERSION: '3.11'        # 与 prod 容器一致
       PG_VERSION: '15-alpine'        # 与 docker-compose 一致
       # 这些 env 必须在每个 step 输出 + CI artifact 里出现
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/tiered_homework_test
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ env.PG_HOST }}:5432/tiered_homework_test
+      # host 由 wait-postgres 步写入 $GITHUB_ENV=PG_HOST（127.0.0.1 或 postgres hostname）
       # CI 中 dev box 风格的 worker 跑不动 alembic + 真 LLM（B5 仍开）；
       # pytest 用 dummy key（mock_llm_provider 不需要真 key；D-32 教训）
       # verify 用 repo secret 里的真 key（infra agent 负责加）
@@ -104,39 +105,35 @@ jobs:
       # 真 wait-postgres 必须：任何 probe FAIL 立即 exit 1。
       # 不依赖 pg_isready / psycopg / nc 二进制（避免额外依赖）。
       - id: wait-postgres
-        name: Wait for postgres ready (fail-fast, host from DATABASE_URL)
+        name: Wait for postgres ready (self-selecting host)
         run: |
-          set -e
-          echo "=== DATABASE_URL: ${DATABASE_URL} ==="
-          # Extract host:port from DATABASE_URL（避免硬编码，与 line 51 单一源 = D-42 升级）
-          PG_HOST=$(python3 -c "from urllib.parse import urlparse; u=urlparse('${DATABASE_URL}'); print(u.hostname or '127.0.0.1')")
-          PG_PORT=$(python3 -c "from urllib.parse import urlparse; u=urlparse('${DATABASE_URL}'); print(u.port or 5432)")
-          echo "=== Probing ${PG_HOST}:${PG_PORT} ==="
-          for i in $(seq 1 30); do
-            if python3 -c "
-            import socket, sys
-            s = socket.socket(); s.settimeout(5)
-            try:
-              s.connect(('${PG_HOST}', ${PG_PORT}))
-              s.close()
-              sys.exit(0)
-            except Exception as e:
-              print(f'attempt failed: {e}', file=sys.stderr)
-              sys.exit(1)
-            " 2>/dev/null; then
-              echo "postgres ready after ${i} attempts at ${PG_HOST}:${PG_PORT}"
+          # 决策书 §五：自选式探针 — 两个 candidate + 失败 dump
+          # D-43-X-2 升级：禁 2>/dev/null + 探针自证（不静默 stderr）
+          for host in 127.0.0.1 postgres; do
+            echo "--- Probing $host:5432 ---"
+            if (timeout 5 bash -c "echo > /dev/tcp/$host/5432") 2>&1; then
+              echo "PG_HOST=$host" >> "$GITHUB_ENV"
+              echo "PG_PORT=5432" >> "$GITHUB_ENV"
+              echo "Found working host: $host:5432"
               exit 0
+            else
+              echo "FAILED: $host:5432 unreachable"
             fi
-            sleep 2
           done
-          echo "ERROR: postgres not reachable at ${PG_HOST}:${PG_PORT} after 60s"
-          echo "=== Diagnostic dump ==="
+          echo "ERROR: neither 127.0.0.1 nor postgres reachable on port 5432"
+          echo "=== Diagnostic dump (D-43-X-2 §3 必附证据) ==="
+          echo "--- ss -tlnp ---"
+          ss -tlnp 2>&1 || echo "ss not available"
+          echo "--- docker ps -a ---"
+          docker ps -a 2>&1 || echo "docker not available"
+          echo "--- /proc/self/cgroup ---"
+          cat /proc/self/cgroup 2>&1 || echo "cgroup not available"
+          echo "--- getent hosts postgres ---"
+          getent hosts postgres 2>&1 || echo "FAIL getent"
           echo "--- /etc/hosts ---"
           cat /etc/hosts 2>&1
-          echo "--- getent hosts ${PG_HOST} ---"
-          getent hosts ${PG_HOST} 2>&1 || echo "FAIL getent"
           echo "--- ps aux postgres ---"
-          ps auxf 2>&1 | grep -i postgres | head -5 || echo "no postgres process"
+          ps auxf | grep -i postgres | head -5 || echo "no postgres process"
           exit 1
 
       # M1-B retro 工单 B3：CI 必须真跑 alembic upgrade head 落到 PG
