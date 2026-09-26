@@ -233,9 +233,37 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 
 ### 接受率（真实修订率）
 
-- 决策书 §一.5 自报"接受率 0%"= 决策书 self-grep 验证
+- 决策书 §一.5 自报“接受率 0%”= 决策书 self-grep 验证
 - 我方接受率真实 = **7/7 = 100%**（§四 7 未办事项全部接受为执行计划）
+
+### D-42 升级（决策书 §六 接住，2026-09-26 立）
+
+> **原 D-42**：fail-open 三层复发 + D-36 操作化
+> **D-42 升级（§六 烧 3 次修复后立）**：CI/部署配置里任何关于**“平台会怎么做”**的断言，必须附：
+> 1. **官方文档出处**（GitHub Docs URL + 章节 / version）
+> 2. **一次实跑证据**（git log + ci run + 实际输出）
+>
+> 不满足上述两条者，在评审时按 **P1** 计。
+>
+> **实战失实样本**（决策书 §六）：
+> - 44624f2 ci.yml:92-94 注释：“DNS 传播瞬时失败 = race condition”——无 Docs 出处、无实跑证据 → 烧本次修复链
+> - 5ce4644 ci.yml:27 注释：“容器内 host = \`postgres\`（GitHub Actions service 默认 DNS 名）”——错的（无 `container:` 键不适用此规则）
+> - ci.yml:88-90 注释：“迁移 ID 字符数回到 32 以内，scaffold 无必要”——0005 35 字符 现实责为"以上为假陈述”（决策书 §五）
+>
+> **B2 review6 同样违反 D-42**：§2.4 + §3.1 仅看 “形式自洽” 未看“根因错”——修订为 ⚠️
+
+### B1 准备 spec（决策书 §八，2026-09-26 待派工地）
+
+8 项改动合一次 commit（决策书 §八 接受为“不分次，避免再烧一轮”）：
+1. ci.yml:51 `DATABASE_URL` → `127.0.0.1`
+2. ci.yml:171 删 verify 重复 `DATABASE_URL`（继承 job env）
+3. ci.yml:27 注释改对（附 GitHub Docs 出处 + 真实根因）
+4. ci.yml:100 wait-postgres → 单探针从 `DATABASE_URL` 派生 + 删 3 层 probe + 删 psycopg 源码拼密码
+5. ci.yml:166 verify 步从 per-push 拆（仅留 `workflow_dispatch` 手动入口）——材料 PDF 在 .gitignore
+6. ci.yml:88 删/改“迁移 ID ≤32”假陈述（对应决策书 §五）
+7. alembic 0005 revision id 缩短 ≤32（同步 down_revision 引用）——决策书 §五
+8. ci.yml:78-80/85 mypy 矛盾注释二选一
 
 ### 来源
 
-收口决策书 2026-09-26 §一 §二 §三 §四 §五 + git 实测（5ce46442 + 9d332cc vs 171aabe + test_question_crud.py SKIPPED 验证）+ memory/2026-09-26.md + decisions.md D-43/D-44/D-45/D-43-X + review5 §10 D-45 compliance 段。
+收口决策书 2026-09-26 §一 §二 §三 §四 §五 §六 §七 §八 §九 + git 实测（5ce46442 + 9d332cc vs 171aabe + test_question_crud.py SKIPPED 验证 + HEAD = 5ce46442 三方一致 + ci.yml L27/L51/L78-90/L100-129/L165-177 全文 + alembic 0005 35字符 + materials/ git tracked 空 + .gitignore materials/ + DEEPSEEK_API_KEY 在 ci.yml L170 引用 `secrets.DEEPSEEK_API_KEY` 待查）+ memory/2026-09-26.md + decisions.md D-43/D-44/D-45/D-43-X + review5 §10 D-45 compliance 段 + review6 §2.4/§3.1 D-45 §3 修订。
