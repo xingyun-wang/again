@@ -165,6 +165,7 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ env.DEEPSEEK_API_KEY_PYTEST }}
           UPLOADS_DIR: ${{ runner.temp }}/uploads  # B3 修订 1：CI 上传目录 = runner.temp（可写）
+          UPLOAD_ROOT: ${{ runner.temp }}/uploads  # 修 router 读 UPLOAD_ROOT（不读 UPLOADS_DIR）
         run: pytest -q
 
       # M1-B retro 工单 B3：CI 真 verify 5 章节 LLM 真值（B.3.2 验收门槛）。
