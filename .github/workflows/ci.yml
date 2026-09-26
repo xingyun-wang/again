@@ -55,7 +55,7 @@ jobs:
       # CI 中 dev box 风格的 worker 跑不动 alembic + 真 LLM（B5 仍开）；
       # pytest 用 dummy key（mock_llm_provider 不需要真 key；D-32 教训）
       # verify 用 repo secret 里的真 key（infra agent 负责加）
-      DEEPSEEK_API_KEY_PYTEST: ci-dummy-key
+      DEEPSEEK_API_KEY_PYTEST: dummy  # 匹配 test_academic_llm.py:34 exclude list ("dummy" = 跳过真 API)
 
     steps:
       - uses: actions/checkout@v4
@@ -164,6 +164,7 @@ jobs:
         working-directory: backend
         env:
           DEEPSEEK_API_KEY: ${{ env.DEEPSEEK_API_KEY_PYTEST }}
+          UPLOADS_DIR: ${{ runner.temp }}/uploads  # B3 修订 1：CI 上传目录 = runner.temp（可写）
         run: pytest -q
 
       # M1-B retro 工单 B3：CI 真 verify 5 章节 LLM 真值（B.3.2 验收门槛）。
