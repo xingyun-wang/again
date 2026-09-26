@@ -769,4 +769,41 @@ open-questions.md §9 三个问题全部 ✅：
 - 不同命令交叉验证：grep / ls-tree / log / show / status 五源至少二源
 - STATE.md 头部 SHA 写则过期（新-4 工程债）：根治 = 不写 SHA，写 commit subject + commit-hook 自动更新
 
-**来源**：收口决策书 2026-09-24 §二 + §六（同型事故序列 + "结论性陈述必须自我验证"规则）+ git 实测修正。
+**来源**：收口决策书 2026-09-24 §二 + §六（同型事故序列 + “结论性陈述必须自我验证”规则）+ git 实测修正。
+
+---
+
+### D-43-X-2：判定型探针 / 门禁硬规则（2026-09-26 立）
+
+**问题**：run #21 探针（ci.yml L116-126）实际**从未成功执行过一次 TCP connect**。
+- wait-postgres 探针 = Python 多行字符串 + YAML literal block 公共缩进 + leading newline
+- Python 3.13.12 本地复现 IndentationError exit=1（决策书 §二 实证）
+- `2>/dev/null` 把 IndentationError traceback 倒进黑洞 → 误读为“127.0.0.1 不可达”
+- 真相 = 探针**从未跑过**，不是“127.0.0.1 也不通”
+
+**拍板**——D-43-X 升级三规则：
+
+1. **禁止判定型探针/门禁用 `2>/dev/null`**（含 `>/dev/null 2>&1`）
+   - 失败必须响（exit != 0 且 stderr 可见）
+   - 或至少把捕获到的 stderr 原文打进日志
+   - 反例（2026-09-26）：wait-postgres 用 `2>/dev/null` 吞掉 IndentationError → 误判为“网络不可达”
+   - 正例：`/dev/tcp/postgres/5432` 失败 → bash 退出码 125 + 错误信息可见
+
+2. **探针必须先自证“我确实跑过”**
+   - 在同一步里先 `echo probe-alive` 或写文件
+   - 或干脆避开 `python -c "多行字符串"` 这种缩进/引号双重雷区
+   - 优先单行 bash `/dev/tcp` 或 heredoc
+
+3. **任何“不可达 / 不存在”的结论，必须同时附“探测动作确实执行过”的证据**，否则该结论不可引用
+   - 反例（2026-09-26 run #21）：决策室 + 载曜两次报告“127.0.0.1 不通”——其实探针从未跑过
+   - 正例：探针 stdout 显示 `ERROR: cannot resolve host` 或 `Connection refused` + `exit=125` = 真有执行
+
+**影响**：
+- AGENTS.md §代码审查纪律 段同步硬规则
+- 后续所有判定型探针/门禁必须按此三规则
+
+**未来警惕**：
+- 不再以“探针输出 false”定 false positive——应先看探针本身是否执行过
+- 调试类探针 vs 门禁类探针 区分：调试可临时静默 stderr；门禁不可
+
+**来源**：收口决策书 2026-09-26 §七 + git 实测（ci.yml L116-126）+ Python 3.13.12 本地复现 IndentationError + D-42 升级联动。

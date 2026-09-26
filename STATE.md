@@ -252,17 +252,62 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 >
 > **B2 review6 同样违反 D-42**：§2.4 + §3.1 仅看 “形式自洽” 未看“根因错”——修订为 ⚠️
 
-### B1 准备 spec（决策书 §八，2026-09-26 待派工地）
+### B1' 准备 spec（自选式探针，决策书 §五 接住，2026-09-26 19:22 立）
 
-8 项改动合一次 commit（决策书 §八 接受为“不分次，避免再烧一轮”）：
-1. ci.yml:51 `DATABASE_URL` → `127.0.0.1`
-2. ci.yml:171 删 verify 重复 `DATABASE_URL`（继承 job env）
-3. ci.yml:27 注释改对（附 GitHub Docs 出处 + 真实根因）
-4. ci.yml:100 wait-postgres → 单探针从 `DATABASE_URL` 派生 + 删 3 层 probe + 删 psycopg 源码拼密码
-5. ci.yml:166 verify 步从 per-push 拆（仅留 `workflow_dispatch` 手动入口）——材料 PDF 在 .gitignore
-6. ci.yml:88 删/改“迁移 ID ≤32”假陈述（对应决策书 §五）
-7. alembic 0005 revision id 缩短 ≤32（同步 down_revision 引用）——决策书 §五
-8. ci.yml:78-80/85 mypy 矛盾注释二选一
+**单 commit 替换 wait-postgres 步**（决策书 §五提议；D-43-X-2 §1 §2 设计要求：禁 2>/dev/null / 探针自证）：
+
+```yaml
+      - id: wait-postgres
+        name: Wait for postgres ready (self-selecting host)
+        run: |
+          # 决策书 §五：自选式探针 — 两个 candidate + 失败 dump
+          # D-43-X-2 升级：禁 2>/dev/null + 探针自证（不静默 stderr）
+          for host in 127.0.0.1 postgres; do
+            echo "--- Probing $host:5432 ---"
+            if (timeout 5 bash -c "echo > /dev/tcp/$host/5432") 2>&1; then
+              echo "PG_HOST=$host" >> "$GITHUB_ENV"
+              echo "PG_PORT=5432" >> "$GITHUB_ENV"
+              echo "Found working host: $host:5432"
+              exit 0
+            else
+              echo "FAILED: $host:5432 unreachable"
+            fi
+          done
+          echo "ERROR: neither 127.0.0.1 nor postgres reachable on port 5432"
+          echo "=== Diagnostic dump (D-43-X-2 §3 必附证据) ==="
+          echo "--- ss -tlnp ---"
+          ss -tlnp 2>&1 || echo "ss not available"
+          echo "--- docker ps -a ---"
+          docker ps -a 2>&1 || echo "docker not available"
+          echo "--- /proc/self/cgroup ---"
+          cat /proc/self/cgroup 2>&1 || echo "cgroup not available"
+          echo "--- getent hosts postgres ---"
+          getent hosts postgres 2>&1 || echo "FAIL getent"
+          echo "--- /etc/hosts ---"
+          cat /etc/hosts 2>&1
+          echo "--- ps aux postgres ---"
+          ps auxf | grep -i postgres | head -5 || echo "no postgres process"
+          exit 1
+```
+
+**同步改 ci.yml:53** `DATABASE_URL`：
+```yaml
+# 旧：DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/tiered_homework_test
+# 新：DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ env.PG_HOST }}:5432/tiered_homework_test
+```
+理由：若 127.0.0.1 通 → ${env.PG_HOST} 解析为 127.0.0.1 → 后续 step 正常
+       若 postgres 通 → ${env.PG_HOST} 解析为 postgres → 后续 step 走 postgres hostname
+
+**预期**（决策书 §八）：
+- 127.0.0.1 通 → CI 全绿（alembic / pytest / verify）= M2-A.1 准入门禁达 3/3
+- postgres 通 → 后续 step 走 postgres hostname → CI 全绿
+- 两都失败 → dump 6 源诊断（ss + docker + cgroup + getent + /etc/hosts + ps）= 决策书 §四 B 触发条件
+
+**不**做：
+- 不改 verify 步（已加 if: workflow_dispatch 跳过 per-push）
+- 不改 DATABASE_URL 之外的 env 段
+- 不改 services: postgres 块（healthcheck 已够）
+- 不改 alembic 0005/0006（5d68b3c 已修 chain）
 
 ### 来源
 
