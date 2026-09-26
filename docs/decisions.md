@@ -807,3 +807,54 @@ open-questions.md §9 三个问题全部 ✅：
 - 调试类探针 vs 门禁类探针 区分：调试可临时静默 stderr；门禁不可
 
 **来源**：收口决策书 2026-09-26 §七 + git 实测（ci.yml L116-126）+ Python 3.13.12 本地复现 IndentationError + D-42 升级联动。
+
+---
+
+### D-46：迁移反模式清单（2026-09-26 立）
+
+**问题**：run #21 + run #22 双盲点暴露 alembic migration 关键 bug：
+- 0007_questions.py 在任何环境都必然失败（`question_difficulty_enum` DuplicateObject——因为既有迁移 + Alembic `op.create_table` 都会试图 CREATE TYPE）
+- 0007 注释“单列索引由 sa.Column index=True 自动建”= 假（手写迁移不写 `op.create_index` 就没有 → 0007 缺 3 个索引：owner_user_id / chapter_id / choices.question_id）
+- 0002:44-45 注释错归因 vs 0003:45-49 注释正确（0002 错信“create_type=False 避免 DuplicateObject”——但 `sql.sqltypes.Enum` 不读 `create_type` kw；0003 才说走 `upgrade()` 顶部 `op.execute` 路径）
+- 决策书 §五 author + 我 A 选项 brief 同型错 = `sa.Enum(..., create_type=False)` 哑参数误用
+
+**拍板**——迁移反模式 4 条：
+
+1. **禁 `Enum.create(bind, checkfirst=True)` 显式建类型**
+   - Alembic `op.create_table` 会再次试图 CREATE TYPE → 撞 unique violation → DuplicateObject
+   - 反例（0007:30-31）：`question_difficulty_enum.create(bind, checkfirst=True)` 后 `op.create_table` 内部又尝试 CREATE TYPE → 失败
+   - 正例：`upgrade()` 头部用 `op.execute(DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL; END $$)` 幂等建类型
+
+2. **`create_type=False` 只在 `sqlalchemy.dialects.postgresql.ENUM` 生效；`sa.Enum` 是哑参数**
+   - SQLAlchemy 源码证据：`sqlalchemy/dialects/postgresql/named_types.py:346` `kw.setdefault("create_type", impl.create_type)`——但 `sql.sqltypes.Enum` 不读此 kw
+   - 反例（0007 原写 + 我之前 A 选项 brief）：`sa.Enum(..., create_type=False)`——写了但无效
+   - 正例：`from sqlalchemy.dialects.postgresql import ENUM as PG_ENUM; PG_ENUM(..., create_type=False)`
+
+3. **PG 任意版本无 `CREATE TYPE IF NOT EXISTS` → 必须 `DO $$ ... EXCEPTION` 块**
+   - PG 9.5+ 不支持原生 `CREATE TYPE IF NOT EXISTS`
+   - 反例：直接 `op.execute("CREATE TYPE ...")` 在重跑/重入场景必然撞 DuplicateObject
+   - 正例：
+     ```python
+     op.execute("""DO $$ BEGIN
+       CREATE TYPE question_difficulty_enum AS ENUM ('D', 'C', 'B', 'A');
+     EXCEPTION WHEN duplicate_object THEN NULL;
+     END $$""")
+     ```
+
+4. **每个新 migration 必须与既有做同类写法交叉核对**
+   - 0002:44-45 注释错归因（“create_type=False 避免 DuplicateObject”——此 kw 在 sa.Enum 上不生效）
+   - 0003:45-49 注释正确（明确说“create_type=False 在 alembic+SQLAlchemy+PG 下不生效”= 走 upgrade() 顶部 op.execute 路径）
+   - 0007 抄了错的那一份 + 加了被禁用的 .create() = 双重错
+   - 新 migration 必须 grep 同类 enum 写法 + 在 review brief 引用
+
+**影响**：
+- AGENTS.md §代码审查纪律 段加“迁移交叉核对”硬规则
+- review8 必须用 D-46 清单扫全部 7 个 migration（0001-0007）
+- 后续所有 migration 必须经 D-46 4 条核对
+
+**未来警惕**：
+- D-43-X-2 实战失实 #10/11 同期（我 A 选项 + 决策书 §五 author 用 sa.Enum create_typeFalse 同型错 = 我未核实 sqlalchemy 源码）
+- D-43-X-2 §1 探针自证 = 仅 `yaml.safe_load` 不够（必须 grep 实跑证据）
+- alembic 迁移文件不在 ruff/mypy 默认探测范围 = **alembic 步是唯一探测器**，不能漏
+
+**来源**：收口决策书 2026-09-26 §三 + §五 + §六 + §八 + §十 + SQLAlchemy `named_types.py:346` 源码 + 0002/0003/0007 migration 源码 + run #21 + #22 实跑证据。

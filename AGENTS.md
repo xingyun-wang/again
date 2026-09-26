@@ -62,3 +62,4 @@
 - **独立原则**：不告诉审查员「自审已通过」——让其在不知道结论的前提下独立判断（**brief 中立性细则见 D-33**）
 - **作者签字制**：报告作者必须签字；不打回 = 作者接责；**豁免权加锁见 D-35**
 - **未通过禁入下一阶段**：本轮 milestone 未审查通过 → 不进下一阶段（**冻结 + tag 见 D-31；二次审查触发见 D-37**）
+- **迁移交叉核对**（D-46 / 2026-09-26）：每个新 alembic migration 必须经 4 条核对 = ①不显式 `Enum.create(checkfirst=True)` ②`create_type` 只在 PG 方言生效（`sa.Enum` 是哑参数）③PG 无 `CREATE TYPE IF NOT EXISTS` → 必须 `DO $$ ... EXCEPTION` 块 ④与既有同类迁移（0001-0007）做写法交叉核对。alembic 步是 alembic migration 文件唯一探测器，不能漏（ruff/mypy 默认不扫）
