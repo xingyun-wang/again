@@ -50,8 +50,8 @@ jobs:
       PYTHON_VERSION: '3.11'        # 与 prod 容器一致
       PG_VERSION: '15-alpine'        # 与 docker-compose 一致
       # 这些 env 必须在每个 step 输出 + CI artifact 里出现
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ env.PG_HOST }}:5432/tiered_homework_test
-      # host 由 wait-postgres 步写入 $GITHUB_ENV=PG_HOST（127.0.0.1 或 postgres hostname）
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/tiered_homework_test
+      # 固定 127.0.0.1（wait-postgres 探针第一 candidate；postgres 探针作为诊断信息写 GITHUB_ENV=PG_HOST 但此处不引用）
       # CI 中 dev box 风格的 worker 跑不动 alembic + 真 LLM（B5 仍开）；
       # pytest 用 dummy key（mock_llm_provider 不需要真 key；D-32 教训）
       # verify 用 repo secret 里的真 key（infra agent 负责加）
