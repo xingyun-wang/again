@@ -94,23 +94,9 @@ def user_2(mock_db_session):  # type: ignore[no-untyped-def]
     return u
 
 
-@pytest.fixture()
-def user_1_chapter(mock_db_session, user_1):  # type: ignore[no-untyped-def]
-    """user_1 拥有的 Chapter（含 extraction_source 必填字段；B2 baseline 一致）。"""
-    from app.models import Chapter
-
-    ch = Chapter(
-        textbook_id=1,  # mock_textbook 不必要；chapter 直接 ID=1 即可（PG 不存在会 FK fail）
-        owner_user_id=user_1.id,
-        chapter_number=1,
-        title="user_1 第一章",
-        content_summary="user_1 内容",
-        extraction_source="detected",
-    )
-    mock_db_session.add(ch)
-    mock_db_session.commit()
-    mock_db_session.refresh(ch)
-    return ch
+# user_1_chapter fixture 已迁到 conftest.py（2026-09-26 CI run #20 修复）：
+# - conftest 加 mock_textbook 依赖（FK 目标 = 真实 Textbook.id）
+# - pytest 同名 fixture 文件级优先 = 不删此文件级版本会赢 → 改为引用 conftest
 
 
 @pytest.fixture()

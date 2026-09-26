@@ -52,6 +52,7 @@ from app.models import (
     TeachingSuggestion,
     Textbook,
     Tier,
+    User,
 )
 
 # ─────────────────────────── fixtures ───────────────────────────
@@ -95,8 +96,27 @@ def session(engine: sa.Engine) -> Generator[Session, None, None]:
 
 
 @pytest.fixture()
-def sample_subject(session: Session) -> Subject:
-    s = Subject(name="初中数学", grade_level=GradeLevel.JUNIOR_HIGH)
+def user_1(session: Session) -> User:
+    """系统种子 user_1（test_academic_models 文件级，pytest 同名 fixture 文件级优先）。
+
+    修复（2026-09-26 CI run #20）：Subject/Textbook/Chapter.owner_user_id NOT NULL
+    要求 User 存在（FK → users.id）；test_academic_models 自带 engine fixture
+    （不走 conftest），故 user_1 必须在文件级提供。
+    """
+    u = User(id=1, name="system-seed", is_system_owned=True)
+    session.add(u)
+    session.commit()
+    session.refresh(u)
+    return u
+
+
+@pytest.fixture()
+def sample_subject(session: Session, user_1: User) -> Subject:
+    s = Subject(
+        name="初中数学",
+        grade_level=GradeLevel.JUNIOR_HIGH,
+        owner_user_id=user_1.id,
+    )
     session.add(s)
     session.commit()
     session.refresh(s)
@@ -247,14 +267,23 @@ def test_subject_classes_back_populates(
 
 
 def test_student_knowledge_points_back_populates(
-    session: Session, sample_student: Student
+    session: Session, sample_student: Student, user_1: User
 ) -> None:
     """Student.knowledge_points ↔ StudentKnowledgePoint.student 双向。"""
     # 先建一个 chapter + KP
-    textbook = Textbook(name="人教版数学七上", file_path="/data/textbooks/rjb-7s.pdf")
+    textbook = Textbook(
+        name="人教版数学七上",
+        file_path="/data/textbooks/rjb-7s.pdf",
+        owner_user_id=user_1.id,
+    )
     session.add(textbook)
     session.flush()
-    chapter = Chapter(textbook_id=textbook.id, chapter_number=1, title="有理数")
+    chapter = Chapter(
+        textbook_id=textbook.id,
+        chapter_number=1,
+        title="有理数",
+        owner_user_id=user_1.id,
+    )
     session.add(chapter)
     session.flush()
     kp = KnowledgePoint(
@@ -290,12 +319,23 @@ def test_student_knowledge_points_back_populates(
     assert kp.student_links[0].student_id == sample_student.id
 
 
-def test_chapter_relationships_cover_all_5_subtypes(session: Session) -> None:
+def test_chapter_relationships_cover_all_5_subtypes(
+    session: Session, user_1: User
+) -> None:
     """Chapter 5 个子表全部双向访问通：KP / KeyPoint / Difficulty / TeachingSuggestion / Review。"""
-    textbook = Textbook(name="人教版数学七上", file_path="/data/rjb-7s.pdf")
+    textbook = Textbook(
+        name="人教版数学七上",
+        file_path="/data/rjb-7s.pdf",
+        owner_user_id=user_1.id,
+    )
     session.add(textbook)
     session.flush()
-    chapter = Chapter(textbook_id=textbook.id, chapter_number=2, title="整式")
+    chapter = Chapter(
+        textbook_id=textbook.id,
+        chapter_number=2,
+        title="整式",
+        owner_user_id=user_1.id,
+    )
     session.add(chapter)
     session.flush()
 
@@ -365,9 +405,16 @@ def test_delete_empty_class_succeeds(session: Session, sample_subject: Subject) 
     assert session.get(Class, cid) is None
 
 
-def test_delete_textbook_with_null_subject_succeeds(session: Session) -> None:
+def test_delete_textbook_with_null_subject_succeeds(
+    session: Session, user_1: User
+) -> None:
     """subject_id=NULL 的 Textbook 删除时不会牵动 Subject（验证 SET NULL 一侧无反向约束）。"""
-    tb = Textbook(name="未归类教材", file_path="/tmp/orphan.pdf", subject_id=None)
+    tb = Textbook(
+        name="未归类教材",
+        file_path="/tmp/orphan.pdf",
+        subject_id=None,
+        owner_user_id=user_1.id,
+    )
     session.add(tb)
     session.commit()
     session.delete(tb)
@@ -378,13 +425,22 @@ def test_delete_textbook_with_null_subject_succeeds(session: Session) -> None:
 
 
 def test_student_knowledge_point_unique_pair(
-    session: Session, sample_student: Student
+    session: Session, sample_student: Student, user_1: User
 ) -> None:
     """(student_id, knowledge_point_id) 唯一：同一对重复插入应失败。"""
-    textbook = Textbook(name="人教版数学七上", file_path="/data/rjb-7s.pdf")
+    textbook = Textbook(
+        name="人教版数学七上",
+        file_path="/data/rjb-7s.pdf",
+        owner_user_id=user_1.id,
+    )
     session.add(textbook)
     session.flush()
-    chapter = Chapter(textbook_id=textbook.id, chapter_number=1, title="有理数")
+    chapter = Chapter(
+        textbook_id=textbook.id,
+        chapter_number=1,
+        title="有理数",
+        owner_user_id=user_1.id,
+    )
     session.add(chapter)
     session.flush()
     kp = KnowledgePoint(chapter_id=chapter.id, name="正负数", concept="...", teaching_order=1)
@@ -405,17 +461,33 @@ def test_student_knowledge_point_unique_pair(
         session.flush()
 
 
-def test_chapter_unique_textbook_chapter_number(session: Session) -> None:
+def test_chapter_unique_textbook_chapter_number(
+    session: Session, user_1: User
+) -> None:
     """(textbook_id, chapter_number) 唯一：同教材不能有两个 chapter_number=1。"""
-    textbook = Textbook(name="人教版数学七上", file_path="/data/rjb-7s.pdf")
+    textbook = Textbook(
+        name="人教版数学七上",
+        file_path="/data/rjb-7s.pdf",
+        owner_user_id=user_1.id,
+    )
     session.add(textbook)
     session.flush()
 
-    c1 = Chapter(textbook_id=textbook.id, chapter_number=1, title="第一章")
+    c1 = Chapter(
+        textbook_id=textbook.id,
+        chapter_number=1,
+        title="第一章",
+        owner_user_id=user_1.id,
+    )
     session.add(c1)
     session.commit()
 
-    c2 = Chapter(textbook_id=textbook.id, chapter_number=1, title="重复第一章")
+    c2 = Chapter(
+        textbook_id=textbook.id,
+        chapter_number=1,
+        title="重复第一章",
+        owner_user_id=user_1.id,
+    )
     session.add(c2)
     with pytest.raises(IntegrityError):
         session.flush()
@@ -424,12 +496,21 @@ def test_chapter_unique_textbook_chapter_number(session: Session) -> None:
 # ─────────────────────────── 6. KnowledgeReview 流转 ─────────────
 
 
-def test_knowledge_review_status_transitions(session: Session) -> None:
+def test_knowledge_review_status_transitions(
+    session: Session, user_1: User
+) -> None:
     """pending → approved → modified（字段值切换，不触发 schema 迁移）。"""
-    textbook = Textbook(name="教材", file_path="/x.pdf")
+    textbook = Textbook(
+        name="教材", file_path="/x.pdf", owner_user_id=user_1.id
+    )
     session.add(textbook)
     session.flush()
-    chapter = Chapter(textbook_id=textbook.id, chapter_number=1, title="ch1")
+    chapter = Chapter(
+        textbook_id=textbook.id,
+        chapter_number=1,
+        title="ch1",
+        owner_user_id=user_1.id,
+    )
     session.add(chapter)
     session.flush()
 
@@ -463,13 +544,20 @@ def test_knowledge_review_status_transitions(session: Session) -> None:
 
 
 def test_delete_student_cascades_to_skp(
-    session: Session, sample_student: Student
+    session: Session, sample_student: Student, user_1: User
 ) -> None:
     """Student 删除时，其 StudentKnowledgePoint 应被 cascade 清掉（ORM 级）。"""
-    textbook = Textbook(name="教材", file_path="/x.pdf")
+    textbook = Textbook(
+        name="教材", file_path="/x.pdf", owner_user_id=user_1.id
+    )
     session.add(textbook)
     session.flush()
-    chapter = Chapter(textbook_id=textbook.id, chapter_number=1, title="ch1")
+    chapter = Chapter(
+        textbook_id=textbook.id,
+        chapter_number=1,
+        title="ch1",
+        owner_user_id=user_1.id,
+    )
     session.add(chapter)
     session.flush()
     kp = KnowledgePoint(chapter_id=chapter.id, name="kp", concept="c", teaching_order=1)

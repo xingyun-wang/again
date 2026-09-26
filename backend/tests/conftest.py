@@ -194,6 +194,47 @@ def mock_chapter(mock_db_session, mock_textbook):
 
 
 @pytest.fixture()
+def user_1(mock_db_session):  # type: ignore[no-untyped-def]
+    """测试用 user_1（id=1，非系统种子）。test_question_crud.py 等用户隔离场景用。
+
+    M2-A.0 CI 修复（2026-09-26）：与 test_question_crud.py 文件级同名 fixture 协同；
+    conftest 提供 user_1_chapter 依赖的 user_1，本文件可被其他测试共享。
+    """
+    from app.models import User
+
+    u = User(id=1, name="user-1", is_system_owned=False)
+    mock_db_session.add(u)
+    mock_db_session.commit()
+    mock_db_session.refresh(u)
+    return u
+
+
+@pytest.fixture()
+def user_1_chapter(mock_db_session, user_1, mock_textbook):  # type: ignore[no-untyped-def]
+    """user_1 拥有的 Chapter（含 extraction_source 必填字段；B2 baseline 一致）。
+
+    修复（2026-09-26 CI run #20）：mock_textbook fixture 先建 Textbook
+    （chapter.textbook_id FK 目标 = Textbook.id 实际存在）。
+    PG 路径下 textbook_id=1 不存在会 FK violation → 之前测试真跑崩这里。
+    删 test_question_crud.py 同名 fixture（pytest 文件级优先 = 不删 conftest 不会生效）。
+    """
+    from app.models import Chapter
+
+    ch = Chapter(
+        textbook_id=mock_textbook.id,
+        owner_user_id=user_1.id,
+        chapter_number=1,
+        title="user_1 第一章",
+        content_summary="user_1 内容",
+        extraction_source="detected",
+    )
+    mock_db_session.add(ch)
+    mock_db_session.commit()
+    mock_db_session.refresh(ch)
+    return ch
+
+
+@pytest.fixture()
 def mock_user_system_seed(mock_db_session):
     """系统种子用户（id=1, is_system_owned=True）— 与 alembic 0005 对齐。
 
