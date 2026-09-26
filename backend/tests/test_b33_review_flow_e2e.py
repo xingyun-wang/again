@@ -74,11 +74,11 @@ def test_b33_lesson_plan_review_notes_persisted_to_db(
     resp = client.patch(
         f"/api/v1/academic/lesson-plans/{lp_id}/review",
         json={"status": "reviewed", "notes": notes_value},
-        headers={"X-User-Id": "5"},
+        headers={"X-User-Id": "1"},
     )
-    # D-29/D-37：user_5 评审 user_1 资源 → 404（不豁免）
-    assert resp.status_code == 404, (
-        f"D-29 不可豁免：user_5 评审 user_1 资源应返 404，实际 {resp.status_code}：{resp.text}"
+    # P2：owner 自评 → 200（review_notes 真持久化）
+    assert resp.status_code == 200, (
+        f"owner 自评应返 200，实际 {resp.status_code}：{resp.text}"
     )
     assert resp.json()["review"]["review_status"] == "reviewed"
     assert resp.json()["review"]["review_notes"] == notes_value
@@ -88,7 +88,7 @@ def test_b33_lesson_plan_review_notes_persisted_to_db(
     assert lp_row is not None
     assert lp_row.review_notes == notes_value, "DB 中 review_notes 未持久化"
     assert lp_row.review_status.value == "approved"  # ORM 内部 = approved；API = reviewed
-    assert lp_row.reviewed_by == 5
+    assert lp_row.reviewed_by == 1
     assert lp_row.reviewed_at is not None
 
 
@@ -122,11 +122,11 @@ def test_b33_lesson_plan_modified_with_content_and_notes(
             "notes": notes_value,
             "content": modified_content,
         },
-        headers={"X-User-Id": "3"},
+        headers={"X-User-Id": "1"},
     )
-    # D-29/D-37：user_3 评审 user_1 资源 → 404（不豁免）
-    assert resp.status_code == 404, (
-        f"D-29 不可豁免：user_3 评审 user_1 资源应返 404，实际 {resp.status_code}：{resp.text}"
+    # P2：owner 自评 → 200（modified + content 覆写 + notes 持久化）
+    assert resp.status_code == 200, (
+        f"owner 自评应返 200，实际 {resp.status_code}：{resp.text}"
     )
     assert resp.json()["review"]["review_status"] == "modified"
 
@@ -172,11 +172,11 @@ def test_b33_chapter_review_pending_to_reviewed_with_notes(
     resp = client.patch(
         f"/api/v1/academic/chapters/{mock_chapter.id}/review",
         json={"status": "reviewed", "notes": notes_value},
-        headers={"X-User-Id": "9"},
+        headers={"X-User-Id": "1"},
     )
-    # D-29/D-37：user_9 评审 user_1 资源 → 404（不豁免）
-    assert resp.status_code == 404, (
-        f"D-29 不可豁免：user_9 评审 user_1 资源应返 404，实际 {resp.status_code}：{resp.text}"
+    # P2：owner 自评 → 200（chapter review notes 真持久化）
+    assert resp.status_code == 200, (
+        f"owner 自评应返 200，实际 {resp.status_code}：{resp.text}"
     )
     assert resp.json()["review"]["review_status"] == "reviewed"
     assert resp.json()["review"]["review_notes"] == notes_value
@@ -186,7 +186,7 @@ def test_b33_chapter_review_pending_to_reviewed_with_notes(
     assert review_row is not None
     assert review_row.notes == notes_value
     assert review_row.status.value == "approved"
-    assert review_row.reviewed_by == f"user:{9}"
+    assert review_row.reviewed_by == f"user:{1}"
 
 
 # ─────────────────────── OpenAPI B.3.1 + B.3.3 schema 验证 ───────────────────────

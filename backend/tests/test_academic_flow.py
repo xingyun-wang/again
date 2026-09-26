@@ -78,14 +78,14 @@ def test_lesson_plan_review_flow_pending_to_reviewed(
     resp = client.patch(
         f"/api/v1/academic/lesson-plans/{lp_id}/review",
         json={"status": "reviewed", "notes": "OK 通过"},
-        headers={"X-User-Id": "7"},
+        headers={"X-User-Id": "1"},
     )
-    # D-29/D-37：user_7 评审 user_1 资源 → 404（不豁免）
-    assert resp.status_code == 404, (
-        f"D-29 不可豁免：user_7 评审 user_1 资源应返 404，实际 {resp.status_code}：{resp.text}"
+    # P2：owner 自评（user_1 评审 user_1 自己的资源）→ 真跑状态机 → 200
+    assert resp.status_code == 200, (
+        f"owner 自评应返 200（review 真跑成功），实际 {resp.status_code}：{resp.text}"
     )
     assert resp.json()["review"]["review_status"] == "reviewed"
-    assert resp.json()["review"]["reviewed_by"] == 7
+    assert resp.json()["review"]["reviewed_by"] == 1
     assert resp.json()["review"]["reviewed_at"] is not None
     assert resp.json()["review"]["review_notes"] == "OK 通过"
 
@@ -116,11 +116,11 @@ def test_lesson_plan_review_modified_updates_content(
     resp = client.patch(
         f"/api/v1/academic/lesson-plans/{lp_id}/review",
         json={"status": "modified", "content": modified_content, "notes": "改了"},
-        headers={"X-User-Id": "3"},
+        headers={"X-User-Id": "1"},
     )
-    # D-29/D-37：user_3 评审 user_1 资源 → 404（不豁免）
-    assert resp.status_code == 404, (
-        f"D-29 不可豁免：user_3 评审 user_1 资源应返 404，实际 {resp.status_code}：{resp.text}"
+    # P2：owner 自评 → 200（modified 真跑成功）
+    assert resp.status_code == 200, (
+        f"owner 自评应返 200，实际 {resp.status_code}：{resp.text}"
     )
     assert resp.json()["review"]["review_status"] == "modified"
 
@@ -181,15 +181,15 @@ def test_chapter_review_flow_pending_to_reviewed(
     resp = client.patch(
         f"/api/v1/academic/chapters/{mock_chapter.id}/review",
         json={"status": "reviewed", "notes": "ok"},
-        headers={"X-User-Id": "5"},
+        headers={"X-User-Id": "1"},
     )
-    # D-29/D-37：user_5 评审 user_1 资源 → 404（不豁免）
-    assert resp.status_code == 404, (
-        f"D-29 不可豁免：user_5 评审 user_1 资源应返 404，实际 {resp.status_code}：{resp.text}"
+    # P2：owner 自评 → 200（chapter review 真跑成功）
+    assert resp.status_code == 200, (
+        f"owner 自评应返 200，实际 {resp.status_code}：{resp.text}"
     )
     assert resp.json()["review_id"] == review_id
     assert resp.json()["review"]["review_status"] == "reviewed"
-    assert resp.json()["review"]["reviewed_by"] == 5
+    assert resp.json()["review"]["reviewed_by"] == 1
 
     # GET chapter 后 ai_summary 含 reviewed status
     get_resp = client.get(
