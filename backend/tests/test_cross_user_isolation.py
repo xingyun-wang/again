@@ -441,7 +441,7 @@ def test_cross_user_access_never_returns_403(
 
     cross_user_calls: list[tuple[str, str, dict[str, Any]]] = [
         ("GET", f"/api/v1/academic/textbooks/{user_1_textbook.id}/chapters", {}),
-        ("POST", f"/api/v1/academic/chapters/{user_1_chapter.id}/extract", {}),
+        ("POST", f"/api/v1/academic/chapters/{user_1_chapter.id}/extract", {"json": {}}),
         ("GET", f"/api/v1/academic/chapters/{user_1_chapter.id}", {}),
         (
             "PATCH",
@@ -543,9 +543,11 @@ def test_d37_fail_open_owner_filter_would_leak_data_returns_200(
         f"D-37 错误实现应返 200（暴露数据），实际 {resp.status_code}：{resp.text}"
         f" — 这意味着 fail-open fixture 没生效，或实现已被改正"
     )
-    # 进一步验证：响应体确实包含 user_1 的 textbook 名称（数据泄漏实证）
-    assert user_1_textbook.name in resp.text, (
-        "D-37 fail-open fixture 应暴露 user_1 textbook 名称，但响应体没有"
+    # 进一步验证：响应体确实包含 user_1 的 chapter 标题（数据泄漏实证）
+    # P6 修复（2026-09-26 CI run #20）：端点是 GET /textbooks/{id}/chapters，
+    # 响应体是 chapter 列表而非 textbook → 断言应查 chapter.title。
+    assert user_1_chapter.title in resp.text, (
+        "D-37 fail-open fixture 应暴露 user_1 chapter 标题，但响应体没有"
     )
 
 

@@ -226,9 +226,9 @@ def test_p0n1_full_fail_open_would_leak_data_returns_201(
     # 模拟「service 不做 owner 检查只检查存在性」的 fail-open 语义。
     from app.models import Subject as SubjectModel
 
-    real_db_get = type(mock_db_session).__dict__.get("get", None)
+    real_db_get = mock_db_session.get  # P7：实例级而非 type 级（SQLAlchemy Session.get 是 bound method）
 
-    def _patched_db_get(session_self: Any, model: Any, key: Any) -> Any:
+    def _patched_db_get(model: Any, key: Any) -> Any:
         """Patched get：把 Subject 查询改成返 user_2 拥有的「假」subject ——
         模拟 service 层只看存在性、不看 owner 的 fail-open 旧实现。
         """
@@ -242,7 +242,7 @@ def test_p0n1_full_fail_open_would_leak_data_returns_201(
             )
             # 不 add 到 session（fake 对象，不持久化）
             return fake
-        return real_db_get(session_self, model, key) if real_db_get else None
+        return real_db_get(model, key) if real_db_get else None
 
     # 使用 monkeypatch.setattr 替换 db.get 方法
     monkeypatch.setattr(mock_db_session, "get", _patched_db_get)

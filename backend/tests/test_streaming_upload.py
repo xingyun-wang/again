@@ -322,7 +322,7 @@ def test_upload_empty_file_returns_400(
 
 
 def test_upload_subject_not_found_returns_404(
-    mock_db_session: Any, mock_llm_provider: Any, upload_root_tmp: Path
+    mock_db_session: Any, mock_llm_provider: Any, upload_root_tmp: Path, mock_user_system_seed: Any
 ) -> None:
     """e2e：subject_id 不存在 → 404（兼容旧测试）。"""
     # Subject 不在 mock session 里 → db.get(Subject, x) is None
