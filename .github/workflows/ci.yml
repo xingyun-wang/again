@@ -143,6 +143,20 @@ jobs:
         working-directory: backend
         run: alembic upgrade head
 
+      # D-46 修订 1（2026-09-26）：dev box 无 PG server → B3 换轨 = CI 内 alembic 幂等验证。
+      # 0007 enum bug + 缺 3 索引 + 重跑需求 = CI 必须真验幂等。
+      # 3 轮：full upgrade → downgrade 0006 + re-upgrade head → full upgrade 再次。
+      - id: migrations-idempotency
+        name: Migrations idempotency (alembic downgrade 0006 + upgrade head)
+        working-directory: backend
+        run: |
+          echo "=== Round 1: full upgrade ==="
+          alembic upgrade head
+          echo "=== Round 2: downgrade to 0006 + re-upgrade to head (幂等验证) ==="
+          alembic downgrade 0006 && alembic upgrade head
+          echo "=== Round 3: full upgrade again (幂等) ==="
+          alembic upgrade head
+
       # M1-B retro 工单 B3：CI 必须真跑 pytest（不是 collect-only）。
       # conftest.mock_db_engine 根据 DATABASE_URL 自动切 PG（CI）/ SQLite（本地 dev box）。
       - id: pytest

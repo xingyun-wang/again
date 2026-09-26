@@ -1,10 +1,10 @@
 """owner_user_id 归属字段 + users 表（M1-B retro 工单 B：D-29 B 项落地）。
 
 Revision ID: 0006_owner_user_id
-Revises: 0005_drop_extraction_source_default
+Revises: 0005_drop_extraction_default
 Create Date: 2026-09-20
 M1-B retro Step 1（2026-09-21）：原 revision ID 0005 重命名为 0006，
-让位给 G2（0005_drop_extraction_source_default）。down_revision 同步
+让位给 G2（0005_drop_extraction_default）。down_revision 同步
 从 0007 改为 0005。
 
 动机（D-29 B 项，docs/decisions.md）：
@@ -19,8 +19,8 @@ M1-B retro Step 1（2026-09-21）：原 revision ID 0005 重命名为 0006，
     3. 三个表加 owner_user_id 列（nullable=True → 回填 → NOT NULL + FK to users.id）
     4. 三个 owner_user_id 索引
 
-依赖：G2（0005_drop_extraction_source_default）已 merge →
-down_revision=0005_drop_extraction_source_default。
+依赖：G2（0005_drop_extraction_default）已 merge →
+down_revision=0005_drop_extraction_default。
 
 不动：chapters.textbook_id FK 行为 / chapters.extraction_source 服务端 default
 （G2 已处理）；其他表的字段；其他迁移的语义。
