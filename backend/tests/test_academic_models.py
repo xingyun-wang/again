@@ -217,9 +217,16 @@ def test_knowledge_review_status_rejects_unknown_value() -> None:
         KnowledgeReviewStatus("rejected")  # type: ignore[arg-type]
 
 
-def test_enum_persistence_stores_string_value(session: Session) -> None:
-    """写入 enum 字段，DB 里存的是字符串值（D/C/B/A 等）而非枚举名。"""
-    subj = Subject(name="高中物理", grade_level=GradeLevel.SENIOR_HIGH)
+def test_enum_persistence_stores_string_value(session: Session, user_1: User) -> None:
+    """写入 enum 字段，DB 里存的是字符串值（D/C/B/A 等）而非枚举名。
+
+    P4 修复（2026-09-26 CI run #20）：Subject.owner_user_id NOT NULL → 加 user_1 fixture。
+    """
+    subj = Subject(
+        name="高中物理",
+        grade_level=GradeLevel.SENIOR_HIGH,
+        owner_user_id=user_1.id,
+    )
     session.add(subj)
     session.commit()
 
@@ -283,6 +290,7 @@ def test_student_knowledge_points_back_populates(
         chapter_number=1,
         title="有理数",
         owner_user_id=user_1.id,
+        extraction_source="detected",
     )
     session.add(chapter)
     session.flush()
@@ -335,6 +343,7 @@ def test_chapter_relationships_cover_all_5_subtypes(
         chapter_number=2,
         title="整式",
         owner_user_id=user_1.id,
+        extraction_source="detected",
     )
     session.add(chapter)
     session.flush()
@@ -440,6 +449,7 @@ def test_student_knowledge_point_unique_pair(
         chapter_number=1,
         title="有理数",
         owner_user_id=user_1.id,
+        extraction_source="detected",
     )
     session.add(chapter)
     session.flush()
@@ -478,6 +488,7 @@ def test_chapter_unique_textbook_chapter_number(
         chapter_number=1,
         title="第一章",
         owner_user_id=user_1.id,
+        extraction_source="detected",
     )
     session.add(c1)
     session.commit()
@@ -487,6 +498,7 @@ def test_chapter_unique_textbook_chapter_number(
         chapter_number=1,
         title="重复第一章",
         owner_user_id=user_1.id,
+        extraction_source="detected",
     )
     session.add(c2)
     with pytest.raises(IntegrityError):
@@ -510,6 +522,7 @@ def test_knowledge_review_status_transitions(
         chapter_number=1,
         title="ch1",
         owner_user_id=user_1.id,
+        extraction_source="detected",
     )
     session.add(chapter)
     session.flush()
@@ -557,6 +570,7 @@ def test_delete_student_cascades_to_skp(
         chapter_number=1,
         title="ch1",
         owner_user_id=user_1.id,
+        extraction_source="detected",
     )
     session.add(chapter)
     session.flush()
