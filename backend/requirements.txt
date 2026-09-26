@@ -9,6 +9,8 @@ httpx>=0.27.0
 tenacity>=9.0.0
 pydantic>=2.9.0
 pydantic-settings>=2.6.0
+# M1-B B.3.1：multipart/form-data 必需（FastAPI Form/File 依赖）
+python-multipart>=0.0.12
 # builder stage dev tools (CI test stage 跑 ruff/mypy/pytest)
 ruff>=0.7.0
 mypy>=1.13.0
