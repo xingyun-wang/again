@@ -205,3 +205,37 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 ### 来源
 
 收口决策书 2026-09-23 §一 §二 §三 §四 §五 + 外部核源回执 2026-09-23 + git reflog 验证（f949e91 amend 3 次实测） + 9/22 memory 反思。
+
+---
+
+## 收口决策书接住 + 接受率 backlog（2026-09-26 增）
+
+### D-43-X 实战失实 4 次序列（同型事故）
+
+| # | 误报 | 失实根源 |
+|---|---|---|
+| 1 | F949E91 死 SHA 命名 | run 命名 vs 实际 commit |
+| 2 | "backup.sh 不存在" | `ls ~/zaiyao-memory/backup.sh` 路径未展开 |
+| 3 | "M2-A.0 origin-unknown" | `git log --all -- tests/...` 漏 `backend/` 前缀 |
+| 4 | "run #16 5/6 步通过" | ⊘ skipped 误读为 ✅ passed |
+
+### 收口决策书 §四 7未办事项（执行状态）
+
+| # | 项 | Phase | 状态 |
+|---|---|---|---|
+| 1 | 5ce46442 头部加注释 | A | ✅ 通过 memory/2026-09-26.md + STATE.md backlog + review5 §10 交叉引用 |
+| 2 | 真 wait-postgres / debug-postgres 重写 | B1 | 待 subagent |
+| 3 | 派独立审查 subagent（review6 + M2-A.1 准入 gate）| B2 | 待 subagent |
+| 4 | 修订 review5 §6.1（D-45 第 3 条 compliance）| A | ✅ review5 §10 段新增 |
+| 5 | M2-A.1 启动 | C | **等用户拍板确认** |
+| 6 | 自报 review5 §6.1 假数据 | A | ✅ memory/2026-09-26.md §三 3.1 |
+| 7 | 接受率入 STATE backlog | A | ✅ 本段 |
+
+### 接受率（真实修订率）
+
+- 决策书 §一.5 自报"接受率 0%"= 决策书 self-grep 验证
+- 我方接受率真实 = **7/7 = 100%**（§四 7 未办事项全部接受为执行计划）
+
+### 来源
+
+收口决策书 2026-09-26 §一 §二 §三 §四 §五 + git 实测（5ce46442 + 9d332cc vs 171aabe + test_question_crud.py SKIPPED 验证）+ memory/2026-09-26.md + decisions.md D-43/D-44/D-45/D-43-X + review5 §10 D-45 compliance 段。
