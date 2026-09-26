@@ -22,11 +22,13 @@ jobs:
     # M1-B retro 工单 B3：CI 门禁含 PG service + alembic upgrade + 真 pytest + 真 verify。
     # 决策室 D-37 二次独立审查需要「实跑证据」——5 个 step 全部退出码原文可追溯。
     #
-    # PG fixture 设计：
+    # PG fixture 设计（决策书 §二 根因正名，2026-09-26）：
     # - services.postgres 用 postgres:15-alpine + healthcheck pg_isready
-    # - 容器内 host = `postgres`（GitHub Actions service 默认 DNS 名）
+    # - **真实访问方式**：workflow 无 `container:` 键 → service 在 host network → 必须用 `127.0.0.1`（不是 service hostname `postgres`）
+    #   官方文档：https://docs.github.com/en/actions/using-containerized-services/about-service-containers#mapping-service-hostnames-to-labels
+    #   2026-09-26 实证：CI run #20 dump = `getent hosts postgres` FAIL + `ps aux postgres` 显示进程在跑（UID 70）+ /etc/hosts 无 postgres 入口
     # - 数据库 `tiered_homework_test` 与 dev box 区分（test 专用，CI 短生命周期）
-    # - DATABASE_URL 用环境变量统一传递：alembic / pytest 都引用它
+    # - DATABASE_URL 用环境变量统一传递：alembic / pytest / verify 都引用它（line 51 = 127.0.0.1）
     services:
       postgres:
         image: postgres:15-alpine
@@ -48,7 +50,7 @@ jobs:
       PYTHON_VERSION: '3.11'        # 与 prod 容器一致
       PG_VERSION: '15-alpine'        # 与 docker-compose 一致
       # 这些 env 必须在每个 step 输出 + CI artifact 里出现
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/tiered_homework_test
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/tiered_homework_test
       # CI 中 dev box 风格的 worker 跑不动 alembic + 真 LLM（B5 仍开）；
       # pytest 用 dummy key（mock_llm_provider 不需要真 key；D-32 教训）
       # verify 用 repo secret 里的真 key（infra agent 负责加）
@@ -76,8 +78,10 @@ jobs:
         run: ruff check app tests
 
       # B1 mypy pre-existing（target_path = None assignment，line 407，0007 迁移后
-      # 引入），不在本工单修复范围（brief 硬规则）；用 continue-on-error 不阻断
-      # 后续步骤，让决策室看到原文。
+      # 引入），不在本工单修复范围（brief 硬规则）。
+      # 决策书 §一 §六 D-42 升级精神（2026-09-26）：平台行为真值优先——review6 §2.4
+      # 实证 M2-A.0 mypy narrowing 在 py3.11 strict 下 EXIT=0 通过。
+      # **继续 fail-fast**：任何后续引入 narrowing 错误必须立刻显形。
       - id: mypy
         name: Mypy (app)
         working-directory: backend
@@ -87,7 +91,9 @@ jobs:
       # M1-B retro Step 1（2026-09-21）：alembic-prep step 已删。
       # 历史背景：N-2 失败模式——CI 脚手架掩盖 G2 迁移文件名 33 字符超过
       # alembic 默认 VARCHAR(32) 上限（StringDataRightTruncation）。
-      # 删脚手架 + G2 rename 后：迁移 ID 字符数回到 32 以内，scaffold 无必要。
+      # M1-B retro G2 rename 移除了 alembic-prep scaffold；M2-A.0 起点（0007）= 14 字符 ≤32 上限 OK。
+      # 决策书 §五：但 0005_drop_extraction_source_default = 35 字符 >32 上限 = 必爆 StringDataRightTruncation。
+      # 修复见 alembic/versions/0005 缩短（+本 commit item 7）。
       # 决策依据：docs/decisions.md D-42 部署层失败模式防护 + D-36-B 机器证据。
       # M2-A.1 准入前置修复（2026-09-24）：HEAD CI run 7c87abd 实证 alembic upgrade
       # ❌ failed with "failed to resolve host 'postgres'"（services.postgres 容器
@@ -98,32 +104,37 @@ jobs:
       # 真 wait-postgres 必须：任何 probe FAIL 立即 exit 1。
       # 不依赖 pg_isready / psycopg / nc 二进制（避免额外依赖）。
       - id: wait-postgres
-        name: Wait for postgres ready (fail-fast)
+        name: Wait for postgres ready (fail-fast, host from DATABASE_URL)
         run: |
           set -e
           echo "=== DATABASE_URL: ${DATABASE_URL} ==="
-          echo "=== Probing postgres:5432 ==="
+          # Extract host:port from DATABASE_URL（避免硬编码，与 line 51 单一源 = D-42 升级）
+          PG_HOST=$(python3 -c "from urllib.parse import urlparse; u=urlparse('${DATABASE_URL}'); print(u.hostname or '127.0.0.1')")
+          PG_PORT=$(python3 -c "from urllib.parse import urlparse; u=urlparse('${DATABASE_URL}'); print(u.port or 5432)")
+          echo "=== Probing ${PG_HOST}:${PG_PORT} ==="
           for i in $(seq 1 30); do
-            # Probe 1: DNS resolution (Python socket.getaddrinfo)
-            if python3 -c "import socket; socket.getaddrinfo('postgres', 5432)" 2>/dev/null; then
-              # Probe 2: TCP connect (bash /dev/tcp)
-              if (timeout 5 bash -c "echo > /dev/tcp/postgres/5432") 2>/dev/null; then
-                # Probe 3: psycopg connect (real PG handshake)
-                if python3 -c "import psycopg; conn = psycopg.connect('${DATABASE_URL}', connect_timeout=5); conn.close()" 2>/dev/null; then
-                  echo "postgres ready after ${i} attempts"
-                  exit 0
-                fi
-              fi
+            if python3 -c "
+            import socket, sys
+            s = socket.socket(); s.settimeout(5)
+            try:
+              s.connect(('${PG_HOST}', ${PG_PORT}))
+              s.close()
+              sys.exit(0)
+            except Exception as e:
+              print(f'attempt failed: {e}', file=sys.stderr)
+              sys.exit(1)
+            " 2>/dev/null; then
+              echo "postgres ready after ${i} attempts at ${PG_HOST}:${PG_PORT}"
+              exit 0
             fi
-            echo "attempt $i failed, retrying..."
             sleep 2
           done
-          echo "ERROR: postgres not reachable after 60s (60 attempts)"
+          echo "ERROR: postgres not reachable at ${PG_HOST}:${PG_PORT} after 60s"
           echo "=== Diagnostic dump ==="
           echo "--- /etc/hosts ---"
           cat /etc/hosts 2>&1
-          echo "--- getent hosts postgres ---"
-          getent hosts postgres 2>&1 || echo "FAIL getent"
+          echo "--- getent hosts ${PG_HOST} ---"
+          getent hosts ${PG_HOST} 2>&1 || echo "FAIL getent"
           echo "--- ps aux postgres ---"
           ps auxf 2>&1 | grep -i postgres | head -5 || echo "no postgres process"
           exit 1
@@ -165,10 +176,11 @@ jobs:
 
       - id: verify
         name: Verify end-to-end 5 chapters (real LLM, D-36-A env pin)
+        if: github.event_name == 'workflow_dispatch'
         working-directory: backend
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/tiered_homework_test
+          # DATABASE_URL inherits from job env（line 51 已改 127.0.0.1）
         run: |
           echo "=== D-36-A 环境钉死 ==="
           echo "COMMIT_SHA=${COMMIT_SHA}"

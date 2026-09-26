@@ -1,12 +1,12 @@
 """chapters.extraction_source 拆 server_default（M1-B retro G2：fail-open → fail-closed）。
 
-Revision ID: 0005_drop_extraction_source_default
+Revision ID: 0005_drop_extraction_default
 Revises: 0004_chapter_extraction_source
 Create Date: 2026-09-20
 M1-B retro Step 1（2026-09-21）：本迁移原 revision ID 占位为高位四位数
 （数值等于 G2 序号）以避开 alembic_version.version_num 列 VARCHAR(32) 上限
 （高位全名 33 字符超限），并为后续 owner_user_id 迁移让出 0005 号位。
-当前 revision ID 即本文件 basename：0005_drop_extraction_source_default。
+当前 revision ID 即本文件 basename：0005_drop_extraction_default。
 
 动机（D-37 决策 — G2）：
 - 0004 加 server_default='detected' 让历史 fixture 不缺字段落库
@@ -36,7 +36,7 @@ from typing import Sequence
 
 from alembic import op
 
-revision: str = "0005_drop_extraction_source_default"
+revision: str = "0005_drop_extraction_default"
 down_revision: str | None = "0004_chapter_extraction_source"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
