@@ -778,6 +778,17 @@ class Question(Base):
     chapter: Mapped[Chapter] = relationship("Chapter", back_populates="questions")
     owner: Mapped[User] = relationship("User", lazy="selectin")
 
+    @property
+    def knowledge_point_ids(self) -> list[int]:
+        """题目关联的 KP id 列表（D-43 review8 P1 + QuestionRead 字段需求）。
+
+        SQLAlchemy 2.0 docs（selectin eager loading）：knowledge_points 已
+        lazy="selectin"，访问时触发单条 IN 子查询批量加载（selectin strategy），
+        不触发 N+1。配合 FastAPI response_model=QuestionRead 序列化（Depends
+        get_db yield 内）确保访问期间 session 仍开放，selectin load 可成功。
+        """
+        return [kp.id for kp in self.knowledge_points]
+
     __table_args__ = (
         Index(
             "ix_questions_owner_chapter_difficulty",
