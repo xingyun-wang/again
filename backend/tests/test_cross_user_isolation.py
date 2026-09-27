@@ -516,6 +516,7 @@ def test_d37_fail_open_owner_filter_would_leak_data_returns_200(
     mock_user_1: Any,
     mock_user_2: Any,
     user_1_textbook: Any,
+    user_1_chapter: Any,
     monkeypatch_owner_filter_to_constant_one,
 ) -> None:
     """D-37 负面测试：mock 错误实现 → user_2 访问 user_1 数据会泄漏（200）。
