@@ -637,6 +637,15 @@ def test_pg_alembic_upgrade_downgrade_round_trip() -> None:
     cfg = Config("alembic.ini")
     cfg.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
 
+    # D-43 baseline 自愈：前序测试已 drop_all 删用户表，但 alembic_version
+    # 留在 0007 → upgrade head 看到 version 已在 head → 无操作 → round-trip 失败。
+    # 显式 drop_all 抹掉所有表（含 alembic_version）让 upgrade head 重放。
+    # 等价于「stamp alembic_version 为空」+「重放 upgrade」。
+    from app.db.base import Base
+
+    eng = create_engine(os.environ["DATABASE_URL"])
+    Base.metadata.drop_all(eng)
+
     # 先确保 baseline（PG 空库没有 alembic_version 时 down to base 会报错，吞掉）
     with contextlib.suppress(Exception):
         command.downgrade(cfg, "base")
