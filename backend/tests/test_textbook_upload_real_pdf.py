@@ -50,7 +50,7 @@ def _build_test_client(
 
 
 def test_upload_real_pdf_extracts_chapters(
-    mock_db_session: Any, mock_llm_provider: Any
+    mock_db_session: Any, mock_llm_provider: Any, mock_user_system_seed: Any
 ) -> None:
     """上传真 PDF（人教版地理选择性必修1）→ 抽取 ≥ 3 章节 + 持久化 Textbook。
 
@@ -125,7 +125,7 @@ def test_upload_real_pdf_extracts_chapters(
 
 
 def test_upload_real_pdf_persists_to_db(
-    mock_db_session: Any, mock_llm_provider: Any
+    mock_db_session: Any, mock_llm_provider: Any, mock_user_system_seed: Any
 ) -> None:
     """上传真 PDF 后，DB 中可见 Textbook + Chapter 行（验证持久化）。
 
