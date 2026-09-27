@@ -946,3 +946,64 @@ open-questions.md §9 三个问题全部 ✅：
 - 用户 gate 不可撤销：M2-A.1 启动必用户明确 "go"（2026-09-27 13:00 已重申）
 
 **来源**：用户 2026-09-27 13:00 决策 2/3 + 39 行对照表 + D-46 + D-43-X + D-44 + D-25 工程推进分阶段底线。
+
+### D-43-X-3：核源深度 + test isolation + 查法准确性（2026-09-27 立）
+
+**问题**：今日 3 次同型"判断失误"实战失实（#8/#9/#10），与 D-43-X-2 §1/§2 是不同子类型。前者是我（载曜）误判，后者是 subagent 误报。今天的 3 次集中暴露**载曜对自身核源深度的认知不足**：
+
+**实战失实 #8（10:30 — 静态层 vs 行为层）**：
+- 我核源停在"subagent 自报已 ruff/mypy 通过" = 静态层（语法/类型对）
+- 没追数据流 = 行为层（pytest 真跑、SQL trace、文件系统路径）
+- 后果：上轮 5 commit 预测 6→0，实际 6→3，漏 3 根因（selectin stale cache / UPLOADS_DIR 双旋钮 / stamp 副作用）
+- 教训：**静态通过 ≠ 行为正确**。核源必须追到行为层，不能停在 grammar/类型层
+
+**实战失实 #9（11:01 — test isolation 维度）**：
+- 我接 subagent Step 3 commit 时判断"代码 idempotent 性能 cover 所有状态"
+- 没看"它对下一个 test 的副作用"
+- 后果：stamp + drop_all 让 round-trip 通过，但 0006 seed 留库污染紧邻 b33 测试 → UniqueViolation
+- 教训：**预测 patch 行为时必须看"它对下一个 test 的副作用"**，不能只看"本 test 能不能通过"。Test isolation 维度，不是局部正确性维度
+
+**实战失实 #10（12:00 — 查法错 vs 两边都错）**：
+- 我之前 grep `pytest.skip` + `head -10` 截断 + pattern 不精确 → 数字 5 vs 7 误判
+- 外部文档（用户发的复核文档）原话是"两边都查法错"——我说"你对我错了"是结论，**我没明示自己的查法错根源** = 我也犯了"拿坏掉的仪器测量 + 把仪器报错静音 + 相信读数"
+- 教训：**结论性陈述必须附原始命令 + 计数 pattern 必须明示 + 截断/正则选项必标**
+
+**拍板**——D-43-X-3 三规则（与 D-43-X-2 三规则并列）：
+
+1. **核源必须到行为层**
+   任何"代码能工作"判断必须附：
+   - pytest 真实输出（不是"已 ruff/mypy 通过"自承）
+   - 数据流追踪（fixture → service → response → assertion 的关键行号）
+   - 副作用分析（本 patch 对下一个 test 的影响 + 共享 fixture 链影响）
+   反例（已发生）：subagent 自报"已 ruff/mypy 通过" + 我接"代码 idempotent" → 漏 3 根因。
+   正例：D-43-X 升级版要求"列 pytest trace"已用 3 轮（4 刀续 + 1 刀 try/finally + ci.yml 2 行）证明有效。
+
+2. **patch 行为预测必须含 test isolation**  
+   任何"修本测试"判断必须附：
+   - 共享 fixture 链影响（conftest.py:117 drop_all teardown / mock_db_engine / DATABASE_URL 等）
+   - 测试顺序敏感性（pytest 文件名序 + 模块级 pytestmark 影响）
+   - alembic data migration 副作用（0006 seed 行是否污染下个测试 setup）
+   反例（已发生）：stamp + drop_all 让 round-trip 通过 → 0006 seed 污染 b33。
+   正例：try/finally + drop_all in finally 已实修。
+
+3. **计数 pattern 必须明示 + 原始命令必附**
+   任何数字陈述（"X 条测试"/"N 个 commit"）必须附：
+   - 完整原命令（不省略 `head -N` / `tail -N` / 路径前缀）
+   - 计数 pattern（`grep -c "def test_"` / `wc -l` / `pytest --collect-only` 等）
+   - 截断 / 正则选项明示
+   反例（已发生）：`grep -rn "pytest.skip" | head -10` 漏掉 `pytest.mark.skipif` 同类。
+   正例：`grep -c "def test_.*real_textbook_pdf"` 精确匹配 + 不截断。
+
+**影响**：
+
+- AGENTS.md §代码审查纪律 段同步加"D-43-X-3 三规则"硬规则（与 D-43-X-2 §1/§2 并列）
+- 任何 subagent brief 必含"D-43-X-3 三规则"段（核源深度 + test isolation + 查法准确）
+- 任何审计文档（含本 D-43-X-3 实战失实 #8/#9/#10）必须明示查法 + 原始命令 + 计数 pattern
+
+**未来警惕**：
+
+- 我（载曜）也是"拿坏掉的仪器测量 + 把仪器报错静音 + 相信读数"的执行者（不只是 subagent）
+- D-43-X-3 与 D-43-X-2 是载曜 + subagent 两侧对称的"自我验证"硬规则
+- 后续任何"实战失实"必须先做自我验证（"我错还是对方错" / "数字错在哪" / "查法错在哪"）再落字
+
+**来源**：今日 3 次同型实战失实（commit `a571783` "subagent 5 commit 6→3 漏 3 根因" / commit `3b520e2` round-trip 留库污染 / 外部复核文档 #10 数字误判）+ D-43-X + D-43-X-2 落字条 + 决策书 §七精准根因。
