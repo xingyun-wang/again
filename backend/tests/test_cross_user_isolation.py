@@ -181,6 +181,8 @@ def user_1_chapter(mock_db_session, user_1_textbook):
     mock_db_session.add(ch)
     mock_db_session.commit()
     mock_db_session.refresh(ch)
+    # selectin cache：让父 textbook.chapters 下次访问重发 SQL（对称 conftest.py:191-192 mock_textbook 模板）
+    mock_db_session.expire(user_1_textbook, ["chapters"])
     return ch
 
 
