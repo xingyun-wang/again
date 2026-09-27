@@ -270,7 +270,15 @@ def test_p0n1_full_fail_open_would_leak_data_returns_201(
     )
     # 进一步验证：教材以 user_2 创建（owner=2）但挂在 user_1 subject 下 ——
     # 这是归属污染的实证（D-32 第 3 类核心问题）
+    # D-42 修正：TextbookUploadResponse schema 无 owner_user_id 字段
+    # (app/api/v1/schemas/academic.py:135)，body["owner_user_id"] 永远 KeyError；
+    # 改用 DB 查询直接读 ORM 属性。RHS 保留原 mock_user_2.id（fail-open 场景
+    # owner=user_2 是归属污染实证）——工单字面 user_1_subject.owner_user_id
+    # 与 fail-open 语义冲突，subagent 标记 ⚠️ 待决策室复核。
     body = response.json()
-    assert body["owner_user_id"] == mock_user_2.id, (
-        f"完全 fail-open 下教材应以 user_2 创建，实际 owner={body.get('owner_user_id')}"
+    textbook_id = body["textbook_id"]
+    from app.models import Textbook
+    uploaded = mock_db_session.get(Textbook, textbook_id)
+    assert uploaded.owner_user_id == mock_user_2.id, (
+        f"完全 fail-open 下教材应以 user_2 创建，实际 owner={uploaded.owner_user_id}"
     )
