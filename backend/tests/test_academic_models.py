@@ -668,11 +668,20 @@ def test_pg_alembic_upgrade_downgrade_round_trip() -> None:
         "student_knowledge_points",
         "alembic_version",
     }
-    assert expected.issubset(tables), f"缺表：{expected - tables}"
+    try:
+        assert expected.issubset(tables), f"缺表：{expected - tables}"
 
-    # round-trip：downgrade 然后 upgrade
-    command.downgrade(cfg, "-1")
-    command.upgrade(cfg, "head")
+        # round-trip：downgrade 然后 upgrade
+        command.downgrade(cfg, "-1")
+        command.upgrade(cfg, "head")
 
-    tables_after = set(sa.inspect(eng).get_table_names())
-    assert expected.issubset(tables_after)
+        tables_after = set(sa.inspect(eng).get_table_names())
+        assert expected.issubset(tables_after)
+    finally:
+        # ⚠️ 本测试跑的是「真迁移链」，0006 会 INSERT users(id=1, 'system-seed')。
+        # 它不走 conftest.mock_db_engine ⇒ 没有那个 drop_all teardown ⇒
+        # 不清库就会把 seed 行 + 迁移建的表留给紧邻的下一个测试：
+        # test_b33_lesson_plan_review_notes_persisted_to_db 的
+        # mock_user_system_seed 再插 id=1 → UniqueViolation（2026-09-27 CI 实证）。
+        # 恢复其他测试的默认前提：共享 PG 上不留表（与 conftest.py:117 同语义）。
+        Base.metadata.drop_all(eng)
