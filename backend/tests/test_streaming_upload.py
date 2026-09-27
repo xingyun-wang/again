@@ -116,6 +116,7 @@ def _build_test_client(
 def upload_root_tmp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """把 UPLOAD_ROOT 重定向到 tmp_path（dev box 上 /app/data/uploads 不存在）。"""
     monkeypatch.setattr(academic_module, "UPLOAD_ROOT", tmp_path)
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path))
     yield tmp_path
 
 
