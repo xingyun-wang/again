@@ -179,13 +179,13 @@ jobs:
           nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 \
             > /tmp/uvicorn.log 2>&1 &
           for i in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:8000/api/v1/health >/dev/null 2>&1; then
+            if curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
               echo "backend ready after ${i}s"
               break
             fi
             sleep 1
           done
-          curl -sf http://127.0.0.1:8000/api/v1/health || (cat /tmp/uvicorn.log; exit 1)
+          curl -sf http://127.0.0.1:8000/api/health || (cat /tmp/uvicorn.log; exit 1)
 
       - id: verify
         name: Verify end-to-end 5 chapters (real LLM, D-36-A env pin)
