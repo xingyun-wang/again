@@ -376,7 +376,7 @@ def test_upload_random_non_pdf_bytes_returns_400(
 
 
 def test_upload_empty_pdf_marks_scanned_pdf_empty(
-    mock_db_session: Any, mock_llm_provider: Any, tmp_path
+    mock_db_session: Any, mock_llm_provider: Any, tmp_path, mock_user_system_seed: Any
 ) -> None:
     """M2 工单 A 负面前提 #3（Done #4 + 链路完备性）：
     上传扫描型 PDF（页文本全空）→ 201 + extraction_source='scanned_pdf_empty'
