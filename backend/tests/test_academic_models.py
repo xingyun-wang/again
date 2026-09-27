@@ -22,7 +22,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import importlib.util
 import os
 from collections.abc import Generator
@@ -645,10 +644,10 @@ def test_pg_alembic_upgrade_downgrade_round_trip() -> None:
 
     eng = create_engine(os.environ["DATABASE_URL"])
     Base.metadata.drop_all(eng)
+    command.stamp(cfg, "base")
 
-    # 先确保 baseline（PG 空库没有 alembic_version 时 down to base 会报错，吞掉）
-    with contextlib.suppress(Exception):
-        command.downgrade(cfg, "base")
+    # stamp 后 alembic_version.version_num=NULL，downgrade 是 no-op（不再需要 suppress）
+    command.downgrade(cfg, "base")
 
     command.upgrade(cfg, "head")
 
