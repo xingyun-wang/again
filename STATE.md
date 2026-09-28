@@ -1,6 +1,7 @@
 # STATE.md — 差异化作业工作台
 
 > **最后更新**：2026-09-27 13:00（**M2-A.0 pre-flight 闭环 + 3 决策落字 + M2-A.1 硬门禁**：per-push CI 9dad894 全绿 + pytest 实证 194+ passed / 0 failed；D-47/48/49 落字（M2-A.1 验收判据 / §3.5 反马太修正 / 启动模式）；M2-A.1 启动硬门禁 = 等用户明确 "go"）
+> **最后更新**：2026-09-28 19:03 — S0-1 收口（STATE.md 时间戳 + :302 verify 作废标记 + :227/:228/:230 状态更新块 — 4 项 append 式；D-43 例外内）
 > 上一节点（2026-09-23 22:25）：三方 HEAD = `5e05b3a`（S1-② alembic rename 后实测；**注**：新-4 工程债建议改写 commit subject 形式以避免 SHA 频繁过期）
 > 上一节点（2026-09-23 22:10）：Phase B 收口 + 三方 HEAD = `6b9f0a4`（C1 收尾后）
 > 上一节点（2026-09-21 15:10）：M1-B retro C 路径收口 + D-43/D-44 落字。CI 三次 run #1/2/3 全 failure（路径分析：step 5 working-directory 错 + step 7 B1 mypy narrowing），我决策室越权修了 2 次（commits `3c21dd1` + `171aabe`），用户拍 C 路径：force push main 回 `fbb7275`。三方 HEAD 一致（本地 / Gitee / GitHub main 都 `fbb7275`），reflog 保留 90 天审计 trail。**D-43 落字**：决策室不修代码逻辑 / 决策室验证环路 / Deploy key 同名静默无效。**D-44 落字**：review3 冻结点 = `fbb7275`，独立审查员 subagent 判通过 / 不通过，**不依赖 CI 5 命令全绿**
@@ -228,6 +229,10 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 | 3 | 派独立审查 subagent（review6 + M2-A.1 准入 gate）| B2 | 待 subagent |
 | 4 | 修订 review5 §6.1（D-45 第 3 条 compliance）| A | ✅ review5 §10 段新增 |
 | 5 | M2-A.1 启动 | C | **等用户拍板确认** |
+> [2026-09-28 S0-1 状态更新]
+> - :227 真 wait-postgres —— 已实现（S1-⑩, 2026-09-26, ci.yml:107），销账
+> - :228 review6 —— 已派（星轨 general-purpose subagent），M2-A.1 准入 gate 已解
+> - :230 M2-A.1 启动 —— 名字废止；D-49 第 4 条已 flip（用户 2026-09-27 go）；后续按 D-50–D-54 重定框架走 S0-5 / S0-4 / S1
 | 6 | 自报 review5 §6.1 假数据 | A | ✅ memory/2026-09-26.md §三 3.1 |
 | 7 | 接受率入 STATE backlog | A | ✅ 本段 |
 
@@ -300,6 +305,7 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 
 **预期**（决策书 §八）：
 - 127.0.0.1 通 → CI 全绿（alembic / pytest / verify）= M2-A.1 准入门禁达 3/3
+- ⚠️ [2026-09-28 作废标记] verify 步是 dispatch-only（已加 `if: workflow_dispatch` 跳过 per-push）；`_check_extraction_source_gate` 段 A/B 互补恒返回 False（D-54 V2 素材分档决策，2026-09-28）；verify 不再作为 per-push 准入门槛。
 - postgres 通 → 后续 step 走 postgres hostname → CI 全绿
 - 两都失败 → dump 6 源诊断（ss + docker + cgroup + getent + /etc/hosts + ps）= 决策书 §四 B 触发条件
 
