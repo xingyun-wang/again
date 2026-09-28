@@ -318,3 +318,5 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 ### 来源
 
 收口决策书 2026-09-26 §一 §二 §三 §四 §五 §六 §七 §八 §九 + git 实测（5ce46442 + 9d332cc vs 171aabe + test_question_crud.py SKIPPED 验证 + HEAD = 5ce46442 三方一致 + ci.yml L27/L51/L78-90/L100-129/L165-177 全文 + alembic 0005 35字符 + materials/ git tracked 空 + .gitignore materials/ + DEEPSEEK_API_KEY 在 ci.yml L170 引用 `secrets.DEEPSEEK_API_KEY` 待查）+ memory/2026-09-26.md + decisions.md D-43/D-44/D-45/D-43-X + review5 §10 D-45 compliance 段 + review6 §2.4/§3.1 D-45 §3 修订。
+
+> **最后更新**：2026-09-28 21:55 — S0-1.5 bug 修（commit `7bf8872` pure move）+ 试点 fixture commit `ed2eb46`（4 文件 / 131 insertions, S0-5 first cut）；4 commit 待 reset 后自推到 origin（Gitee）；Code Mode config 已 set `tools.codeMode: false`（gateway hot-reload 无需重启, 但本 agent session 仍 cache, reset 后激活 → visibleTools 含 read/write/edit/terminal）；今晚 in-flight 待用户拍：B1 v0.6 启动判断 / B2 §6 OMR 解法（详见 memory/2026-09-28.md）

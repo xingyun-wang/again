@@ -1066,3 +1066,23 @@ open-questions.md §9 三个问题全部 ✅：
 - **对关键路径的影响**：**不阻塞 S1–S3**（verify 是 dispatch-only、本就非 per-push 门禁，且 D-47/D-49/D-44 均明示不作验收判据）。它约束的是 **S5 端到端验收**与 S2-b。
 
 **来源**：用户拍板书 2026-09-28（拟稿 星轨，落笔 决策室）。V1/V2 拆解 + S0-4 时点更新 + D-36-C 复核要求来自拍板书 §〇。
+
+### D-55：Code Mode 配置变更 — `tools.codeMode: false`（自推能力恢复通道）（2026-09-28 立）
+
+- **日期**：2026-09-28
+- **拍板人**：星云
+- **为什么**：`openclaw agent --json` 诊断（21:48 WSL）返回 `meta.agentMeta.codeModeEngaged: true` —— Code Mode 激活态让 agent 走 JS-only `exec` + 不可自开 terminal（`docs/gateway/protocol/rpc-system-and-channels.md:105`），push 走不通；审查员意见书揭示**真因 = Code Mode 拥有**（`tools.codeMode: "auto"` + MiniMax-M3 ∈ provider "preferred Code Mode performers"），与 Tool Search 互斥；关 Code Mode → 直调 schema + 真 shell 恢复
+- **备选方案对比**：
+  - (a) **`tools.codeMode: false`**（选定，已 set）—— 关 Code Mode → 直调 + 真 shell + 推 git 自己跑
+  - (b) **历史 A** `tools.toolSearch: false`：**空操作**（Code Mode 压制 Tool Search 旋钮）
+  - (c) **B 保留 Code Mode 走契约**（catalog.search / `exec` = JS / terminal operator-opened）—— 不稳，agent 老习惯撞 `invalid_input`
+- **执行序列**（部分完成）：
+  - ✅ 21:48 WSL CLI 诊断确认 `codeModeEngaged: true`
+  - ✅ 21:51 WSL `openclaw config set tools.codeMode false`（gateway hot-reload，无重启）
+  - ✅ **本 agent session exec 已切 bash 验证**：21:59 实测 heredoc 写 memory/2026-09-28.md 成功（3599 bytes），证明 D-55 已生效（不再需 reset 激活）
+  - ⏳ reset 后可见 read/write/edit/terminal 直调工具 + 自跑 push
+- **副作用**：失去 Code Mode token 压缩；catalog 45 工具仍可走 `catalog.search` 兜底
+- **参考**：
+  - 审查员意见书 2026-09-28 §〇 / §六 #4
+  - `~/.openclaw/workspace/MEMORY.md` §Tool surface 真正成因 = Code Mode 拥有
+  - `docs/tools/code-mode/configuration.md` §Activation（互斥机制）
