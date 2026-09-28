@@ -371,3 +371,76 @@ def monkeypatch_owner_filter_to_constant_one(monkeypatch):
 
     monkeypatch.setattr(academic, "_enforce_owner_or_404", _fail_open_owner_filter)
     yield _fail_open_owner_filter
+
+
+# --- v0.5 §3 题池 fixture 加载（S0-5 first cut）---
+
+@pytest.fixture(scope="session")
+def question_pool_fixtures():
+    """Load question pool fixtures from JSON/JSONL files (no DB writes).
+
+    Files:
+      - backend/tests/fixtures/questions_tier_demo.json — D-47 #1 固定测试 fixture
+      - backend/tests/fixtures/questions_pool.jsonl   — D-47 #2 大池（content 团队后续填充）
+
+    Schema 匹配 Question ORM (academic.py):
+      difficulty ∈ {'D','C','B','A'}, type ∈ {'choice','fill','subjective'}
+      chapter_ref / knowledge_points[] 由 loader 解析为 FK + M2M（DB 写入待 v0.6 实现）
+    """
+    import json
+    from pathlib import Path
+
+    fixtures_dir = Path(__file__).parent / 'fixtures'
+    demo_path = fixtures_dir / 'questions_tier_demo.json'
+    pool_path = fixtures_dir / 'questions_pool.jsonl'
+
+    demo_questions = json.loads(demo_path.read_text(encoding='utf-8'))['questions']
+    pool_questions = [
+        json.loads(line)
+        for line in pool_path.read_text(encoding='utf-8').strip().split('\n')
+        if line.strip()
+    ]
+
+    return {
+        'demo': demo_questions,
+        'pool': pool_questions,
+        'total': len(demo_questions) + len(pool_questions),
+        'by_difficulty': {
+            tier: [q for q in demo_questions + pool_questions if q['difficulty'] == tier]
+            for tier in ('D', 'C', 'B', 'A')
+        },
+        'fixture_files': {'demo': str(demo_path), 'pool': str(pool_path)},
+    }
+
+
+def test_question_pool_fixture_loads():
+    """元教训防护：fixture 必须真的能 load + JSON 合法 + schema 字段齐。"""
+    import json
+    from pathlib import Path
+
+    fixtures_dir = Path(__file__).parent / 'fixtures'
+    demo = json.loads((fixtures_dir / 'questions_tier_demo.json').read_text(encoding='utf-8'))
+    pool_lines = (fixtures_dir / 'questions_pool.jsonl').read_text(encoding='utf-8').strip().split('\n')
+
+    assert 'questions' in demo and isinstance(demo['questions'], list)
+    assert len(demo['questions']) >= 20, f"D-47 #1 应至少 20 题（D/C/B/A 各 5），实有 {len(demo['questions'])}"
+
+    diff_counts = {tier: sum(1 for q in demo['questions'] if q['difficulty'] == tier) for tier in 'DCBA'}
+    for tier, count in diff_counts.items():
+        assert count >= 5, f"D-47 #1 缺档位 {tier}（应有 ≥5，实有 {count}）"
+
+    for q in demo['questions']:
+        assert q['difficulty'] in 'DCBA'
+        assert q['type'] in ('choice', 'fill', 'subjective')
+        assert 'content' in q and len(q['content']) > 0
+        assert 'chapter_ref' in q
+        assert isinstance(q.get('knowledge_points'), list)
+        if q['type'] == 'choice':
+            assert 'choices' in q and len(q['choices']) >= 2
+            assert sum(1 for c in q['choices'] if c.get('is_correct')) == 1, f"{q['ref']}: choice 类型必须恰好 1 个 is_correct=True"
+
+    pool_questions = [json.loads(line) for line in pool_lines if line.strip()]
+    for q in pool_questions:
+        assert q['difficulty'] in 'DCBA'
+        assert q['type'] in ('choice', 'fill', 'subjective')
+        assert 'content' in q
