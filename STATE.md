@@ -229,12 +229,12 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 | 3 | 派独立审查 subagent（review6 + M2-A.1 准入 gate）| B2 | 待 subagent |
 | 4 | 修订 review5 §6.1（D-45 第 3 条 compliance）| A | ✅ review5 §10 段新增 |
 | 5 | M2-A.1 启动 | C | **等用户拍板确认** |
+| 6 | 自报 review5 §6.1 假数据 | A | ✅ memory/2026-09-26.md §三 3.1 |
+| 7 | 接受率入 STATE backlog | A | ✅ 本段 |
 > [2026-09-28 S0-1 状态更新]
 > - :227 真 wait-postgres —— 已实现（S1-⑩, 2026-09-26, ci.yml:107），销账
 > - :228 review6 —— 已派（星轨 general-purpose subagent），M2-A.1 准入 gate 已解
 > - :230 M2-A.1 启动 —— 名字废止；D-49 第 4 条已 flip（用户 2026-09-27 go）；后续按 D-50–D-54 重定框架走 S0-5 / S0-4 / S1
-| 6 | 自报 review5 §6.1 假数据 | A | ✅ memory/2026-09-26.md §三 3.1 |
-| 7 | 接受率入 STATE backlog | A | ✅ 本段 |
 
 ### 接受率（真实修订率）
 
