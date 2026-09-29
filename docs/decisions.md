@@ -1114,3 +1114,35 @@ open-questions.md §9 三个问题全部 ✅：
   3. ci.yml 路径修正（`backend/` 前缀 vs `materials/`）
   4. **测试断言改写**（F1 死守卫 + F2 label 缺 = 派生，落在 C 工单 v2 §5）
 - **来源**：memory/2026-09-28.md §三 B2 修订段 / memory/2026-09-29.md §三 D-57 / 审查员意见书 2026-09-28 §四 / D-51 / D-54
+
+### D-58：dev box SQLite fallback 保真度 — 主题工单挂 backlog（2026-09-29 立）
+
+- **日期**：2026-09-29
+- **拍板人**：审查员意见书 v3 §2.3 + 决策室记账
+- **为什么**：pre-existing 1 failed test `test_textbook_upload_creates_textbook_and_chapters` 在 dev box SQLite 路径 FAIL（**真违约列 = `textbooks.owner_user_id`** `nullable=False` FK → `users.id`，dev box `Base.metadata.create_all()` 现场建表无 seed）；CI 用 docker PG 有 seed 故 PASS — **dev box vs CI 测试环境不一致**
+- **修正**：意见书 v3 §2.3 订正根因措辞 — 真违约列是 `owner_user_id`，**不是** `subject_id` / `grade_level`（两列 `nullable=True`，SQLAlchemy 打印的"其余绑定参数"误导了）
+- **备选方案对比**：
+  - (a) 加 seed fixture（dev box SQLite 起步前 seed subjects / users） — 候选
+  - (b) dev box fallback skip 失败测试 — 候选
+  - (c) 完全用 docker PG 跑测试（dev box 不再跑 pytest） — 候选
+- **影响范围**：**不**阻塞 MVP 关键路径（§10.4 / §10.6 都允许"并行工作"）；测试基础设施债 = P1，挂 backlog
+- **关联**：D-42 升级**不变** — CI 不是"不可信"，是 dev box 信号下界；不要把"CI 一直 success"等同于"测试全过"
+- **来源**：审查员意见书 2026-09-29 v3 §2.3 / 9/29 12:36 C 工单 verify / subagent n1 完成报告
+
+### D-59：任何 tests/ 工单入场闸硬规则（2026-09-29 立）
+
+- **日期**：2026-09-29
+- **拍板人**：审查员意见书 v3 §1.4 + 决策室记账
+- **为什么**：今天 C 工单 `7eac2af` 我漏 ruff/mypy 验收，F401 regression 没拦下来 = **P0 漏网**；`+1` 验收从未在 CI 执行过（评论自报成功 ≠ 实际真成功）
+- **规则内容**：任何 `tests/` 类工单 brief 必含以下入场闸，**双绿才允许 commit**：
+  ```bash
+  docker run --rm -v "$(pwd):/app" -w /app python:3.11-slim bash -c '
+    cd /app/backend && pip install -r requirements.txt --quiet
+    echo "===== ruff check app tests =====" && ruff check app tests
+    echo "===== mypy app =====" && mypy app
+  '
+  ```
+- **强约束**：任一不绿 = 立即停止，**不要 commit**，报回决策室处置
+- **影响范围**：所有未来 `tests/` 类工单 brief 必含此段；不限于 `tests/` 类（其他类工单如有 ruff/mypy 相关改动也应跑双闸）
+- **关联**（再列）：D-36-B 证据优先级 / D-36-C 降级声明 / D-43-X #2（通过/跳过/失败/异常 四态独立路径复跑）/ #5（自报字段不交叉对比）/ #6（工具失败要换路径重试）
+- **来源**：审查员意见书 2026-09-29 v3 §1.4 / 9/29 12:36 C 工单 verify / subagent n1 完成报告

@@ -321,4 +321,10 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 
 > **最后更新**：2026-09-29 10:23 — GitHub 补推 CI success（run `36512464472`, head_sha=`aa2ad72`, 2分25秒）；状态修订（B2 关闭 D-51 已拍 / B1 拍板并行开 S0-5 + S0-4 不叫 v0.6）+ memory/2026-09-29.md 新建；F1 死守卫 + F2 label 缺等 ed2eb46 复核问题待派 subagent 工单（详见 memory/2026-09-29.md）
 >
-> **[2026-09-29 备注 · GitHub 仓设计 · 12:00 UI 操作]** `xingyun-wang/again` 是本项目 GitHub 备份仓。**9/29 12:00 用户 GitHub UI 操作**:`default branch = master` + **删 `main` 分支**。**历史链**:D-40 push 策略 `master:main` 显式 refspec（`decisions.md:542`）= `main` 存在原因;09-27 及之前推 `main`,09-29 10:24 起改推 `master`,`main` 定格 `a891562`;12:00 清理。**非两个项目承载**;"OpenClaw 工作区覆盖 main"风险**不存在**（无来源）。
+> **[2026-09-29 备注 · GitHub 仓设计 · 12:00 UI 操作]** `xingyun-wang/again` 是本项目 GitHub 备份仓。**9/29 12:00 用户 GitHub UI 操作**:`default branch = master` + **删 `main` 分支**。**历史链**:D-40 push 策略 `master:main` 显式 refspec(`decisions.md:542`)= `main` 存在原因;09-27 及之前推 `main`,09-29 10:24 起改推 `master`,`main` 定格 `a891562`;12:00 清理。**非两个项目承载**;"OpenClaw 工作区覆盖 main"风险**不存在**(无来源)。
+>
+> **[2026-09-29 12:36 · 审查员意见书 v3 接住 + n1 F401 修落地 + 决策账本 D-58/D-59 落字]**
+> - C 工单 commit `7eac2af` 推 GitHub 后 CI run `36521672033` = **failure**（Ruff check app+tests F401：`import pytest` 未用，后续 mypy/alembic/pytest/verify 全 skipped）；`+1` 验收**从未在 CI 执行过** — D-43-X #6（工具失败要换路径重试）+ #2（任何 tests/ 工单必须含入场闸）违反
+> - n1 工单：subagent 删 `backend/tests/test_question_pool_fixture.py:14` 的 `import pytest` + ruff/mypy 双闸双绿 + pytest 1 passed；commit `610dd18`（本地 ahead 1，**未 push**，等用户拍 n4 push 责任）
+> - **D-58 落字**：dev box SQLite fallback 保真度（主题工单挂 backlog） — 真违约列 = `textbooks.owner_user_id`（FK `nullable=False`）；不影响 MVP
+> - **D-59 落字**：任何 tests/ 工单入场闸硬规则（必含 `ruff check app tests` + `mypy app` 双闸绿才允许 commit）
