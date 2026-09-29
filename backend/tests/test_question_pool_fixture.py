@@ -11,7 +11,6 @@ C 工单 fix(test) v2 落地（2026-09-29）：
   Question.choice 表 Mapped[str] = mapped_column(String(8), nullable=False) →
   缺 label → 写库必失败。本断言是写库前的最后防线。
 """
-import pytest
 
 
 def test_question_pool_fixture_loads(question_pool_fixtures):
