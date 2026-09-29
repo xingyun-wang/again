@@ -321,4 +321,4 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 
 > **最后更新**：2026-09-29 10:23 — GitHub 补推 CI success（run `36512464472`, head_sha=`aa2ad72`, 2分25秒）；状态修订（B2 关闭 D-51 已拍 / B1 拍板并行开 S0-5 + S0-4 不叫 v0.6）+ memory/2026-09-29.md 新建；F1 死守卫 + F2 label 缺等 ed2eb46 复核问题待派 subagent 工单（详见 memory/2026-09-29.md）
 >
-> **[2026-09-29 备注 · GitHub 仓设计]** `xingyun-wang/again` 同时承载两个项目（`main` = OpenClaw agent 工作区 / `master` = tiered-homework-platform）,默认 `main`,ci.yml 配 `branches: [main, master]` 触发；本次 CI 成功 = 边角配置救了我们
+> **[2026-09-29 备注 · GitHub 仓设计 · 12:00 UI 操作]** `xingyun-wang/again` 是本项目 GitHub 备份仓。**9/29 12:00 用户 GitHub UI 操作**:`default branch = master` + **删 `main` 分支**。**历史链**:D-40 push 策略 `master:main` 显式 refspec（`decisions.md:542`）= `main` 存在原因;09-27 及之前推 `main`,09-29 10:24 起改推 `master`,`main` 定格 `a891562`;12:00 清理。**非两个项目承载**;"OpenClaw 工作区覆盖 main"风险**不存在**（无来源）。
