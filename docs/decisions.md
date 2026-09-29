@@ -1129,13 +1129,18 @@ open-questions.md §9 三个问题全部 ✅：
 - **关联**：D-42 升级**不变** — CI 不是"不可信"，是 dev box 信号下界；不要把"CI 一直 success"等同于"测试全过"
 - **来源**：审查员意见书 2026-09-29 v3 §2.3 / 9/29 12:36 C 工单 verify / subagent n1 完成报告
 
-### D-59：任何 tests/ 工单入场闸硬规则（2026-09-29 立）
+### D-59：任何 tests/ 工单入场闸硬规则（2026-09-29 立；2026-09-29 13:44 修订）
 
-- **日期**：2026-09-29
-- **拍板人**：审查员意见书 v3 §1.4 + 决策室记账
+- **日期**：2026-09-29（修订：2026-09-29 13:44 — 简化命令）
+- **拍板人**：审查员意见书 v3 §1.4 + 决策室记账；修订触发 = 审查员意见书 v3 §七「环境事实订正」（WSL 有 `~/.local/bin/ruff` + `~/.local/bin/mypy`，无需容器）
 - **为什么**：今天 C 工单 `7eac2af` 我漏 ruff/mypy 验收，F401 regression 没拦下来 = **P0 漏网**；`+1` 验收从未在 CI 执行过（评论自报成功 ≠ 实际真成功）
 - **规则内容**：任何 `tests/` 类工单 brief 必含以下入场闸，**双绿才允许 commit**：
   ```bash
+  # 首选（WSL / 本地有 ruff + mypy 时）：
+  cd backend
+  ruff check app tests && mypy app
+
+  # 回退（容器路径，环境无 ruff/mypy 时）：
   docker run --rm -v "$(pwd):/app" -w /app python:3.11-slim bash -c '
     cd /app/backend && pip install -r requirements.txt --quiet
     echo "===== ruff check app tests =====" && ruff check app tests
@@ -1145,4 +1150,31 @@ open-questions.md §9 三个问题全部 ✅：
 - **强约束**：任一不绿 = 立即停止，**不要 commit**，报回决策室处置
 - **影响范围**：所有未来 `tests/` 类工单 brief 必含此段；不限于 `tests/` 类（其他类工单如有 ruff/mypy 相关改动也应跑双闸）
 - **关联**（再列）：D-36-B 证据优先级 / D-36-C 降级声明 / D-43-X #2（通过/跳过/失败/异常 四态独立路径复跑）/ #5（自报字段不交叉对比）/ #6（工具失败要换路径重试）
-- **来源**：审查员意见书 2026-09-29 v3 §1.4 / 9/29 12:36 C 工单 verify / subagent n1 完成报告
+- **来源**：审查员意见书 2026-09-29 v3 §1.4 + §七 / 9/29 12:36 C 工单 verify / subagent n1 完成报告 / WSL 环境事实订正（2026-09-29 13:44）
+
+### D-60：+1 验收判据口径订正 — N=199 错判 → 同环境差值 + 新 nodeid 出现（2026-09-29 13:44 立）
+
+- **日期**：2026-09-29 13:44
+- **拍板人**：审查员意见书 v3 §六 + 决策室记账
+- **为什么**：C 工单 fix(test) v2（commit `7eac2af`）push 后 +1 验收判据有误：
+  - **错判**：用 dev box pytest 输出 N=199（py3.8 + SQLite fallback + pre-existing 失败 test 隐藏）作为验收基线
+  - **真判据**：CI 跑的是 py3.11 + PG + alembic upgrade head，**环境差异**导致 N=199（dev box）≠ N passed（CI）
+  - **后果**：坚持 N=199 = 把正确 run 判成失败（D-28 家族镜像形态：判据在该环境下不可满足）
+- **修正判据**（意见书 v3 §六）：
+  1. **同环境差值**：`N(新 run 36525581186) − N(基线 run 36519868910) = +1`（实测：201 − 200 = +1 ✅，星云 2026-09-29 13:43 paste 1+2）
+  2. **新 nodeid 出现**：`tests/test_question_pool_fixture.py::test_question_pool_fixture_loads` 必须出现在 pytest 输出（静态复核成立：fixture 可获取 + 无过滤 + 无 skip ⇒ 必然被收集）
+- **机器证据补 D-36-B**（n1 自报「双闸双绿」的旁证）：
+  - `backend/.ruff_cache/0.16.9` + `backend/.mypy_cache` mtime = `2026-09-29 12:46`（在 n1 窗口 12:46–12:51 内，均被 `.gitignore:13/:14` 覆盖）
+  - **不是纸面自述** — ruff/mypy 真在 dev box 跑过
+- **完整 thread 闭合**：
+  ```
+  7eac2af (C 工单 push)
+     ↓ CI 36521672033 = failure (F401 regression 漏网)
+  610dd18 (n1 fix: 删 import pytest)
+     ↓ (本地，未推)
+  25df71a (meta commit = 记账 D-58/D-59/STATE/memory)
+     ↓ CI 36525581186 = success / 201 vs 200 = +1 ✅
+  ```
+- **影响范围**：D-59 规则中「+1 验收」的具体口径从此按本条；其他任何「+N」验收类工单同样适用
+- **关联**：D-28 / D-43-X #5 / D-42 / D-59
+- **来源**：审查员意见书 2026-09-29 v3 §六 / 星云 2026-09-29 13:43 paste 1+2 实测

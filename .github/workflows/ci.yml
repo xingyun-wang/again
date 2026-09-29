@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main, master]    # F3 修订（2026-09-29）：master = 主分支（9/29 12:00 用户 GitHub UI 操作删 main 后）；[main] 保留向后兼容；D-40 push 策略 master:main 已废
+    branches: [master]    # 9/29 12:00 UI 操作删 main；2026-09-29 13:44 [main] 残留 cleanup（[master] 兜底即可；触发器唯一）
     tags:
       - 'review/*'              # D-31 tag 模板（review/<milestone>-<sha7>）
   pull_request:
