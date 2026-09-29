@@ -2,6 +2,7 @@
 
 > **最后更新**：2026-09-27 13:00（**M2-A.0 pre-flight 闭环 + 3 决策落字 + M2-A.1 硬门禁**：per-push CI 9dad894 全绿 + pytest 实证 194+ passed / 0 failed；D-47/48/49 落字（M2-A.1 验收判据 / §3.5 反马太修正 / 启动模式）；M2-A.1 启动硬门禁 = 等用户明确 "go"）
 > **最后更新**：2026-09-28 19:03 — S0-1 收口（STATE.md 时间戳 + :302 verify 作废标记 + :227/:228/:230 状态更新块 — 4 项 append 式；D-43 例外内）
+> **最后更新**：2026-09-29 13:46 — w3+w4 记账（D-59 修正注记 append blockquote + 立 D-61「账本修正一律 append，禁原地改写」）；同笔 meta commit，双推 Gitee/GitHub（锚点 = `b33e333` 提交时间 `2026-09-29 13:46:25`）
 > 上一节点（2026-09-23 22:25）：三方 HEAD = `5e05b3a`（S1-② alembic rename 后实测；**注**：新-4 工程债建议改写 commit subject 形式以避免 SHA 频繁过期）
 > 上一节点（2026-09-23 22:10）：Phase B 收口 + 三方 HEAD = `6b9f0a4`（C1 收尾后）
 > 上一节点（2026-09-21 15:10）：M1-B retro C 路径收口 + D-43/D-44 落字。CI 三次 run #1/2/3 全 failure（路径分析：step 5 working-directory 错 + step 7 B1 mypy narrowing），我决策室越权修了 2 次（commits `3c21dd1` + `171aabe`），用户拍 C 路径：force push main 回 `fbb7275`。三方 HEAD 一致（本地 / Gitee / GitHub main 都 `fbb7275`），reflog 保留 90 天审计 trail。**D-43 落字**：决策室不修代码逻辑 / 决策室验证环路 / Deploy key 同名静默无效。**D-44 落字**：review3 冻结点 = `fbb7275`，独立审查员 subagent 判通过 / 不通过，**不依赖 CI 5 命令全绿**
@@ -328,3 +329,4 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 > - n1 工单：subagent 删 `backend/tests/test_question_pool_fixture.py:14` 的 `import pytest` + ruff/mypy 双闸双绿 + pytest 1 passed；commit `610dd18`（本地 ahead 1，**未 push**，等用户拍 n4 push 责任）
 > - **D-58 落字**：dev box SQLite fallback 保真度（主题工单挂 backlog） — 真违约列 = `textbooks.owner_user_id`（FK `nullable=False`）；不影响 MVP
 > - **D-59 落字**：任何 tests/ 工单入场闸硬规则（必含 `ruff check app tests` + `mypy app` 双闸绿才允许 commit）
+> - **D-60 落字**：`+1` 验收判据口径订正 — **同环境相邻 run 差值 + 新 nodeid 出现**，废止绝对数 N=199（另见 `decisions.md` D-60）
