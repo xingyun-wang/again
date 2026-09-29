@@ -413,34 +413,10 @@ def question_pool_fixtures():
     }
 
 
-def test_question_pool_fixture_loads():
-    """元教训防护：fixture 必须真的能 load + JSON 合法 + schema 字段齐。"""
-    import json
-    from pathlib import Path
-
-    fixtures_dir = Path(__file__).parent / 'fixtures'
-    demo = json.loads((fixtures_dir / 'questions_tier_demo.json').read_text(encoding='utf-8'))
-    pool_lines = (fixtures_dir / 'questions_pool.jsonl').read_text(encoding='utf-8').strip().split('\n')
-
-    assert 'questions' in demo and isinstance(demo['questions'], list)
-    assert len(demo['questions']) >= 20, f"D-47 #1 应至少 20 题（D/C/B/A 各 5），实有 {len(demo['questions'])}"
-
-    diff_counts = {tier: sum(1 for q in demo['questions'] if q['difficulty'] == tier) for tier in 'DCBA'}
-    for tier, count in diff_counts.items():
-        assert count >= 5, f"D-47 #1 缺档位 {tier}（应有 ≥5，实有 {count}）"
-
-    for q in demo['questions']:
-        assert q['difficulty'] in 'DCBA'
-        assert q['type'] in ('choice', 'fill', 'subjective')
-        assert 'content' in q and len(q['content']) > 0
-        assert 'chapter_ref' in q
-        assert isinstance(q.get('knowledge_points'), list)
-        if q['type'] == 'choice':
-            assert 'choices' in q and len(q['choices']) >= 2
-            assert sum(1 for c in q['choices'] if c.get('is_correct')) == 1, f"{q['ref']}: choice 类型必须恰好 1 个 is_correct=True"
-
-    pool_questions = [json.loads(line) for line in pool_lines if line.strip()]
-    for q in pool_questions:
-        assert q['difficulty'] in 'DCBA'
-        assert q['type'] in ('choice', 'fill', 'subjective')
-        assert 'content' in q
+# F1a（C 工单 fix(test) v2,2026-09-29）：
+# test_question_pool_fixture_loads 已净移到 backend/tests/test_question_pool_fixture.py。
+# conftest.py 不被 pytest 收集（python_files = ["test_*.py", "*_test.py"]），
+# 原函数永不执行 = 死守卫。移到 test_*.py 才被收集。
+# 旧位置：backend/tests/conftest.py:416-446。
+# 净移动包含 F1b（签名加 question_pool_fixtures 参数 + 断言 total + by_difficulty）
+# + F1c（choice.label 必填断言）。见 test_question_pool_fixture.py 头注释。

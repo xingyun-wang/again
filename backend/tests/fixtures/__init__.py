@@ -8,4 +8,6 @@ Schema 匹配 backend/app/models/academic.py Question 模型：
 - type:       'choice' | 'fill' | 'subjective' (QuestionType enum)
 - chapter_ref / knowledge_points[] — loader 解析为 FK + M2M
 - owner: 单文件内全部题目的归属用户（loader 创建）
+- choices[*].label: 非空字符串（Question.choice.label: Mapped[str] = mapped_column(String(8), nullable=False)；
+  缺 label → 写库必失败，test_question_pool_fixture_loads::F1c 强制要求）
 """

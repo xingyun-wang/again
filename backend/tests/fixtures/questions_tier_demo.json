@@ -3,43 +3,382 @@
   "purpose": "D-47 #1 固定测试章节 fixture（v0.5 §3 反马太判据输入）",
   "owner": "OWNER-DEMO-1",
   "chapters": [
-    {"ref": "CH-DEMO-D-1", "name": "基础算术"},
-    {"ref": "CH-DEMO-C-1", "name": "代数基础"},
-    {"ref": "CH-DEMO-B-1", "name": "微积分入门"},
-    {"ref": "CH-DEMO-A-1", "name": "高级数学"}
+    {
+      "ref": "CH-DEMO-D-1",
+      "name": "基础算术"
+    },
+    {
+      "ref": "CH-DEMO-C-1",
+      "name": "代数基础"
+    },
+    {
+      "ref": "CH-DEMO-B-1",
+      "name": "微积分入门"
+    },
+    {
+      "ref": "CH-DEMO-A-1",
+      "name": "高级数学"
+    }
   ],
   "knowledge_points": [
-    {"ref": "KP-DEMO-D-1", "chapter_ref": "CH-DEMO-D-1", "name": "整数四则运算"},
-    {"ref": "KP-DEMO-C-1", "chapter_ref": "CH-DEMO-C-1", "name": "一元一次方程"},
-    {"ref": "KP-DEMO-C-2", "chapter_ref": "CH-DEMO-C-1", "name": "函数求值"},
-    {"ref": "KP-DEMO-B-1", "chapter_ref": "CH-DEMO-B-1", "name": "导数定义"},
-    {"ref": "KP-DEMO-B-2", "chapter_ref": "CH-DEMO-B-1", "name": "基本积分"},
-    {"ref": "KP-DEMO-A-1", "chapter_ref": "CH-DEMO-A-1", "name": "群论基础"},
-    {"ref": "KP-DEMO-A-2", "chapter_ref": "CH-DEMO-A-1", "name": "极限理论"}
+    {
+      "ref": "KP-DEMO-D-1",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "整数四则运算"
+    },
+    {
+      "ref": "KP-DEMO-C-1",
+      "chapter_ref": "CH-DEMO-C-1",
+      "name": "一元一次方程"
+    },
+    {
+      "ref": "KP-DEMO-C-2",
+      "chapter_ref": "CH-DEMO-C-1",
+      "name": "函数求值"
+    },
+    {
+      "ref": "KP-DEMO-B-1",
+      "chapter_ref": "CH-DEMO-B-1",
+      "name": "导数定义"
+    },
+    {
+      "ref": "KP-DEMO-B-2",
+      "chapter_ref": "CH-DEMO-B-1",
+      "name": "基本积分"
+    },
+    {
+      "ref": "KP-DEMO-A-1",
+      "chapter_ref": "CH-DEMO-A-1",
+      "name": "群论基础"
+    },
+    {
+      "ref": "KP-DEMO-A-2",
+      "chapter_ref": "CH-DEMO-A-1",
+      "name": "极限理论"
+    }
   ],
   "questions": [
-    {"ref": "Q-DEMO-D-001", "difficulty": "D", "type": "choice", "chapter_ref": "CH-DEMO-D-1", "knowledge_points": ["KP-DEMO-D-1"], "content": "1 + 1 = ?", "choices": [{"content": "1", "is_correct": false, "order_index": 0}, {"content": "2", "is_correct": true, "order_index": 1}, {"content": "3", "is_correct": false, "order_index": 2}]},
-    {"ref": "Q-DEMO-D-002", "difficulty": "D", "type": "choice", "chapter_ref": "CH-DEMO-D-1", "knowledge_points": ["KP-DEMO-D-1"], "content": "2 × 3 = ?", "choices": [{"content": "5", "is_correct": false, "order_index": 0}, {"content": "6", "is_correct": true, "order_index": 1}, {"content": "7", "is_correct": false, "order_index": 2}]},
-    {"ref": "Q-DEMO-D-003", "difficulty": "D", "type": "fill", "chapter_ref": "CH-DEMO-D-1", "knowledge_points": ["KP-DEMO-D-1"], "content": "5 ÷ 1 = ____"},
-    {"ref": "Q-DEMO-D-004", "difficulty": "D", "type": "fill", "chapter_ref": "CH-DEMO-D-1", "knowledge_points": ["KP-DEMO-D-1"], "content": "3² = ____"},
-    {"ref": "Q-DEMO-D-005", "difficulty": "D", "type": "subjective", "chapter_ref": "CH-DEMO-D-1", "knowledge_points": ["KP-DEMO-D-1"], "content": "简述整数四则运算的优先级规则。"},
-
-    {"ref": "Q-DEMO-C-001", "difficulty": "C", "type": "choice", "chapter_ref": "CH-DEMO-C-1", "knowledge_points": ["KP-DEMO-C-1"], "content": "解方程 x + 2 = 5，x = ?", "choices": [{"content": "x = 1", "is_correct": false, "order_index": 0}, {"content": "x = 3", "is_correct": true, "order_index": 1}, {"content": "x = 5", "is_correct": false, "order_index": 2}]},
-    {"ref": "Q-DEMO-C-002", "difficulty": "C", "type": "choice", "chapter_ref": "CH-DEMO-C-1", "knowledge_points": ["KP-DEMO-C-2"], "content": "函数 y = 2x + 1 在 x=0 时的值是？", "choices": [{"content": "y = 0", "is_correct": false, "order_index": 0}, {"content": "y = 1", "is_correct": true, "order_index": 1}, {"content": "y = 2", "is_correct": false, "order_index": 2}]},
-    {"ref": "Q-DEMO-C-003", "difficulty": "C", "type": "choice", "chapter_ref": "CH-DEMO-C-1", "knowledge_points": ["KP-DEMO-C-2"], "content": "求 y = x² 在 x=3 时的值", "choices": [{"content": "y = 6", "is_correct": false, "order_index": 0}, {"content": "y = 9", "is_correct": true, "order_index": 1}, {"content": "y = 12", "is_correct": false, "order_index": 2}]},
-    {"ref": "Q-DEMO-C-004", "difficulty": "C", "type": "fill", "chapter_ref": "CH-DEMO-C-1", "knowledge_points": ["KP-DEMO-C-1"], "content": "解方程 2x = 10，x = ____"},
-    {"ref": "Q-DEMO-C-005", "difficulty": "C", "type": "subjective", "chapter_ref": "CH-DEMO-C-1", "knowledge_points": ["KP-DEMO-C-1", "KP-DEMO-C-2"], "content": "写出方程 x + y = 5 的一组整数解。"},
-
-    {"ref": "Q-DEMO-B-001", "difficulty": "B", "type": "fill", "chapter_ref": "CH-DEMO-B-1", "knowledge_points": ["KP-DEMO-B-1"], "content": "求 f(x) = x² 的导数 f'(x) = ____"},
-    {"ref": "Q-DEMO-B-002", "difficulty": "B", "type": "fill", "chapter_ref": "CH-DEMO-B-1", "knowledge_points": ["KP-DEMO-B-2"], "content": "求 ∫ x dx = ____"},
-    {"ref": "Q-DEMO-B-003", "difficulty": "B", "type": "choice", "chapter_ref": "CH-DEMO-B-1", "knowledge_points": ["KP-DEMO-B-1"], "content": "lim(x→0) sin(x)/x = ?", "choices": [{"content": "0", "is_correct": false, "order_index": 0}, {"content": "1", "is_correct": true, "order_index": 1}, {"content": "不存在", "is_correct": false, "order_index": 2}]},
-    {"ref": "Q-DEMO-B-004", "difficulty": "B", "type": "fill", "chapter_ref": "CH-DEMO-B-1", "knowledge_points": ["KP-DEMO-B-1"], "content": "求 f(x) = x³ 的二阶导数 f''(x) = ____"},
-    {"ref": "Q-DEMO-B-005", "difficulty": "B", "type": "subjective", "chapter_ref": "CH-DEMO-B-1", "knowledge_points": ["KP-DEMO-B-1"], "content": "简述罗尔定理的内容及条件。"},
-
-    {"ref": "Q-DEMO-A-001", "difficulty": "A", "type": "subjective", "chapter_ref": "CH-DEMO-A-1", "knowledge_points": ["KP-DEMO-A-1"], "content": "证明群 G 的每个元素都有唯一逆元。"},
-    {"ref": "Q-DEMO-A-002", "difficulty": "A", "type": "fill", "chapter_ref": "CH-DEMO-A-1", "knowledge_points": ["KP-DEMO-A-2"], "content": "lim(n→∞) (1 + 1/n)ⁿ = ____"},
-    {"ref": "Q-DEMO-A-003", "difficulty": "A", "type": "subjective", "chapter_ref": "CH-DEMO-A-1", "knowledge_points": ["KP-DEMO-A-1"], "content": "证明 √2 是无理数。"},
-    {"ref": "Q-DEMO-A-004", "difficulty": "A", "type": "fill", "chapter_ref": "CH-DEMO-A-1", "knowledge_points": ["KP-DEMO-A-2"], "content": "写出函数 f(x) = eˣ 在 x=0 处的泰勒级数前 3 项"},
-    {"ref": "Q-DEMO-A-005", "difficulty": "A", "type": "subjective", "chapter_ref": "CH-DEMO-A-1", "knowledge_points": ["KP-DEMO-A-1", "KP-DEMO-A-2"], "content": "证明 lim(x→0) sin(x)/x = 1。"}
+    {
+      "ref": "Q-DEMO-D-001",
+      "difficulty": "D",
+      "type": "choice",
+      "chapter_ref": "CH-DEMO-D-1",
+      "knowledge_points": [
+        "KP-DEMO-D-1"
+      ],
+      "content": "1 + 1 = ?",
+      "choices": [
+        {
+          "content": "1",
+          "is_correct": false,
+          "order_index": 0,
+          "label": "A"
+        },
+        {
+          "content": "2",
+          "is_correct": true,
+          "order_index": 1,
+          "label": "B"
+        },
+        {
+          "content": "3",
+          "is_correct": false,
+          "order_index": 2,
+          "label": "C"
+        }
+      ]
+    },
+    {
+      "ref": "Q-DEMO-D-002",
+      "difficulty": "D",
+      "type": "choice",
+      "chapter_ref": "CH-DEMO-D-1",
+      "knowledge_points": [
+        "KP-DEMO-D-1"
+      ],
+      "content": "2 × 3 = ?",
+      "choices": [
+        {
+          "content": "5",
+          "is_correct": false,
+          "order_index": 0,
+          "label": "A"
+        },
+        {
+          "content": "6",
+          "is_correct": true,
+          "order_index": 1,
+          "label": "B"
+        },
+        {
+          "content": "7",
+          "is_correct": false,
+          "order_index": 2,
+          "label": "C"
+        }
+      ]
+    },
+    {
+      "ref": "Q-DEMO-D-003",
+      "difficulty": "D",
+      "type": "fill",
+      "chapter_ref": "CH-DEMO-D-1",
+      "knowledge_points": [
+        "KP-DEMO-D-1"
+      ],
+      "content": "5 ÷ 1 = ____"
+    },
+    {
+      "ref": "Q-DEMO-D-004",
+      "difficulty": "D",
+      "type": "fill",
+      "chapter_ref": "CH-DEMO-D-1",
+      "knowledge_points": [
+        "KP-DEMO-D-1"
+      ],
+      "content": "3² = ____"
+    },
+    {
+      "ref": "Q-DEMO-D-005",
+      "difficulty": "D",
+      "type": "subjective",
+      "chapter_ref": "CH-DEMO-D-1",
+      "knowledge_points": [
+        "KP-DEMO-D-1"
+      ],
+      "content": "简述整数四则运算的优先级规则。"
+    },
+    {
+      "ref": "Q-DEMO-C-001",
+      "difficulty": "C",
+      "type": "choice",
+      "chapter_ref": "CH-DEMO-C-1",
+      "knowledge_points": [
+        "KP-DEMO-C-1"
+      ],
+      "content": "解方程 x + 2 = 5，x = ?",
+      "choices": [
+        {
+          "content": "x = 1",
+          "is_correct": false,
+          "order_index": 0,
+          "label": "A"
+        },
+        {
+          "content": "x = 3",
+          "is_correct": true,
+          "order_index": 1,
+          "label": "B"
+        },
+        {
+          "content": "x = 5",
+          "is_correct": false,
+          "order_index": 2,
+          "label": "C"
+        }
+      ]
+    },
+    {
+      "ref": "Q-DEMO-C-002",
+      "difficulty": "C",
+      "type": "choice",
+      "chapter_ref": "CH-DEMO-C-1",
+      "knowledge_points": [
+        "KP-DEMO-C-2"
+      ],
+      "content": "函数 y = 2x + 1 在 x=0 时的值是？",
+      "choices": [
+        {
+          "content": "y = 0",
+          "is_correct": false,
+          "order_index": 0,
+          "label": "A"
+        },
+        {
+          "content": "y = 1",
+          "is_correct": true,
+          "order_index": 1,
+          "label": "B"
+        },
+        {
+          "content": "y = 2",
+          "is_correct": false,
+          "order_index": 2,
+          "label": "C"
+        }
+      ]
+    },
+    {
+      "ref": "Q-DEMO-C-003",
+      "difficulty": "C",
+      "type": "choice",
+      "chapter_ref": "CH-DEMO-C-1",
+      "knowledge_points": [
+        "KP-DEMO-C-2"
+      ],
+      "content": "求 y = x² 在 x=3 时的值",
+      "choices": [
+        {
+          "content": "y = 6",
+          "is_correct": false,
+          "order_index": 0,
+          "label": "A"
+        },
+        {
+          "content": "y = 9",
+          "is_correct": true,
+          "order_index": 1,
+          "label": "B"
+        },
+        {
+          "content": "y = 12",
+          "is_correct": false,
+          "order_index": 2,
+          "label": "C"
+        }
+      ]
+    },
+    {
+      "ref": "Q-DEMO-C-004",
+      "difficulty": "C",
+      "type": "fill",
+      "chapter_ref": "CH-DEMO-C-1",
+      "knowledge_points": [
+        "KP-DEMO-C-1"
+      ],
+      "content": "解方程 2x = 10，x = ____"
+    },
+    {
+      "ref": "Q-DEMO-C-005",
+      "difficulty": "C",
+      "type": "subjective",
+      "chapter_ref": "CH-DEMO-C-1",
+      "knowledge_points": [
+        "KP-DEMO-C-1",
+        "KP-DEMO-C-2"
+      ],
+      "content": "写出方程 x + y = 5 的一组整数解。"
+    },
+    {
+      "ref": "Q-DEMO-B-001",
+      "difficulty": "B",
+      "type": "fill",
+      "chapter_ref": "CH-DEMO-B-1",
+      "knowledge_points": [
+        "KP-DEMO-B-1"
+      ],
+      "content": "求 f(x) = x² 的导数 f'(x) = ____"
+    },
+    {
+      "ref": "Q-DEMO-B-002",
+      "difficulty": "B",
+      "type": "fill",
+      "chapter_ref": "CH-DEMO-B-1",
+      "knowledge_points": [
+        "KP-DEMO-B-2"
+      ],
+      "content": "求 ∫ x dx = ____"
+    },
+    {
+      "ref": "Q-DEMO-B-003",
+      "difficulty": "B",
+      "type": "choice",
+      "chapter_ref": "CH-DEMO-B-1",
+      "knowledge_points": [
+        "KP-DEMO-B-1"
+      ],
+      "content": "lim(x→0) sin(x)/x = ?",
+      "choices": [
+        {
+          "content": "0",
+          "is_correct": false,
+          "order_index": 0,
+          "label": "A"
+        },
+        {
+          "content": "1",
+          "is_correct": true,
+          "order_index": 1,
+          "label": "B"
+        },
+        {
+          "content": "不存在",
+          "is_correct": false,
+          "order_index": 2,
+          "label": "C"
+        }
+      ]
+    },
+    {
+      "ref": "Q-DEMO-B-004",
+      "difficulty": "B",
+      "type": "fill",
+      "chapter_ref": "CH-DEMO-B-1",
+      "knowledge_points": [
+        "KP-DEMO-B-1"
+      ],
+      "content": "求 f(x) = x³ 的二阶导数 f''(x) = ____"
+    },
+    {
+      "ref": "Q-DEMO-B-005",
+      "difficulty": "B",
+      "type": "subjective",
+      "chapter_ref": "CH-DEMO-B-1",
+      "knowledge_points": [
+        "KP-DEMO-B-1"
+      ],
+      "content": "简述罗尔定理的内容及条件。"
+    },
+    {
+      "ref": "Q-DEMO-A-001",
+      "difficulty": "A",
+      "type": "subjective",
+      "chapter_ref": "CH-DEMO-A-1",
+      "knowledge_points": [
+        "KP-DEMO-A-1"
+      ],
+      "content": "证明群 G 的每个元素都有唯一逆元。"
+    },
+    {
+      "ref": "Q-DEMO-A-002",
+      "difficulty": "A",
+      "type": "fill",
+      "chapter_ref": "CH-DEMO-A-1",
+      "knowledge_points": [
+        "KP-DEMO-A-2"
+      ],
+      "content": "lim(n→∞) (1 + 1/n)ⁿ = ____"
+    },
+    {
+      "ref": "Q-DEMO-A-003",
+      "difficulty": "A",
+      "type": "subjective",
+      "chapter_ref": "CH-DEMO-A-1",
+      "knowledge_points": [
+        "KP-DEMO-A-1"
+      ],
+      "content": "证明 √2 是无理数。"
+    },
+    {
+      "ref": "Q-DEMO-A-004",
+      "difficulty": "A",
+      "type": "fill",
+      "chapter_ref": "CH-DEMO-A-1",
+      "knowledge_points": [
+        "KP-DEMO-A-2"
+      ],
+      "content": "写出函数 f(x) = eˣ 在 x=0 处的泰勒级数前 3 项"
+    },
+    {
+      "ref": "Q-DEMO-A-005",
+      "difficulty": "A",
+      "type": "subjective",
+      "chapter_ref": "CH-DEMO-A-1",
+      "knowledge_points": [
+        "KP-DEMO-A-1",
+        "KP-DEMO-A-2"
+      ],
+      "content": "证明 lim(x→0) sin(x)/x = 1。"
+    }
   ]
 }

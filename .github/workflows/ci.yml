@@ -2,11 +2,11 @@ name: ci
 
 on:
   push:
-    branches: [main, master]    # master 兜底（push 策略 master:main 触发主分支；但 master 直推也接受）
+    branches: [main, master]    # F3 修订（2026-09-29）：master = 主分支（9/29 12:00 用户 GitHub UI 操作删 main 后）；[main] 保留向后兼容；D-40 push 策略 master:main 已废
     tags:
       - 'review/*'              # D-31 tag 模板（review/<milestone>-<sha7>）
   pull_request:
-    branches: [main]
+    branches: [master]    # F3（C 工单 fix(test) v2,2026-09-29）：原 [main] 因 9/29 12:00 用户 GitHub UI 操作删 main 已成死触发器；改 [master] = 主分支
   workflow_dispatch:            # D-40 决策路径 1（用户手动触发 5 命令实跑）
     inputs:
       verify_pdf_path:
