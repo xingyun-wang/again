@@ -1,3 +1,5 @@
+> **SUPERSEDED · 2026-09-29 · w5 工单归档** 本条已合并为 commit `3ccdf29`(2026-09-23),相关代码与决策以 commit `3ccdf29` 为准。**幽灵指令已废**:`# CI-1-1 跑通后才推 github master:main` 自 2026-09-29 12:00 用户 GitHub UI 操作删 main 后已废,改推 `master`(见 `docs/decisions.md` D-40 + `memory/2026-09-29.md` §一 1.1 + `STATE.md` GitHub 仓设计备注)
+
 # M2-A.0 题库 CRUD 最小切片 工地 brief（决策室派工）
 
 > **工单命名**：`M2-A.0`（v0.5 §10 M2 起步）

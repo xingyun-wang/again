@@ -33,6 +33,8 @@
 |---|---|---|
 | `m2-a0-question-crud-brief.md` | `3ccdf29` (M2-A.0) | 已落地（commit merged），待归档 |
 
+> **2026-09-29 · w5 归档**:m2-a0-question-crud-brief 已移入 `docs/reviews/2026-09-23-m2-a0-question-crud-brief-archived.md`(commit `3ccdf29` 已 merged)
+
 ## 与 reviews 目录关系
 
 | 目录 | 内容 | 时效 |
@@ -49,3 +51,9 @@
 ## 来源
 
 外部核源回执 2026-09-23 §N-3。
+
+## 归档索引
+
+| 归档日期 | 原 brief 名 | 对应 commit | 归档说明 |
+|---|---|---|---|
+| 2026-09-23 | m2-a0-question-crud-brief | `3ccdf29` | 09-29 归档(w5) |
