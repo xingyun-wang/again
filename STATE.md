@@ -1,8 +1,6 @@
 # STATE.md — 差异化作业工作台
 
-> **最后更新**：2026-09-27 13:00（**M2-A.0 pre-flight 闭环 + 3 决策落字 + M2-A.1 硬门禁**：per-push CI 9dad894 全绿 + pytest 实证 194+ passed / 0 failed；D-47/48/49 落字（M2-A.1 验收判据 / §3.5 反马太修正 / 启动模式）；M2-A.1 启动硬门禁 = 等用户明确 "go"）
-> **最后更新**：2026-09-28 19:03 — S0-1 收口（STATE.md 时间戳 + :302 verify 作废标记 + :227/:228/:230 状态更新块 — 4 项 append 式；D-43 例外内）
-> **最后更新**：2026-09-29 13:46 — w3+w4 记账（D-59 修正注记 append blockquote + 立 D-61「账本修正一律 append，禁原地改写」）；同笔 meta commit，双推 Gitee/GitHub（锚点 = `b33e333` 提交时间 `2026-09-29 13:46:25`）
+> **最后更新**：2026-09-30 12:45 — commit 3（修 §2① STATE.md 多值病根 + §2② 自指悖论 + 实战失实 #11-#15 落字 + push Gitee/GitHub 双仓强约束解除；commit 1 锚点 `f2159ec`；本笔锚点待 commit）；详见文件末变更说明
 > 上一节点（2026-09-23 22:25）：三方 HEAD = `5e05b3a`（S1-② alembic rename 后实测；**注**：新-4 工程债建议改写 commit subject 形式以避免 SHA 频繁过期）
 > 上一节点（2026-09-23 22:10）：Phase B 收口 + 三方 HEAD = `6b9f0a4`（C1 收尾后）
 > 上一节点（2026-09-21 15:10）：M1-B retro C 路径收口 + D-43/D-44 落字。CI 三次 run #1/2/3 全 failure（路径分析：step 5 working-directory 错 + step 7 B1 mypy narrowing），我决策室越权修了 2 次（commits `3c21dd1` + `171aabe`），用户拍 C 路径：force push main 回 `fbb7275`。三方 HEAD 一致（本地 / Gitee / GitHub main 都 `fbb7275`），reflog 保留 90 天审计 trail。**D-43 落字**：决策室不修代码逻辑 / 决策室验证环路 / Deploy key 同名静默无效。**D-44 落字**：review3 冻结点 = `fbb7275`，独立审查员 subagent 判通过 / 不通过，**不依赖 CI 5 命令全绿**
@@ -320,7 +318,7 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 
 收口决策书 2026-09-26 §一 §二 §三 §四 §五 §六 §七 §八 §九 + git 实测（5ce46442 + 9d332cc vs 171aabe + test_question_crud.py SKIPPED 验证 + HEAD = 5ce46442 三方一致 + ci.yml L27/L51/L78-90/L100-129/L165-177 全文 + alembic 0005 35字符 + materials/ git tracked 空 + .gitignore materials/ + DEEPSEEK_API_KEY 在 ci.yml L170 引用 `secrets.DEEPSEEK_API_KEY` 待查）+ memory/2026-09-26.md + decisions.md D-43/D-44/D-45/D-43-X + review5 §10 D-45 compliance 段 + review6 §2.4/§3.1 D-45 §3 修订。
 
-> **最后更新**：2026-09-29 10:23 — GitHub 补推 CI success（run `36512464472`, head_sha=`aa2ad72`, 2分25秒）；状态修订（B2 关闭 D-51 已拍 / B1 拍板并行开 S0-5 + S0-4 不叫 v0.6）+ memory/2026-09-29.md 新建；F1 死守卫 + F2 label 缺等 ed2eb46 复核问题待派 subagent 工单（详见 memory/2026-09-29.md）
+
 >
 > **[2026-09-29 备注 · GitHub 仓设计 · 12:00 UI 操作]** `xingyun-wang/again` 是本项目 GitHub 备份仓。**9/29 12:00 用户 GitHub UI 操作**:`default branch = master` + **删 `main` 分支**。**历史链**:D-40 push 策略 `master:main` 显式 refspec(`decisions.md:542`)= `main` 存在原因;09-27 及之前推 `main`,09-29 10:24 起改推 `master`,`main` 定格 `a891562`;12:00 清理。**非两个项目承载**;"OpenClaw 工作区覆盖 main"风险**不存在**(无来源)。
 >
@@ -330,3 +328,29 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 > - **D-58 落字**：dev box SQLite fallback 保真度（主题工单挂 backlog） — 真违约列 = `textbooks.owner_user_id`（FK `nullable=False`）；不影响 MVP
 > - **D-59 落字**：任何 tests/ 工单入场闸硬规则（必含 `ruff check app tests` + `mypy app` 双闸绿才允许 commit）
 > - **D-60 落字**：`+1` 验收判据口径订正 — **同环境相邻 run 差值 + 新 nodeid 出现**，废止绝对数 N=199（另见 `decisions.md` D-60）
+
+---
+
+> **【2026-09-30 12:45 变更说明 · STATE.md】**
+>
+> **修订范围**：1 项 + 1 落字
+> 1. **L3-L5 + L323 四行「最后更新」→ 合并为单行最新值 `2026-09-30 12:45`**（D-66 ② 类元数据字段；§2① 物理病根修法）
+> 2. **实战失实 #11-#15 落字**（D-43-X-3 段 append；commit 3 同步）
+>
+> **法源依据**：
+> - **D-67**（2026-09-30 立，本笔同落）= §2① STATE.md 病根修法
+> - **D-68**（2026-09-30 立，本笔同落）= §2② 自指悖论修法
+> - **D-43-X-3**（2026-09-27 立）= 实战失实落字
+> - **审查员核对回执 2026-09-29/30 §2① + §2② + §1 B + §4 a**
+>
+> **历史沿革**（原 L3-L5 + L323 四行，已合并）：
+> - L3 原内容（2026-09-27 13:00）：M2-A.0 pre-flight 闭环 + D-47/48/49 落字 + M2-A.1 硬门禁 = 等用户明确 "go"
+> - L4 原内容（2026-09-28 19:03）：S0-1 收口（STATE.md 时间戳 + :302 verify 作废标记 + :227/:228/:230 状态更新块 — 4 项 append 式；D-43 例外内）
+> - L5 原内容（2026-09-29 13:46）：w3+w4 记账（D-59 修正注记 + 立 D-61）；同笔 meta commit，双推 Gitee/GitHub（锚点 `b33e333`）
+> - L323 原内容（2026-09-29 10:23）：GitHub 补推 CI success（run `36512464472`, head_sha=`aa2ad72`, 2分25秒）+ 状态修订（B2 关闭 D-51 / B1 拍板并行开 S0-5 + S0-4）+ memory/2026-09-29.md 新建 + F1 死守卫 / F2 label 缺等 ed2eb46 复核问题待派 subagent 工单
+>
+> **影响范围**：
+> - **失实 #11 物理病根** = STATE.md 多值「最后更新」字段 = 移除（合并为唯一真值）
+> - **§5.3 #4 第 5 项核源动作**（WAKEUP.md 已落地，commit 1 `f2159ec`）+ **STATE.md 唯一真值** = **双护栏**（下次 reset 醒后必跑）
+>
+> **来源**：审查员核对回执 2026-09-29/30 §2① + §2② + §1 B + §4 a + `grep -n -F '最后更新' STATE.md` 4 行实证 + 用户拍 a
