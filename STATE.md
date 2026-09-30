@@ -1,6 +1,6 @@
 # STATE.md — 差异化作业工作台
 
-> **最后更新**：2026-09-30 12:45 — commit 3（修 §2① STATE.md 多值病根 + §2② 自指悖论 + 实战失实 #11-#15 落字 + push Gitee/GitHub 双仓强约束解除；commit 1 锚点 `f2159ec`；本笔锚点待 commit）；详见文件末变更说明
+> **最后更新**：2026-09-30 12:45 — commit 3（修 §2① STATE.md 多值病根 + §2② 自指悖论 + 实战失实 #11-#15 落字 + push Gitee/GitHub 双仓强约束解除；commit 1 锚点 `f2159ec`；本笔锚点 = 含本行的 commit，回查 `git log -1 --format=%h -- STATE.md`）；详见文件末变更说明
 > 上一节点（2026-09-23 22:25）：三方 HEAD = `5e05b3a`（S1-② alembic rename 后实测；**注**：新-4 工程债建议改写 commit subject 形式以避免 SHA 频繁过期）
 > 上一节点（2026-09-23 22:10）：Phase B 收口 + 三方 HEAD = `6b9f0a4`（C1 收尾后）
 > 上一节点（2026-09-21 15:10）：M1-B retro C 路径收口 + D-43/D-44 落字。CI 三次 run #1/2/3 全 failure（路径分析：step 5 working-directory 错 + step 7 B1 mypy narrowing），我决策室越权修了 2 次（commits `3c21dd1` + `171aabe`），用户拍 C 路径：force push main 回 `fbb7275`。三方 HEAD 一致（本地 / Gitee / GitHub main 都 `fbb7275`），reflog 保留 90 天审计 trail。**D-43 落字**：决策室不修代码逻辑 / 决策室验证环路 / Deploy key 同名静默无效。**D-44 落字**：review3 冻结点 = `fbb7275`，独立审查员 subagent 判通过 / 不通过，**不依赖 CI 5 命令全绿**
@@ -348,6 +348,12 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 > - L4 原内容（2026-09-28 19:03）：S0-1 收口（STATE.md 时间戳 + :302 verify 作废标记 + :227/:228/:230 状态更新块 — 4 项 append 式；D-43 例外内）
 > - L5 原内容（2026-09-29 13:46）：w3+w4 记账（D-59 修正注记 + 立 D-61）；同笔 meta commit，双推 Gitee/GitHub（锚点 `b33e333`）
 > - L323 原内容（2026-09-29 10:23）：GitHub 补推 CI success（run `36512464472`, head_sha=`aa2ad72`, 2分25秒）+ 状态修订（B2 关闭 D-51 / B1 拍板并行开 S0-5 + S0-4）+ memory/2026-09-29.md 新建 + F1 死守卫 / F2 label 缺等 ed2eb46 复核问题待派 subagent 工单
+>
+> **4 行原文逐字**（按 D-67 + D-61 §2 三要素；取证 `git show f2159ec:STATE.md`）：
+> - L3 原文（f2159ec line 3）：`> **最后更新**：2026-09-27 13:00（**M2-A.0 pre-flight 闭环 + 3 决策落字 + M2-A.1 硬门禁**：per-push CI 9dad894 全绿 + pytest 实证 194+ passed / 0 failed；D-47/48/49 落字（M2-A.1 验收判据 / §3.5 反马太修正 / 启动模式）；M2-A.1 启动硬门禁 = 等用户明确 "go"）`
+> - L4 原文（f2159ec line 4）：`> **最后更新**：2026-09-28 19:03 — S0-1 收口（STATE.md 时间戳 + :302 verify 作废标记 + :227/:228/:230 状态更新块 — 4 项 append 式；D-43 例外内）`
+> - L5 原文（f2159ec line 5）：`> **最后更新**：2026-09-29 13:46 — w3+w4 记账（D-59 修正注记 append blockquote + 立 D-61「账本修正一律 append，禁原地改写」）；同笔 meta commit，双推 Gitee/GitHub（锚点 = `b33e333` 提交时间 `2026-09-29 13:46:25`）`
+> - L323 原文（f2159ec line 323）：`> **最后更新**：2026-09-29 10:23 — GitHub 补推 CI success（run `36512464472`, head_sha=`aa2ad72`, 2分25秒）；状态修订（B2 关闭 D-51 已拍 / B1 拍板并行开 S0-5 + S0-4 不叫 v0.6）+ memory/2026-09-29.md 新建；F1 死守卫 + F2 label 缺等 ed2eb46 复核问题待派 subagent 工单（详见 memory/2026-09-29.md）`
 >
 > **影响范围**：
 > - **失实 #11 物理病根** = STATE.md 多值「最后更新」字段 = 移除（合并为唯一真值）
