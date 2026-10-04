@@ -318,7 +318,6 @@ def upload_textbook(
         # 业务异常 → 400；service 自身已清理 pending（落盘失败由 service 内部处理）
         logger.warning("textbook upload failed (业务): %s", e)
         raise HTTPException(status_code=400, detail=str(e)) from e
-        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:  # noqa: BLE001
         logger.exception("教材上传意外失败: name=%s", name)
         # 防御性清 pending（service _cleanup_files 通常已做，但这里是兜底）
@@ -789,7 +788,10 @@ def generate_lesson_plan(
     if chapter is None:
         raise HTTPException(status_code=404, detail=f"chapter {body.chapter_id} 不存在")
     # M1-B retro 工单 B（D-29 B 项）：跨用户访问返 404（沿用 chapter 的 owner）。
-    # 新建 LessonPlan 继承 chapter.owner_user_id（写入时显式设置）。
+    # M1-B retro 工单 B 注释修正（2026-10-04 P2-2）：LessonPlan 本身无
+    # owner_user_id 字段（FK 通过 chapter 持有归属）；不在 LessonPlan(...)
+    # 构造里设 owner_user_id。归属校验 = 下面 _enforce_owner_or_404(chapter,
+    # user_id) 单门（JOIN chapter）。
     _enforce_owner_or_404(chapter, user_id)
 
     duration = body.duration_minutes or 45
@@ -813,10 +815,11 @@ def generate_lesson_plan(
             model=model_name,
             generated_at=now,
             review_status=KnowledgeReviewStatus.PENDING,
-            # M1-B retro 工单 B（D-29 B 项）：lesson-plan 继承 chapter 归属，
-            # 让后续端点（GET /lesson-plans/{id} + PATCH /review）不必 JOIN
-            # chapter 也能拿 owner（节省查询；但仍保留 JOIN 检查作为双重门，
-            # 防止 chapter.owner 与 lesson_plan.owner 脱钩）。
+            # M1-B retro 工单 B 注释修正（2026-10-04 P2-2）：LessonPlan 无
+            # owner_user_id 字段 → 无所谓"双门"；归属校验 = 上面
+            # _enforce_owner_or_404(chapter, user_id) 单门（JOIN chapter）。
+            # 不再"节省查询"也不"防止 chapter.owner 与 lesson_plan.owner
+            # 脱钩"——因为 lesson_plan.owner 字段不存在。
         )
         db.add(lp)
         db.commit()
