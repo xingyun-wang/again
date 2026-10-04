@@ -1055,6 +1055,47 @@ open-questions.md §9 三个问题全部 ✅：
 > - **修正**：所有未来"N 行 / N 个 / N 条"陈述必跑 grep -n -F 自验；失实 #21 落字 = 决策室把"计数 pattern 必须明示"扩展到审查员自查侧
 > - **来源**：审查员核对回执 2026-09-30 §3.2 + 决策室 12:42 commit 3 `grep -n -F '最后更新' STATE.md` 实证 + D-43-X-3 §3 衍生
 
+> **【2026-10-04 21:18 实战失实 #24 · reviews/2026-10-04-ab02079-owner-isolation.md:19 + :43 Question 行失实（commit 5 双推归档）】**
+> - **症状**：commit 5 双推归档的报告 :19 = "Question | ✗ | 无（归属 = chapter.owner_user_id）" + :43 = "`0007_questions` head（Question 无 owner_user_id，归属通过 chapter）" —— **两处都错**
+> - **实测**：`backend/app/models/academic.py:727` = `owner_user_id: Mapped[int] = mapped_column(...)`（Question 类内）；`:713` docstring 明写 "归属（D-29 §1.4 题库属于教师个人资产）：owner_user_id FK → users.id"；`:795` 复合索引含该列
+> - **真实字段分布**：4 个模型有 owner_user_id = Subject :156 / Textbook :335 / Chapter :386 / **Question :727**；3 个"无"模型 = KnowledgePoint / KeyPoint / LessonPlan 等
+> - **为何严重**：① 这份报告唯一使命是"修 owner 隔离失实 + 清 P0"，却在**同一张字段表**里引入同类失实；② commit 5 双推归档 ⇒ 进入永久；③ 承 #22/#23
+> - **修法**（commit 6）：reviews 文件 :19 + :43 两处改写
+> - **来源**：审查员核对回执 2026-10-04 21:18 §三 订正 1 + grep owner_user_id models/academic.py + 21:18 实证核对
+
+> **【2026-10-04 21:18 实战失实 #25 · "16 天" 重新绑定到 §5.3 #6 第 5 步（实际 4 天）】**
+> - **症状**：commit 5 报告 + memory 写"§5.3 #6 第 5 步自 commit 1 立以来 16 天来首次执行"——**时序错**
+> - **实测**：
+>   - f2159ec (commit 1, 9/30 11:00:52) 引入 §5.3 #6 第 5 步 1742 软上限 + "16 天未触发活证据"（WAKEUP.md:61）
+>   - bbf7fb5 (9/16 22:19:23) 引入剪枝触发机制 §剪枝触发段
+>   - 9/30→10/4 = **4 天**（不是 16 天）
+> - **真事实**：WAKEUP.md:61 "16 天"是 commit 1 时写（9/14→9/30 = 16 天），**写时正确**；但 commit 5 报告 + memory 把"16 天"**重新绑定**到 §5.3 #6 第 5 步（实际 4 天）
+> - **根因**：凭印象（与 #11/#14/#24 同族），把"WAKEUP.md 原文 16 天"错位引用为"§5.3 #6 第 5 步 16 天"
+> - **修法**（commit 6）：commit message 用时效锚点表述"§5.3 #6 第 5 步自 f2159ec (9/30) 立以来 4 天首次执行"；WAKEUP.md:61 文字不改（写时正确）
+> - **来源**：审查员核对回执 2026-10-04 21:18 §三 订正 2 + git log f2159ec + bbf7fb5 时间实证
+
+> **【2026-10-04 21:18 实战失实 #26 · "86 vs 109" 不是口径错配而是两个数都错】**
+> - **症状**：失实 #22 描述"`86 笔` vs 实际 `109 笔`"——以为口径错配（窗口 vs 全史）
+> - **实测**：
+>   - 全史 commit 数 = **110**（含 commit 5）—— 不是 109
+>   - 14 天窗口 commit 数 = **80**（`--since='14 days ago'`）—— 不是 86
+>   - since 9/20 = 80 / since 9/19 = 93
+> - **根因**：86 凭空出现，既不是窗口数也不是全史数；109 是 commit 5 之前的 ab02079 时点数（自洽，但**两个数都错**）
+> - **修法**（commit 6）：失实 #22 第 3 条症状改写；失实 #26 独立落字
+> - **教训**：窗口/全史两个口径对撞不构成"失实"——只有数字本身错才是失实
+> - **关联**：D-69 加固 + 失实 #25（"16 天"重新绑定同类）
+> - **来源**：审查员核对回执 2026-10-04 21:18 §三 订正 3 + git rev-list --count 实测
+
+> **【2026-10-04 21:18 实战失实 #27 · sessions_spawn 核源更彻底但仍未确认根因】**
+> - **症状**：memory §2.7 写"sessions_spawn 在 profile=coding 默认里未知，未完整核源 policy 详细配置"
+> - **commit 6 实证**：
+>   - `openclaw.json` 完整 read：**无 sessions_spawn 子段** + agents.entries.again 段无显式 tools 字段（继承 defaults/profile=coding 默认）+ plugins.entries 仅 minimax/lobster/tokenjuice/memory-lancedb（无 subagent 插件）+ lastTouchedVersion = 2026.9.6
+>   - `/usr/local/lib/node_modules/openclaw/` 不存在（policy 文件不在标准路径）
+> - **核源更彻底了**但**仍未确认根因**：profile=coding 默认内容未知（OpenClaw 内置 profile）+ policy 文件路径未知
+> - **诚实归位**：sessions_spawn 不可用的事实没变，根因未完全锁定（不照抄审查员 §五 命令原文块路径）
+> - **修法**：sessions_spawn 4 天不可用仍按降级决策室处理（5 件事落地已按此走完）；下笔开工前再 grep `/home/wsq_1/.npm-global/lib/node_modules/openclaw/...` 或类似路径找 profile=coding policy 实际内容
+> - **来源**：21:18 完整 read openclaw.json + find /usr/local/lib/node_modules/openclaw/ 失败 + 审查员 §五 命令原文块路径在我机器不存在的实证
+
 > **【2026-09-30 12:45 实战失实 #11 · 凭印象报告（物理病根 §2①）】**
 > - **症状**：10:07 / 10:08 醒后首句报告：决策室以 STATE.md "最后更新 13:46" 字段为锚点写"上次停在 b33e333"
 > - **真实**：HEAD = `6a7b39a`（晚 3 commit / 2.5 小时；10:30 `git log --oneline -5` 实证）
@@ -1483,3 +1524,22 @@ open-questions.md §9 三个问题全部 ✅：
 - **影响范围**：所有"锚点/指针"类字段；D-68 衍生规则
 - **关联**：D-68（带时效锚点）/ 审查员核对回执 §3.1 / 失实 #17 / commit 3 `d29f280` 自破实证
 - **来源**：审查员核对回执 2026-09-29/30 §3.1 + STATE.md L3 行内文本实证 + `git log -1 --format=%h -- STATE.md` 回查式 = 当前 SHA = 含本行 commit
+
+### D-70：双口径类数字必带右端锚点 + STATE.md 重组 + 失实 #24 双推归档修订（2026-10-04 立）
+
+- **日期**：2026-10-04
+- **拍板人**：审查员核对回执 2026-10-04 21:18 §三 + 决策室接受 + 用户按载曜倾向（α 修正 STATE.md 提前剪枝）
+- **为什么**：
+  - 失实 #24 = reviews 报告自身引入同类失实（commit 5 双推归档）—— 这份报告唯一使命是"修失实 + 清 P0"，却在同一张字段表里引入同类失实
+  - 失实 #26 = 窗口/全史两个口径对撞不构成失实——只有数字本身错才是失实；86 凭空，14 天窗口=80，全史=110
+  - §5.3 #6 触发后动作：STATE.md 超 8.25×（**唯一"唤醒必读 + 唯一真值"文件**），按 α 修正"不需用户确认"提前做
+- **规则内容**：
+  1. **双口径类数字必带右端锚点**：`全史 commit 数 = N（截至 <commit SHA>）` / `窗口 commit 数（自 <commit SHA> 起 14 天）= N` —— 不混淆（凡"N 天/N 次/N 笔"必带时效锚点 + 口径明示）
+  2. **§5.3 #6 触发后动作**：STATE.md 移到 `notes/milestones.md`（按 α 修正，动作不需用户确认）；CHARTER 改暂缓（按 α 修正，需用户确认）；产品定义暂缓（v0.6 另起是大决策）
+  3. **失实 #24 双推归档修订**：reviews/2026-10-04-ab02079-owner-isolation.md :19 + :43 两处改写（commit 6 同笔落地）
+- **影响范围**：
+  - 所有"N 天/N 次/N 笔"类数字（凡口径必须明示 + 时效锚点）
+  - STATE.md 主体迁出（唤醒必读瘦身）
+  - reviews 永久归档文件保留更新权限（commit 6 同笔修订）
+- **关联**：D-66 §3 ③ 类 + D-67 + D-68 / D-69 / 失实 #22/#23/#24/#25/#26/#27 / 审查员核对回执 2026-10-04 21:18 §三 订正 1+2+3 + §7 七 α/β/γ 独立意见
+- **来源**：审查员核对回执 2026-10-04 21:18 §三 + §七 α 修正 + grep -A 30 openclaw.json + git rev-list --count 实测 + `find /usr/local/lib/node_modules/openclaw/` 失败 + git log f2159ec + bbf7fb5 时间实证

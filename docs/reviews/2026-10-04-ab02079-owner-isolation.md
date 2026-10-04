@@ -16,7 +16,7 @@
 | Subject | ✓ | line 156 |
 | Textbook | ✓ | line 335 |
 | Chapter | ✓ | line 386 |
-| Question | ✗ | 无（归属 = chapter.owner_user_id） |
+| Question | ✓ | line 727；FK → users.id；:795 复合索引含该列 |
 | **LessonPlan** | **✗** | **无（归属 = chapter.owner_user_id）** |
 | KnowledgePoint | ✗ | 无（归属 = chapter.owner_user_id） |
 | KeyPoint / Difficulty / TeachingSuggestion | ✗ | 无 |
@@ -39,8 +39,8 @@
 
 ### 1.5 D-46 迁移
 
-- `0006_owner_user_id` Subject/Textbook/Chapter
-- `0007_questions` head（Question 无 owner_user_id，归属通过 chapter）
+- `0006_owner_user_id` Subject/Textbook/Chapter/Question（**commit 6 修订失实 #24**：原报告 :19 + :43 误称 Question 无 owner_user_id 字段，实测 line 727 有该列；FK → users.id + :795 复合索引含该列）
+- `0007_questions` head（Question 有 owner_user_id 字段，line 727；FK → users.id，RESTRICT 阻止删除 user 时连坐丢题）
 
 ---
 
