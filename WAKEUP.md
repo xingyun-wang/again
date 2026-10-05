@@ -77,6 +77,16 @@
 
 ---
 
+> **【2026-10-05 23:31 变更说明 · WAKEUP.md】**
+>
+> **修订范围**：1 项
+> 1. **§7.2 收工流程第 3 步保留 ledger_check 挂入**（c12 第五笔 `ff8837f` 落地；5 项检查全 PASS）；§7.2 流程顺序：ledger_check → backup.sh 决定 check3 消息面盲区（解 #90；commit message 不能在 commit 前扫描；显式声明）
+
+> **【2026-10-05 23:35 变更说明 · WAKEUP.md】**
+>
+> **修订范围**：1 项（D-66 ③ 类 + D-44 应用同笔先例）
+> 1. **commit 12 第五笔 修法 message 截断事件补正**（c12 第五笔 修法 `6c33a42` + 补正 commit）：原 commit message 因 bash 反引号 subshell 解析 + `git commit -m` 多参数拼接异常，导致 2 处反引号内容被截断（件 b `### D-` → `### [META] D-`；#90 `git log -1`）。**按 D-44 不 amend 已 push commit**；写独立补正 commit 显式列原 hash + 截断内容 + #91 失实归位（A 家族第 7 次）。后续 commit message 改用 `-F file` 模式（避免 subshell 解析）。
+
 > **【2026-09-30 11:00 变更说明 · WAKEUP.md】**
 >
 > **修订范围**：5 项
