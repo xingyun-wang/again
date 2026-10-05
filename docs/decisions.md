@@ -1748,3 +1748,21 @@ open-questions.md §9 三个问题全部 ✅：
 - **影响范围**：所有 memory / decisions.md / reviews / commit message / 回执中引用 mtime / 尺寸 / 权限 / 归属等文件元数据的断言
 - **关联**：D-69 + D-71 §3 + D-72 §4 + 失实 #11/#14/#22/#23/#24/#25/#26/#27/#28/#29/#30/#31/#32/#33/#34/#35/#37/#38/#40/#41/#42/#43/#44/#45 + 审查员核对回执 2026-10-04 22:50 §五 + §七 + 失实 #46 (skill 计数三口径) + 失实 #47 (21:50 错值) + 失实 #49 (#5 严重度降级)
 - **来源**：审查员核对回执 2026-10-04 22:50 §五 + §七 + `ls -la --time-style=full-iso ~/.openclaw/agents/again/agent/workshop-skills/assertion-anchor-discipline/SKILL.md` + `stat ~/.openclaw/agents/again/agent/workshop-skills/assertion-anchor-discipline/SKILL.md` 实证 + 失实 #45 实证 + D-72 §4 衍生
+
+### D-75：已有元规则未被执行（条款失效型；两款 = 复发计数 + 移动靶 mtime；2026-10-05 立）
+
+- **日期**：2026-10-05
+- **拍板人**：审查员核对回执 2026-10-05 19:43 §三 + 决策室接受 + 用户拍 3（commit 11 落地）
+- **为什么**：失实 #51 实证 = commit 10 报告"12866 B / 23:23:42"（commit 11 实证全 `.openclaw` 无此尺寸/无此 mtime；真值 = **12559 B / 23:31:29**）—— 这是 D-74 §1/§2 同型违反（取数对象搞错 + 标"真值"未并列 command+operand 可回放）。**D-74 立条后 1 天内 #51 同型复发** ⇒ 揭示一条元规则：**已有元规则未被执行（条款失效型）** —— 单纯"立条"不形成约束；条款失效需新元规则约束。
+- **规则内容**（两款）：
+  1. **复发计数**（每条"复发型"失实须带"同族第 N 次"计数）：
+     - 形式：失实 #n 报告段必须含 "**同族第 N 次**（初犯=第 1 次；自此每次复发 +1）"
+     - 反例：失实 #51 报告未带"同族第 2 次（#45 已立 D-74 §1/§2 后同型复发）"标签 ⇒ 隐性复发
+     - 正例：失实 #n 报告须显式说"同族第 N 次 + 上次 commit SHA + D-74/D-75 落地后是否仍触发"
+  2. **移动靶 mtime**（引 live 文件 mtime 须并列"取数时刻"）：
+     - 形式：`mtime = <value>（按 D-74 §1 取数；取数时刻 = <YYYY-MM-DD HH:MM:SS ±zz>）`
+     - 适用范围：live 文件 = 当前进程持续写的文件（OpenClaw state / sqlite / cron receipts 等）
+     - 实证：openclaw.sqlite mtime 23:01:52（10-04 收工时点）→ 19:41:42（10-05 19:43 核源时点）⇒ 报告时点必须并列"取数时刻"
+- **影响范围**：所有 memory / decisions.md / reviews / commit message / 回执中引用 mtime / 尺寸 / 失实复发标记
+- **关联**：D-71 §3 + D-72 §4 + D-74 §1/§2/§3 + 失实 #45 + 失实 #51（**同族第 2 次**；D-74 §1/§2 同型复发）+ 微瑕 #27 + 审查员核对回执 2026-10-05 19:43 §三 + §四 移动靶 mtime 提示
+- **来源**：审查员核对回执 2026-10-05 19:43 §三 + `find /home/wsq_1/.openclaw -newermt '2026-10-04 23:23:42' ! -newermt '2026-10-04 23:23:43' 2>/dev/null` = 0 命中（12866/23:23:42 全 .openclaw 不存在）+ `stat /home/wsq_1/.openclaw/agents/again/agent/workshop-skills/assertion-anchor-discipline/SKILL.md` size=12559 mtime=2026-10-04 23:31:29 + 用户拍 3

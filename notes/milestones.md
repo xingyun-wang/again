@@ -383,3 +383,70 @@ D-43 第 5 条「决策室不修代码逻辑」+ 第 6 条「决策室验证环�
 > - 后续若 STATE.md 仍有改动（罕见，因主体已迁出），仅需在 STATE.md 头部"最后更新" + 文件末追加变更说明，本文件不动
 >
 > **来源**：审查员核对回执 2026-10-04 21:18 §三 + §七 α 修正 + D-70 + grep -A 30 openclaw.json + git rev-list --count 实测 + `find /usr/local/lib/node_modules/openclaw/` 失败 + git log f2159ec + bbf7fb5 时间实证
+
+---
+
+## §收口（2026-10-04 23:30 — 载曜 4 件 + commit 10 收工；状态指针更新）
+
+> **最后更新**：2026-10-04 23:30（决策室记账；commit 10 同笔落字 + 收工 backup `9f35a2e`）
+> **承载体**：本工作区 + `WAKEUP.md`（4 项唤醒清单）+ `zaiyao-memory` 仓（每日 push，含本项目 4 项快照）+ `.bak.2026-09-10/` 备份（仅作载曜了解工程参考用，不接旧进度）
+
+### §收口.1 今日完成（按倾向开始 4 件 + commit 10 收口）
+
+- **α'' commit 8 = `d99ab68`**（2026-10-04 22:39:18 +0800）—— #33-#35 + D-72 + #39 同笔修
+- **β'' cron 修法 C**（22:40:58，schedule_identity.version=2）—— openclaw cron edit 747aa928... payload.message 修订（回查式审查时间 + 真实文件路径）
+- **γ'' skill b 改**（12,732 B → 12,866 B，mtime 21:53:43 → 23:23:42）—— skill description "14 instances" → "21 行（`grep -c '^| #'`；其中 1 行为复合编号 `#14/#16`）"
+- **δ'' a-lite** —— 嵌入后续核源流程（每次核源顺带跑 receipts 查询）
+- **α'''+ commit 10 = `c901b0c`**（2026-10-04 23:25:52 +0800）—— #44 扩 4 处 + #45 修订 + #46 统一口径 + #47 扩 4 处 + #49 内加注 + D-74 立条 3 段合并
+
+### §收口.2 当前状态（STATE.md 指针指向本文件）
+
+- HEAD = `c901b0c7ba8a2bfba0972472c42324c9cfe27ecc`（commit 10 落地）
+- origin/master = github/master = c901b0c（推平 / ahead 0 0）
+- 失实编号覆盖 **#11-#49**（`#36` 降级为待补证；`#48` 未启用；`#39` 已修于 commit 8 同笔）；早期 `#1-#10` 部分启用（已核 `#5/#6/#8/#9/#10`）。**编号上界 = 49，非条数**
+- backup commit（收工后）= `9f35a2e backup(2026-10-04 23:26:00)`；zaiyao-memory push = `6479ed6..9f35a2e main -> main`
+- 伴随仓拉回实证（§5.3 #6 触发后动作）：4 文件全超限 = α 已落地（STATE 主体迁出本文件）；β'/γ'/δ' 待用户拍
+
+### §收口.3 元规则落地（截至 commit 10 共 8 条）
+
+- **D-43 §5**（commit 1 f2159ec）—— 决策室不修代码逻辑（6 次降级决策室做）
+- **D-44**（commit 1）—— 决策条 + 应用同笔先例
+- **D-66**（commit 1）—— 三类分法（① 账本 append / ② 元数据字段原地改 + 同笔同步 / ③ 协议类文件原地改 + 末尾追加变更说明 blockquote）
+- **D-67**（commit 3）—— §2① STATE.md 病根修法（合并 L3-L5+L323 为唯一真值）
+- **D-68**（commit 3）—— §2② 自指悖论修法（凡"锚点/指针"字段只能写回查式）
+- **D-69**（commit 4）—— D-68 加固（"锚点/指针"只能写回查式）
+- **D-70**（commit 6）—— 双口径类数字必带右端锚点（§5.3 #6 第 5 步剪枝自检触发落地）
+- **D-71**（commit 7）—— 凡回执数字必带右端锚点 + 口径名 + 命令名（"引用必 grep 实测"硬约束）
+- **D-72**（commit 8）—— 决策条目禁用行号 + 必附回查式锚点（D-71 §4 增补）
+- **D-73**（commit 9）—— agent 在 OpenClaw 工作区创建文件需事先告知用户（事后告知不够）
+- **D-74**（commit 10）—— 取数对象必须与被描述对象同名 + 标"真值"必须并列 command + operand + "新尺寸/旧 mtime"内在矛盾 = 取证对象搞错
+- **D-75**（commit 11）—— 已有元规则未被执行（条款失效型），两款：① 复发计数（每条"复发型"失实须带"同族第 N 次"计数）② 移动靶 mtime（live 文件 mtime 须并列"取数时刻"）
+
+### §收口.4 §5.3 #6 触发后动作落地
+
+| 软上限对象 | 状态 | 处置 |
+|---|---|---|
+| **STATE.md**（8.25× → 1.11×）| ✅ 已落地（commit 6 主体迁出）| α |
+| 产品定义（1.92×）| 🟡 暂缓 | γ（v0.6 另起是大决策；等 M2 落地） |
+| CHARTER（1.95×）| 🟡 暂缓 | α'（与 D-70:1538「需用户确认」自洽） |
+| WAKEUP.md（2.23×）| 🟡 不动 | δ（§5.3 #6 软上限表未列 WAKEUP.md ⇒ 无动作义务） |
+
+### §收口.5 下笔开工建议（commit 11+）
+
+1. **commit 11**：β' sessions_spawn 根因核源（a + b 串联）+ 修订 D-69/D-71 中"14 天来首次执行"等历史表述（按 mtime 锚点；D-74 落地后所有时序断言必须 `ls -la --time-style=full-iso` 实测）
+2. **commit 12**：γ' 产品定义 v0.6 另起（v0.5 §10 排期自然推动 / M2 题库 CRUD 落地后）
+3. **commit 13+**：M2 题库 CRUD 起步（v0.5 §10.2 M2 + α' / α'' / β''' / γ''' 全部就绪）
+
+### §收口.6 D-74 §3 内在矛盾实测（收工时点）
+
+```
+# 文件 mtime（stat <file>）
+$ stat ~/.openclaw/agents/again/agent/workshop-skills/assertion-anchor-discipline/SKILL.md | grep Modify
+Modify: 2026-10-04 23:23:42.275115679 +0800
+# 目录 mtime（ls -d <dir>）
+$ ls -d --time-style=full-iso ~/.openclaw/agents/again/agent/workshop-skills/assertion-anchor-discipline/
+/home/wsq_1/.openclaw/agents/again/agent/workshop-skills/assertion-anchor-discipline/
+```
+
+按 D-74 §1 落地后 = 取数对象必须与被描述对象同名；§2 落地后 = 标"真值"必须并列 command + operand；**§1/§2 同型违反即 #51 真值（12866 B / 23:23:42）—— 实证全 .openclaw 无此尺寸/无此 mtime（实测 12559 B / 23:31:29），证明 D-74 §1/§2 规则价值**。D-74 §3 适用场景 = 同一文件"新尺寸/旧 mtime"内在矛盾（实证 = #45）。
+
