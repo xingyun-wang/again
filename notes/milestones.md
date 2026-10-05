@@ -463,6 +463,7 @@ $ ls -d --time-style=full-iso ~/.openclaw/agents/again/agent/workshop-skills/ass
 ### [META] D-43 §5
 ### [META] D-44
 ### [META] D-66
+### [META] D-66 ② 类扩展（c12 第五笔修法 `6c33a42` 落地；追认 #91 既成事实；详见 decisions.md 段末新条款）
 ### [META] D-67
 ### [META] D-68
 ### [META] D-69
@@ -476,7 +477,7 @@ $ ls -d --time-style=full-iso ~/.openclaw/agents/again/agent/workshop-skills/ass
 
 ### 5 家族表（截至 c12 第五笔）
 
-- **A 家族**（计数/口径类）：#57 → #60 → #61 → #71 → #72 → #73（1/2/3/4/5/6）
+- **A 家族**（计数/口径类）：#57 → #60 → #61 → #71 → #72 → #73 → **#94**（1/2/3/4/5/6/**7**；**#94 = commit message 反引号内容截断；原 #91 撞号改 #94**）
 - **B 家族**（自相矛盾·局部编辑型）：#54 → #58 → #63 → #64（1/2/3/4）
 - **C 家族**（范围报窄）：#44 → #47 → #66（1/2/3）
 - **D 家族**（错拼/可操作断言失效）：#62 → #68（1/2）
