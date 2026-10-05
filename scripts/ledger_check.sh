@@ -57,12 +57,12 @@ fi
 
 # === 检查 3: WAUP.md 错拼 ===
 echo "[3/5] WAUP.md 错拼（按 D-75 第 2 款 + D 家族 #62/#68）..."
-WAUP_HITS=$(git grep -nF "WAUP.md" 2>/dev/null | wc -l)
+WAUP_HITS=$(git grep -nF "WAUP.md" -- ':!scripts/' 2>/dev/null | wc -l)
 if [ "$WAUP_HITS" = "0" ]; then
   echo "  ✅ 0 命中（无 WAUP.md 错拼）"
 else
   echo "  ❌ FAIL: WAUP.md 错拼 $WAUP_HITS 处："
-  git grep -nF "WAUP.md" 2>/dev/null
+  git grep -nF "WAUP.md" -- ':!scripts/' 2>/dev/null
   FAILED=1
 fi
 
