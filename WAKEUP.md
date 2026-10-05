@@ -34,9 +34,10 @@
 
 1. 更新今天的 `memory/YYYY-MM-DD.md`（写今天做了什么 / 下一步）
 2. 改 `STATE.md`（如有进展）
-3. 跑 `bash ~/zaiyao-memory/backup.sh`（自动同步 + 推送 Gitee；D-14）
-4. 报告 push 成功/失败
-5. **剪枝自检**：`wc -c` 各文件比软上限（STATE.md 3072 / 产品定义 15360 / CHARTER 5120 / WAKEUP.md 6144），超限即剪（接上 §剪枝触发）
+3. 跑 `bash scripts/ledger_check.sh`（自动核验台账；**失败即拒收**；D-76 立条 + 5 条检查项：台账增量 / 失实入家族表 / W-A-U-P.md 错拼 / notes-memory 对齐 / dirty 收口）
+4. 跑 `bash ~/zaiyao-memory/backup.sh`（自动同步 + 推送 Gitee；D-14）
+5. 报告 push 成功/失败
+6. **剪枝自检**：`wc -c` 各文件比软上限（STATE.md 3072 / 产品定义 15360 / CHARTER 5120 / WAKEUP.md 6144），超限即剪（接上 §剪枝触发）
 
 ---
 
