@@ -1,15 +1,21 @@
 #!/bin/bash
-# scripts/ledger_check.sh（重写版；c12 第五笔）
+# scripts/ledger_check.sh（c12 第五笔 修法版；解 #84/#89/#87/#90）
 # §7.2 第 5 步 ledger_check：收工必跑；失败即拒收
-# 法源：D-76 台账落后硬约束 + 审查员核对回执 2026-10-05 22:25 §三 C 单一真值源 + §四 #79-#82
-# 立条：commit 12 第五笔（用户拍 1；D-43 §5 触发已解除降级决策室做）
+# 法源：D-76 台账落后硬约束 + 审查员核对回执 2026-10-05 23:11 §三 #89/#90 + §四 拍 1 修法 a-d
+# 立条：commit 12 第五笔 修法（用户拍 1；D-43 §5 触发已解除降级决策室做）
 #
-# 检查项（5 条 — 全部改读单一真值源 notes/milestones.md §家族表）：
-# 1. 元规则累计：grep -c '\[META\] D-' notes/milestones.md = 13（无魔数；ACTUAL 既是真值）
+# 检查项（5 条 — 单一真值源 + 双真值源同构）：
+# 1. 元规则累计：notes §家族表 [META] 段数 == decisions.md [META] 段数（双真值源同构；解 #84 + #89）
 # 2. 5 家族段存在：A/B/C/D/E 5 家族段都存在（读 notes §家族表）
-# 3. W-A-U-P.md 错拼（拆字）：git grep -nF "${TYPO}" = 0 命中（拆字避免自指；不排除任何目录）
+# 3. W-A-U-P.md 错拼：git grep -nF "${TYPO}" = 0 命中（文件面；消息面为已知盲区 — 解 #87 + #90）
 # 4. 失实编号覆盖格式：notes §家族表含 "失实编号覆盖 #11-#XX" 格式
 # 5. dirty 收口：git status --porcelain = 空（警告而非失败）
+#
+# 解 #90（消息面盲区）：
+#   WAKEUP.md §7.2: 第 3 步 ledger_check < 第 4 步 backup.sh
+#   commit message 在 commit 后才存在；commit 前检查 message 结构上无效
+#   历史 message 字面（23 行分布在 5 个 commit）为永久审计 trail（按 D-72/D-74 §1）
+#   不引入 git log -1 假判据；显式声明盲区
 #
 # 用法：bash scripts/ledger_check.sh
 # 退出码：0 = 通过；1 = 失败（输出失败项详情）
@@ -28,14 +34,18 @@ cd ~/tiered-homework-platform 2>/dev/null || {
 
 FAILED=0
 
-# === 检查 1: 元规则累计（单一真值源 = notes §家族表）===
-echo "[1/5] 元规则累计..."
-ACTUAL=$(grep -cE '^### \[META\] D-' notes/milestones.md 2>/dev/null)
-if [ -z "$ACTUAL" ] || [ "$ACTUAL" = "0" ]; then
+# === 检查 1: 元规则累计（双真值源同构；解 #84 + #89）===
+echo "[1/5] 元规则累计（双真值源同构）..."
+ACTUAL_NOTES=$(grep -cE '^### \[META\] D-' notes/milestones.md 2>/dev/null)
+ACTUAL_DEC=$(grep -cE '^### \[META\] D-' docs/decisions.md 2>/dev/null)
+if [ -z "$ACTUAL_NOTES" ] || [ "$ACTUAL_NOTES" = "0" ]; then
   echo "  ❌ FAIL: notes/milestones.md §家族表无 [META] D- 段"
   FAILED=1
+elif [ "$ACTUAL_NOTES" != "$ACTUAL_DEC" ]; then
+  echo "  ❌ FAIL: notes [META]=$ACTUAL_NOTES vs decisions [META]=$ACTUAL_DEC（D-76 台账落后）"
+  FAILED=1
 else
-  echo "  ✅ ACTUAL=$ACTUAL（单一真值源；无魔数）"
+  echo "  ✅ ACTUAL=$ACTUAL_NOTES（notes [META] == decisions [META]；双真值源同构）"
 fi
 
 # === 检查 2: 5 家族段存在（读 notes §家族表）===
@@ -50,13 +60,13 @@ if [ "$FAILED" = "0" ]; then
   echo "  ✅ 5 家族段检查通过"
 fi
 
-# === 检查 3: W-A-U-P.md 错拼（拆字避免自指命中）===
-echo "[3/5] W-A-U-P.md 错拼（拆字避免自指命中）..."
+# === 检查 3: W-A-U-P.md 错拼（文件面；消息面为已知盲区；解 #87 + #90）===
+echo "[3/5] W-A-U-P.md 错拼（文件面；消息面盲区已声明）..."
 HITS=$(git grep -nF "${TYPO}" 2>/dev/null | wc -l)
 if [ "$HITS" = "0" ]; then
-  echo "  ✅ 0 命中（无 W-A-U-P.md 错拼）"
+  echo "  ✅ 0 命中（无 W-A-U-P.md 错拼；消息面为已知盲区）"
 else
-  echo "  ❌ FAIL: W-A-U-P.md 错拼 $HITS 处："
+  echo "  ❌ FAIL: W-A-U-P.md 错拼 $HITS 处（文件面）："
   git grep -nF "${TYPO}" 2>/dev/null
   FAILED=1
 fi
