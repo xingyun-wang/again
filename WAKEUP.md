@@ -8,10 +8,10 @@
 
 ## 4 项固定读取 + 1 项核源动作
 
-1. **产品定义** → `docs/产品定义-v0.5.md`
+1. **产品定义** → 摘要页 `docs/产品定义-v0.5-summary.md`（D-78 首次落地；c18）+ 全文按需展开 `docs/产品定义-v0.5.md`
 2. **最近 3 天项目日志** → `memory/` 下按文件名字符序（YYYY-MM-DD.md）取最新 3 个文件
 3. **进度** → `STATE.md`
-4. **宪法** → `docs/PROJECT-CHARTER.md`
+4. **宪法** → `docs/PROJECT-CHARTER.md`（§7 流程外移至 `docs/PROJECT-CHARTER-protocol.md`；按 D-79）
 5. **核源动作**（防御"凭印象报告"硬护栏；D-43-X 系列实战失实催生）→ `git -C <repo> rev-parse HEAD` + `git log --oneline -5` + `git status --porcelain`
 
 读完后第一句（不复述）：「上次停在 X，下一步 Y，开放问题 Z」
