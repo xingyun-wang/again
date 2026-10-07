@@ -57,17 +57,17 @@ DEFAULT_USER_ID = 1
 
 
 class VerifyReport:
-    """验证报告聚合器（B.3.2 + B.3.3 + M2 工单 A + M1-B retro G2 共用）。
+    """验证报告聚合器（B.3.2 + B.3.3 + M2 工单 A + D-28 gate 共用）。
 
     M2 工单 A（D-28）：验收门槛必须可被最坏实现证伪。
     旧门槛 `章节数 ≥ 3` 可被 equal_split_placeholder 恒真满足（P0-3）；
     改为 「全部 extraction_source == 'detected'」（A4 + A6）。
 
-    M1-B retro G2（D-37）：D-28 门槛被 fail-open 实现利用 — stub extractor
-    走 server_default 兜底也能让「全部 detected」通过。本聚合器加段 B：
-    至少 1 个非 'detected' 路径必须观察到（如 'pdfplumber_fallback' /
-    'equal_split_placeholder' / 'scanned_pdf_empty'），证明 extractor 真
-    跑了主路径。
+    D-37 G2 fail-open 保护迁移：原 verify 段 B（强制 ≥1 个非默认路径）
+    与 D-28 段 A 互补互斥，导致 verify 恒 FAIL。段 B 已删除；fail-open
+    防护由 tests/ 里的独立负向测试承担（见 test_fallback_paths_in_extractor.py
+    静态检查 + 后续 detector-direct fixture 测试 follow-up），不阻塞
+    verify 主流程（D-32 第 4 类 P0 仍覆盖）。
     """
 
     def __init__(self) -> None:
@@ -327,9 +327,9 @@ def verify_end_to_end(args: argparse.Namespace) -> VerifyReport:
         report.add_error(f"教材上传失败：{e}")
         return report
 
-    # 门槛 check 抽到 _check_extraction_source_gate（D-37 G2 加段 B 便于测试）
-    # 任一段不通过 → record.add_error → 段 A 第一项（<3）直接 return 后续跑不动；
-    # 段 A 第二项 / 段 B 不 return，仍继续走 extract/lesson-plan 让报告齐，
+    # 门槛 check 抽到 _check_extraction_source_gate（D-28 段 A + 段 B 已删除）
+    # 段 A 第一项（<3）直接 return 后续跑不动；
+    # 段 A 第二项不 return，仍继续走 extract/lesson-plan 让报告齐，
     # 最终 exit code 由 errors 决定。
     if not _check_extraction_source_gate(report, chapter_ids, chapter_sources):
         if len(chapter_ids) < 3:
@@ -428,24 +428,18 @@ def _check_extraction_source_gate(
     chapter_ids: list[int],
     chapter_sources: list[str],
 ) -> bool:
-    """extraction_source 门槛 check（D-28 段 A + D-37 G2 段 B）。
+    """extraction_source 门槛 check（D-28 段 A；D-37 G2 段 B 已删除）。
 
-    段 A（D-28，向后兼容保留）：
+    段 A（D-28 唯一门槛）：
       - len(chapter_ids) >= 3
       - 全部 chapter 的 extraction_source == 'detected'
         （旧 fail-open 漏洞：D-32 第 4 类 P0）
 
-    段 B（D-37 G2 fail-closed 新增）：
-      - 至少 1 个 chapter 的 extraction_source 是非默认路径
-        （'pdfplumber_fallback' / 'equal_split_placeholder' /
-         'scanned_pdf_empty'），证明 extractor 真跑了主路径
-        而非 stub 走 ORM Python default 兜底。
-
-    实现思路（D-37 G2）：
-      把 chapter_sources 分类 detected_count vs non_detected_count。
-      段 A 检查 non_detected_count == 0；
-      段 B 检查 non_detected_count >= 1。
-      两段都满足 → verify PASS；任一段不满足 → report.add_error。
+    D-37 G2 fail-closed 段 B 历史原因导致 verify 恒 FAIL：
+    段 A 与段 B 互补互斥（"全部 detected" vs "≥1 非默认"），任意输入都
+    至少触发一段 add_error。D-32 P0 fail-open 防护已迁移到 tests/ 独立
+    负向测试（见 test_fallback_paths_in_extractor.py 静态检查 +
+    follow-up detector-direct fixture 测试），不阻塞 verify 主流程。
 
     Args:
         report: VerifyReport 实例（errors 列表会被修改）
@@ -453,7 +447,7 @@ def _check_extraction_source_gate(
         chapter_sources: 每个 chapter 的 extraction_source 字符串列表
 
     Returns:
-        True if 段 A + 段 B 都满足（无新增 error）；False otherwise。
+        True if 段 A 都满足（无新增 error）；False otherwise。
     """
     initial_error_count = len(report.errors)
 
@@ -472,24 +466,6 @@ def _check_extraction_source_gate(
             f"P0-3 修复后，走 fallback 的教材不应被计为端到端成功。"
         )
         # 不 return：仍继续走 extract/lesson-plan 让报告齐；errors 已加。
-
-    # ── 段 B：D-37 G2 fail-closed 新增 ──
-    # 全部 chapter 都 'detected' 时无法区分：
-    #   (a) extractor 真跑了 PyMuPDF 主路径，5 章全部识别成功
-    #   (b) stub extractor 硬编码返回 'detected'，没真跑
-    # 段 B 强制 verify 至少观察到 1 个非 'detected' source（如扫描型 PDF
-    # 某章正文为空 → 'scanned_pdf_empty'；或 fallback 接管 → 'pdfplumber_fallback'
-    # / 'equal_split_placeholder'），从 (b) 中筛出 (a)。
-    if not non_detected:
-        report.add_error(
-            "门槛 B fail-open 未关闭（D-37 G2）："
-            "verify 必须至少观察到 1 个非默认 extraction_source 路径"
-            "（'pdfplumber_fallback' / 'equal_split_placeholder' / "
-            "'scanned_pdf_empty'）。全部 chapter 都是 'detected' 时，"
-            "无法排除 stub extractor 走 ORM Python default 兜底的"
-            " fail-open 实现（D-32 第 4 类 P0）。建议改测试 PDF"
-            " 选 fallback / 扫描型素材让段 B 自然触发。"
-        )
 
     return len(report.errors) == initial_error_count
 
