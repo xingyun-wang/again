@@ -3,7 +3,7 @@
 职责：
 - 实现 ``POST /scan/omr`` 抽象层（v0.5 §6.4.1 三层架构的容器侧入口）
 - Linux 容器侧 = 只走本 HTTP 桥（不调 TWAIN DSM；v0.5 §6.4.1 强约束）
-- mock 阶段 = 返回 deterministic 4 档答案卡模拟响应（不连真扫描仪）
+- mock 阶段 = 返回 deterministic 答案（不连真扫描仪）
 - M3 替换本 router 为"转发到 Windows 宿主机 TWAIN DSM 服务"的真 HTTP 桥实现时，
   接口契约（路径 / 请求 / 响应 schema）零返工
 
@@ -11,11 +11,9 @@
 - 路径与文件操作走 ``UPLOAD_ROOT`` 环境变量（默认 ``/app/data/uploads``）——
   既有配置 ``backend/app/services/textbook_upload.py:58``（``DEFAULT_UPLOADS_DIR``）
 - 不写 ``backend/uploads/images/...``（D-43-X 失实，已修）
-- 4 档位（D 基础 / C 进阶 / B 挑战 / A 扩展；v0.5 §3.2）
-- 5 个不同位置的"答案"模拟 OMR 识别（每档固定 5 个填涂位，位置不同）
-- deterministic：seed = f"{level}:{chapter_id}" → 同样输入 = 同样输出
-- 不收集 PII（CHARTER §6 + v0.5 §6.5）：响应只回传 chapter_id / 档位 / 文件路径
-- 文件保存到 ``{UPLOAD_ROOT}/scans/{uuid}.{ext}``（v0.5 §6.5 本地存储路径）
+- 桥的职责 = 「图像 → 填涂位」；不包含出题侧概念（档位 / 题目索引等）
+- 响应只回 scan_id（不暴露内部目录结构 file_path）
+- deterministic：seed = chapter_id → 同样输入 = 同样输出
 - mock 阶段不做真 OMR 解析（M3 范围）；只做 magic bytes peek + size cap + 流式落盘
 
 接口契约（稳定 = M3 替换零返工）：
@@ -24,16 +22,15 @@
     - ``file``: UploadFile（PDF / 图片）
     - ``chapter_id``: str（form，必填，1-128 字符）
     - ``question_count``: int（form，必填，5-200）
-    - ``level``: str（form，必填，取值 D/C/B/A）
 - 响应：``ScanOMRResponse``（JSON）
-    - ``answers``: list[str | None]，长度 = question_count
-    - ``metadata``: dict（含 bridge_layer / level / chapter_id / question_count /
-      detected_count / file_path / file_size / content_type / timestamp）
+    - ``answers``: list[str | None]，长度 = question_count；前 5 个位置为 A/B/C/D 之一
+    - ``metadata``: dict（含 bridge_layer / chapter_id / question_count /
+      detected_count / scan_id / file_size / content_type / magic_kind / timestamp）
 
 错误码：
 - 400：文件为空 / 流读取失败
-- 413：文件超 size cap（默认 50MB；mock 阶段比教材上传 500MB 严，因单张答题卡不会很大）
-- 422：Form 字段校验失败（缺字段 / 类型错 / level 非法 / question_count 越界）
+- 413：文件超 size cap（默认 50MB）
+- 422：Form 字段校验失败（缺字段 / 类型错 / chapter_id 越界 / question_count 越界）
 """
 
 from __future__ import annotations
@@ -54,9 +51,8 @@ from app.api.v1.schemas.twain import (
     BRIDGE_LAYER_MOCK,
     MAX_QUESTION_COUNT,
     MIN_QUESTION_COUNT,
-    TIER_DETECTED_POSITIONS,
+    MOCK_DETECTED_POSITIONS,
     ScanOMRResponse,
-    TierLevel,
 )
 from app.services.textbook_upload import DEFAULT_UPLOADS_DIR
 
@@ -92,33 +88,29 @@ PDF_MAGIC_PREFIX = b"%PDF-"
 
 
 def _generate_mock_answers(
-    level: TierLevel,
     chapter_id: str,
     question_count: int,
 ) -> list[str | None]:
-    """根据 level + chapter_id deterministic 生成 mock 答案列表。
+    """根据 chapter_id deterministic 生成 mock 答案列表。
 
     契约（决策书 §7.3 补丁 A + 任务 brief）：
     - 长度 = question_count
-    - 5 个位置填涂（TIER_DETECTED_POSITIONS[level]），其余 None
+    - 前 5 个位置（``MOCK_DETECTED_POSITIONS`` = (0,1,2,3,4)）填涂；其余 None
     - 答案字母 A/B/C/D（与 OMR 答题卡 4 选项对齐）
-    - 同 (level, chapter_id) → 同输出（pytest 跑稳定）
+    - 同 chapter_id → 同输出（pytest 跑稳定）
 
     Args:
-        level: 4 档位之一（D/C/B/A）
         chapter_id: 章节 ID（form 字段；非空即可）
         question_count: 总题数（>= 5）
 
     Returns:
-        长度 = question_count 的答案列表；5 个位置为 'A'/'B'/'C'/'D'，其余 None
+        长度 = question_count 的答案列表；前 5 个位置为 'A'/'B'/'C'/'D'，其余 None
     """
-    positions = TIER_DETECTED_POSITIONS[level]
-    # seed：f"{level}:{chapter_id}" → 同输入同输出；不同 level/chapter_id → 不同输出
-    seed_str = f"{level}:{chapter_id}"
-    rng = random.Random(seed_str)
+    # seed：chapter_id → 同输入同输出
+    rng = random.Random(chapter_id)
 
     answers: list[str | None] = [None] * question_count
-    for pos in positions:
+    for pos in MOCK_DETECTED_POSITIONS:
         if pos < question_count:
             answers[pos] = rng.choice(ANSWER_CHOICES)
     return answers
@@ -145,8 +137,8 @@ def _resolve_extension(file: UploadFile) -> str:
     return ".bin"
 
 
-def _save_scan_file(file: UploadFile, upload_root: Path) -> tuple[Path, int, str]:
-    """流式保存扫描件到 ``{upload_root}/scans/{uuid}{ext}``。
+def _save_scan_file(file: UploadFile, upload_root: Path) -> tuple[Path, int, str, str]:
+    """流式保存扫描件到 ``{upload_root}/scans/{file_id}{ext}``。
 
     流程：
     1. peek magic bytes（PDF 校验；非 PDF 图片直接放行）
@@ -158,8 +150,9 @@ def _save_scan_file(file: UploadFile, upload_root: Path) -> tuple[Path, int, str
         upload_root: 落盘根目录（UPLOAD_ROOT）
 
     Returns:
-        (saved_path, bytes_written, magic_kind)
+        (saved_path, bytes_written, magic_kind, file_id)
         magic_kind: "pdf" / "image" / "unknown"
+        file_id: 32 字符 hex（uuid4）；scan_id = file_id（响应不暴露 saved_path）
 
     Raises:
         HTTPException 400: 文件为空 / 流读取失败
@@ -227,7 +220,7 @@ def _save_scan_file(file: UploadFile, upload_root: Path) -> tuple[Path, int, str
         MAX_SCAN_BYTES,
         magic_kind,
     )
-    return dst, bytes_written, magic_kind
+    return dst, bytes_written, magic_kind, file_id
 
 
 # ──────────────────────────── 端点 ────────────────────────────
@@ -256,39 +249,35 @@ def scan_omr(
         int,
         Form(ge=MIN_QUESTION_COUNT, le=MAX_QUESTION_COUNT, description="题数（5-200）"),
     ],
-    level: Annotated[
-        TierLevel,
-        Form(description="档位（D 基础 / C 进阶 / B 挑战 / A 扩展；v0.5 §3.2）"),
-    ],
 ) -> ScanOMRResponse:
     """HTTP 桥抽象层入口（mock 阶段）。
 
     流程：
-    1. 校验 Form 字段（FastAPI 自动：level 取值 / question_count 范围 / chapter_id 长度）
-    2. 流式落盘扫描件到 ``{UPLOAD_ROOT}/scans/{uuid}{ext}``（带 size cap）
-    3. deterministic 生成 5 个位置的 mock 答案（按档位）
-    4. 构造响应（answers + metadata 含 bridge_layer="http_bridge_mock"）
+    1. 校验 Form 字段（FastAPI 自动：chapter_id 长度 / question_count 范围）
+    2. 流式落盘扫描件到 ``{UPLOAD_ROOT}/scans/{file_id}{ext}``（带 size cap）
+    3. deterministic 生成 mock 答案（按 chapter_id seed；前 5 位置填涂）
+    4. 构造响应（answers + metadata 含 bridge_layer + scan_id）
 
     M3 替换计划：
     - 替换本函数体为"转发 multipart 到 Windows 宿主机 TWAIN DSM HTTP 桥"即可
     - 接口契约（路径 / Form 字段 / 响应 schema）零返工
     - bridge_layer metadata 字段从 "http_bridge_mock" 改为 "http_bridge_windows_host"
+    - scan_id 由 TWAIN DSM 服务返回（mock 阶段 = 本地生成 uuid）
     """
     # 1. 落盘（带 magic peek + size cap）
-    saved_path, bytes_written, magic_kind = _save_scan_file(file, UPLOAD_ROOT)
+    saved_path, bytes_written, magic_kind, file_id = _save_scan_file(file, UPLOAD_ROOT)
 
     # 2. deterministic mock 答案
-    answers = _generate_mock_answers(level, chapter_id, question_count)
+    answers = _generate_mock_answers(chapter_id, question_count)
     detected_count = sum(1 for a in answers if a is not None)
 
-    # 3. 响应 metadata
+    # 3. 响应 metadata（不暴露 file_path；只回 scan_id）
     metadata: dict[str, object] = {
         "bridge_layer": BRIDGE_LAYER_MOCK,
-        "level": level,
         "chapter_id": chapter_id,
         "question_count": question_count,
         "detected_count": detected_count,
-        "file_path": str(saved_path),
+        "scan_id": file_id,
         "file_size": bytes_written,
         "content_type": file.content_type or "application/octet-stream",
         "magic_kind": magic_kind,
@@ -296,13 +285,12 @@ def scan_omr(
     }
 
     logger.info(
-        "OMR mock 扫描完成：chapter_id=%s level=%s question_count=%d "
-        "detected_count=%d file=%s bridge=%s",
+        "OMR mock 扫描完成：chapter_id=%s question_count=%d "
+        "detected_count=%d scan_id=%s bridge=%s",
         chapter_id,
-        level,
         question_count,
         detected_count,
-        saved_path.name,
+        file_id,
         BRIDGE_LAYER_MOCK,
     )
 
