@@ -3,16 +3,17 @@
 覆盖：
 1. 契约稳定：POST /api/v1/twain/scan/omr 接受 multipart → 返回 ScanOMRResponse
 2. 契约不外泄：metadata 不含 file_path / level（出题侧概念不进桥契约）
-3. deterministic：同 chapter_id → 同 answers（seed 稳定）
-4. 不同 chapter_id → 不同 answers
-5. 跨边界架构：注册新 router 后现有 endpoint（/api/health）仍工作
-6. 错误处理：缺字段 / 非法 question_count / chapter_id 越界 → 422
-7. 文件落盘：UPLOAD_ROOT/scans/{file_id}.{ext} 实际写盘（用 scan_id 定位）
-8. metadata 契约：bridge_layer="http_bridge_mock"（M3 替换时零返工判据）
-9. scan_id 唯一性：每次请求生成不同 uuid4
-10. detected_count 一致性：metadata.detected_count == 实际非 None 数
-11. 边界：question_count = 5 (min) / 200 (max) / 空文件
-12. 内部 invariant：mock 前 5 位置填涂（与 MOCK_DETECTED_POSITIONS 一致）
+3. perimeter field：assignment_id echo（perimeter field = 桥无 interpretation，M3 OMR 评分用此写回学生档位历史）
+4. deterministic：同 chapter_id → 同 answers（seed 稳定）
+5. 不同 chapter_id → 不同 answers
+6. 跨边界架构：注册新 router 后现有 endpoint（/api/health）仍工作
+7. 错误处理：缺字段 / 非法 question_count / 字段越界 → 422
+8. 文件落盘：UPLOAD_ROOT/scans/{file_id}.{ext} 实际写盘（用 scan_id 定位）
+9. metadata 契约：bridge_layer="http_bridge_mock"（M3 替换时零返工判据）
+10. scan_id 唯一性：每次请求生成不同 uuid4
+11. detected_count 一致性：metadata.detected_count == 实际非 None 数
+12. 边界：question_count = 5 (min) / 200 (max) / 空文件
+13. 内部 invariant：mock 前 5 位置填涂（与 MOCK_DETECTED_POSITIONS 一致）
 
 设计要点：
 - 走 e2e 路径（TestClient + create_app），与 test_health.py 同模式
@@ -44,6 +45,9 @@ from app.main import create_app
 # 最小合法 PDF magic + 一点 body（不需真 PDF；mock 不解析内容）
 MINIMAL_PDF_BYTES = b"%PDF-1.4\n%mock scan content for test\n"
 
+# 默认 assignment_id（perimeter field；M3 OMR 评分链路用）
+DEFAULT_ASSIGNMENT_ID = "asgmt-default-2026-10-08"
+
 
 def _pdf_bytes(size: int = 1024) -> bytes:
     """生成测试用 PDF 字节（前 5 字节 = %PDF- magic）。"""
@@ -71,6 +75,19 @@ def _build_client(upload_root: Path) -> TestClient:
     return TestClient(create_app())
 
 
+def _base_data(
+    chapter_id: str = "ch-001",
+    question_count: int = 10,
+    assignment_id: str = DEFAULT_ASSIGNMENT_ID,
+) -> dict[str, str]:
+    """构造 Form data 通用基础（每测试可覆盖）。"""
+    return {
+        "chapter_id": chapter_id,
+        "assignment_id": assignment_id,
+        "question_count": str(question_count),
+    }
+
+
 @pytest.fixture()
 def twain_upload_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """把 TWAIN router 的 UPLOAD_ROOT 重定向到 tmp_path。
@@ -91,20 +108,15 @@ def test_scan_omr_pdf_returns_200_with_contract(twain_upload_root: Path) -> None
 
     契约判据（决策书 §7.3 补丁 A + 任务 brief）：
     - 路径：POST /api/v1/twain/scan/omr
-    - 请求：multipart/form-data（file + chapter_id + question_count；无 level）
-    - 响应：JSON 含 answers（list）+ metadata（dict，含 bridge_layer + scan_id）
+    - 请求：multipart/form-data（file + chapter_id + assignment_id + question_count；无 level）
+    - 响应：JSON 含 answers（list）+ metadata（dict，含 bridge_layer + assignment_id + scan_id）
     - metadata **不**含 file_path（泄漏内部目录）/ level（出题侧概念）
     """
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "ch-001",
-            "question_count": "10",
-        },
-        files={
-            "file": ("scan.pdf", _pdf_bytes(), "application/pdf"),
-        },
+        data=_base_data(chapter_id="ch-001", question_count=10),
+        files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert resp.status_code == 200, f"expected 200, got {resp.status_code}: {resp.text}"
     body = resp.json()
@@ -119,11 +131,12 @@ def test_scan_omr_pdf_returns_200_with_contract(twain_upload_root: Path) -> None
     for a in answers:
         assert a is None or a in ANSWER_CHOICES, f"invalid answer value: {a!r}"
 
-    # metadata 必含字段
+    # metadata 必含字段（含 assignment_id）
     meta = body["metadata"]
     required_meta_keys = {
         "bridge_layer",
         "chapter_id",
+        "assignment_id",
         "question_count",
         "detected_count",
         "scan_id",
@@ -143,6 +156,7 @@ def test_scan_omr_pdf_returns_200_with_contract(twain_upload_root: Path) -> None
     # 必含字段值
     assert meta["bridge_layer"] == BRIDGE_LAYER_MOCK
     assert meta["chapter_id"] == "ch-001"
+    assert meta["assignment_id"] == DEFAULT_ASSIGNMENT_ID  # perimeter field echo
     assert meta["question_count"] == 10
     assert meta["detected_count"] == 5
     assert meta["magic_kind"] == "pdf"
@@ -157,13 +171,8 @@ def test_scan_omr_jpeg_returns_200(twain_upload_root: Path) -> None:
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "ch-002",
-            "question_count": "5",
-        },
-        files={
-            "file": ("scan.jpg", _jpeg_bytes(), "image/jpeg"),
-        },
+        data=_base_data(chapter_id="ch-002", question_count=5),
+        files={"file": ("scan.jpg", _jpeg_bytes(), "image/jpeg")},
     )
     assert resp.status_code == 200, f"expected 200, got {resp.status_code}: {resp.text}"
     body = resp.json()
@@ -177,13 +186,8 @@ def test_scan_omr_png_returns_200(twain_upload_root: Path) -> None:
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "ch-003",
-            "question_count": "15",
-        },
-        files={
-            "file": ("scan.png", _png_bytes(), "image/png"),
-        },
+        data=_base_data(chapter_id="ch-003", question_count=15),
+        files={"file": ("scan.png", _png_bytes(), "image/png")},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -191,16 +195,75 @@ def test_scan_omr_png_returns_200(twain_upload_root: Path) -> None:
     assert body["metadata"]["magic_kind"] == "image"
 
 
-# ──────────────────────────── 2. deterministic ────────────────────────────
+# ──────────────────────────── 2. perimeter field (assignment_id) ──────────────
+
+
+def test_assignment_id_echoed_in_metadata(twain_upload_root: Path) -> None:
+    """assignment_id 是 perimeter field = 桥无 interpretation，仅 pass-through + echo。
+
+    M3 OMR 评分用此写回学生档位历史（v0.5 §4.1 三维度学情画像）。
+    如果 M3 链接不到 assignment_id，会重新加字段 = 契约返工（正是补丁 A 要防的）。
+    """
+    client = _build_client(twain_upload_root)
+    custom_assignment = "asgmt-2026-10-08-ch3-quiz-1"
+    resp = client.post(
+        "/api/v1/twain/scan/omr",
+        data=_base_data(
+            chapter_id="ch-003",
+            question_count=10,
+            assignment_id=custom_assignment,
+        ),
+        files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["metadata"]["assignment_id"] == custom_assignment
+
+
+def test_different_assignment_id_does_not_change_answers(
+    twain_upload_root: Path,
+) -> None:
+    """assignment_id 改变不应影响 answers（perimeter field = 桥无 interpretation）。
+
+    决定 answers 的 = chapter_id（seed）≠ assignment_id。
+    """
+    client = _build_client(twain_upload_root)
+    chapter_id = "ch-stable"
+    files_payload = {"file": ("scan.pdf", _pdf_bytes(), "application/pdf")}
+
+    resp1 = client.post(
+        "/api/v1/twain/scan/omr",
+        data=_base_data(
+            chapter_id=chapter_id,
+            question_count=20,
+            assignment_id="asgmt-A",
+        ),
+        files=files_payload,
+    )
+    resp2 = client.post(
+        "/api/v1/twain/scan/omr",
+        data=_base_data(
+            chapter_id=chapter_id,
+            question_count=20,
+            assignment_id="asgmt-B",
+        ),
+        files=files_payload,
+    )
+    assert resp1.status_code == 200
+    assert resp2.status_code == 200
+    # 同 chapter_id → 同 answers（assignment_id 不影响 seed）
+    assert resp1.json()["answers"] == resp2.json()["answers"], (
+        "assignment_id is perimeter field; should not affect answers"
+    )
+
+
+# ──────────────────────────── 3. deterministic ────────────────────────────
 
 
 def test_same_chapter_id_produces_same_answers(twain_upload_root: Path) -> None:
     """同 chapter_id → 同 answers（seed 稳定，pytest 跑稳定）。"""
     client = _build_client(twain_upload_root)
-    payload = {
-        "chapter_id": "ch-det-001",
-        "question_count": "20",
-    }
+    payload = _base_data(chapter_id="ch-det-001", question_count=20)
     files_payload = {"file": ("scan.pdf", _pdf_bytes(), "application/pdf")}
 
     resp1 = client.post("/api/v1/twain/scan/omr", data=payload, files=files_payload)
@@ -221,12 +284,12 @@ def test_different_chapter_id_produces_different_answers(
 
     resp1 = client.post(
         "/api/v1/twain/scan/omr",
-        data={"chapter_id": "ch-A", "question_count": "20"},
+        data=_base_data(chapter_id="ch-A", question_count=20),
         files=files_payload,
     )
     resp2 = client.post(
         "/api/v1/twain/scan/omr",
-        data={"chapter_id": "ch-B", "question_count": "20"},
+        data=_base_data(chapter_id="ch-B", question_count=20),
         files=files_payload,
     )
     assert resp1.status_code == 200
@@ -237,7 +300,7 @@ def test_different_chapter_id_produces_different_answers(
     assert answers1 != answers2, "different chapter_id should yield different answers"
 
 
-# ──────────────────────────── 3. 错误处理 ────────────────────────────
+# ──────────────────────────── 4. 错误处理 ────────────────────────────
 
 
 def test_question_count_below_minimum_returns_422(twain_upload_root: Path) -> None:
@@ -245,10 +308,7 @@ def test_question_count_below_minimum_returns_422(twain_upload_root: Path) -> No
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "ch-y",
-            "question_count": "4",  # < MIN_QUESTION_COUNT
-        },
+        data=_base_data(chapter_id="ch-y", question_count=4),
         files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert resp.status_code == 422
@@ -259,10 +319,7 @@ def test_question_count_above_maximum_returns_422(twain_upload_root: Path) -> No
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "ch-z",
-            "question_count": str(MAX_QUESTION_COUNT + 1),
-        },
+        data=_base_data(chapter_id="ch-z", question_count=MAX_QUESTION_COUNT + 1),
         files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert resp.status_code == 422
@@ -273,10 +330,18 @@ def test_chapter_id_above_max_length_returns_422(twain_upload_root: Path) -> Non
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "x" * 129,  # > 128
-            "question_count": "10",
-        },
+        data=_base_data(chapter_id="x" * 129, question_count=10),
+        files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
+    )
+    assert resp.status_code == 422
+
+
+def test_assignment_id_above_max_length_returns_422(twain_upload_root: Path) -> None:
+    """assignment_id > 128 字符 → 422。"""
+    client = _build_client(twain_upload_root)
+    resp = client.post(
+        "/api/v1/twain/scan/omr",
+        data=_base_data(assignment_id="y" * 129, question_count=10),
         files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert resp.status_code == 422
@@ -285,11 +350,24 @@ def test_chapter_id_above_max_length_returns_422(twain_upload_root: Path) -> Non
 def test_missing_chapter_id_returns_422(twain_upload_root: Path) -> None:
     """缺 chapter_id → 422（Form 必填字段）。"""
     client = _build_client(twain_upload_root)
+    data = _base_data(question_count=10)
+    data.pop("chapter_id")
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "question_count": "10",
-        },
+        data=data,
+        files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
+    )
+    assert resp.status_code == 422
+
+
+def test_missing_assignment_id_returns_422(twain_upload_root: Path) -> None:
+    """缺 assignment_id → 422（Form 必填字段；M3 链路关键）。"""
+    client = _build_client(twain_upload_root)
+    data = _base_data(question_count=10)
+    data.pop("assignment_id")
+    resp = client.post(
+        "/api/v1/twain/scan/omr",
+        data=data,
         files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert resp.status_code == 422
@@ -300,15 +378,12 @@ def test_missing_file_returns_422(twain_upload_root: Path) -> None:
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "ch-q",
-            "question_count": "10",
-        },
+        data=_base_data(),
     )
     assert resp.status_code == 422
 
 
-# ──────────────────────────── 4. 跨边界架构（不破坏现有 endpoint）────────────
+# ──────────────────────────── 5. 跨边界架构（不破坏现有 endpoint）────────────
 
 
 def test_existing_health_endpoint_still_works(twain_upload_root: Path) -> None:
@@ -327,7 +402,7 @@ def test_twain_router_registered(twain_upload_root: Path) -> None:
     assert resp.status_code == 404
 
 
-# ──────────────────────────── 5. 文件落盘到 UPLOAD_ROOT/scans/ ─────────────
+# ──────────────────────────── 6. 文件落盘到 UPLOAD_ROOT/scans/ ─────────────
 
 
 def test_scan_file_saved_to_upload_root_scans(
@@ -338,10 +413,7 @@ def test_scan_file_saved_to_upload_root_scans(
     payload_bytes = _pdf_bytes(size=2048)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "ch-save",
-            "question_count": "10",
-        },
+        data=_base_data(chapter_id="ch-save", question_count=10),
         files={"file": ("scan.pdf", payload_bytes, "application/pdf")},
     )
     assert resp.status_code == 200
@@ -368,10 +440,7 @@ def test_scan_file_scans_subdir_created_lazily(twain_upload_root: Path) -> None:
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "ch-lazy",
-            "question_count": "5",
-        },
+        data=_base_data(chapter_id="ch-lazy", question_count=5),
         files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert resp.status_code == 200
@@ -379,7 +448,7 @@ def test_scan_file_scans_subdir_created_lazily(twain_upload_root: Path) -> None:
     assert scans_dir.is_dir()
 
 
-# ──────────────────────────── 6. metadata 契约（M3 替换判据）────────────
+# ──────────────────────────── 7. metadata 契约（M3 替换判据）────────────
 
 
 def test_metadata_bridge_layer_is_mock(twain_upload_root: Path) -> None:
@@ -387,10 +456,7 @@ def test_metadata_bridge_layer_is_mock(twain_upload_root: Path) -> None:
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "ch-bridge",
-            "question_count": "10",
-        },
+        data=_base_data(chapter_id="ch-bridge", question_count=10),
         files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert resp.status_code == 200
@@ -402,7 +468,7 @@ def test_metadata_bridge_layer_is_mock(twain_upload_root: Path) -> None:
 def test_metadata_scan_id_is_unique_per_request(twain_upload_root: Path) -> None:
     """每次请求生成不同 scan_id（uuid4 唯一性；客户端可作 idempotency key）。"""
     client = _build_client(twain_upload_root)
-    payload = {"chapter_id": "ch-uuid", "question_count": "10"}
+    payload = _base_data(chapter_id="ch-uuid", question_count=10)
     files_payload = {"file": ("scan.pdf", _pdf_bytes(), "application/pdf")}
 
     resp1 = client.post("/api/v1/twain/scan/omr", data=payload, files=files_payload)
@@ -426,10 +492,7 @@ def test_metadata_detected_count_matches_actual_answers(
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": f"ch-qc-{question_count}",
-            "question_count": str(question_count),
-        },
+        data=_base_data(chapter_id=f"ch-qc-{question_count}", question_count=question_count),
         files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert resp.status_code == 200
@@ -442,7 +505,7 @@ def test_metadata_detected_count_matches_actual_answers(
     )
 
 
-# ──────────────────────────── 7. 边界 ────────────────────────────
+# ──────────────────────────── 8. 边界 ────────────────────────────
 
 
 def test_question_count_exactly_minimum_works(twain_upload_root: Path) -> None:
@@ -450,10 +513,7 @@ def test_question_count_exactly_minimum_works(twain_upload_root: Path) -> None:
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "ch-min",
-            "question_count": str(MIN_QUESTION_COUNT),
-        },
+        data=_base_data(chapter_id="ch-min", question_count=MIN_QUESTION_COUNT),
         files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert resp.status_code == 200
@@ -469,10 +529,7 @@ def test_question_count_exactly_maximum_works(twain_upload_root: Path) -> None:
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "ch-max",
-            "question_count": str(MAX_QUESTION_COUNT),
-        },
+        data=_base_data(chapter_id="ch-max", question_count=MAX_QUESTION_COUNT),
         files={"file": ("scan.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert resp.status_code == 200
@@ -487,16 +544,13 @@ def test_empty_pdf_file_returns_400(twain_upload_root: Path) -> None:
     client = _build_client(twain_upload_root)
     resp = client.post(
         "/api/v1/twain/scan/omr",
-        data={
-            "chapter_id": "ch-empty",
-            "question_count": "10",
-        },
+        data=_base_data(chapter_id="ch-empty", question_count=10),
         files={"file": ("empty.pdf", b"", "application/pdf")},
     )
     assert resp.status_code == 400
 
 
-# ──────────────────────────── 8. 内部 invariant（mock 位置集）────────────
+# ──────────────────────────── 9. 内部 invariant（mock 位置集）────────────
 
 
 def test_mock_detected_positions_invariant() -> None:

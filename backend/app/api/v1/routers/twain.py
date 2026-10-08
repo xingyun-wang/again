@@ -12,6 +12,9 @@
   既有配置 ``backend/app/services/textbook_upload.py:58``（``DEFAULT_UPLOADS_DIR``）
 - 不写 ``backend/uploads/images/...``（D-43-X 失实，已修）
 - 桥的职责 = 「图像 → 填涂位」；不包含出题侧概念（档位 / 题目索引等）
+- perimeter fields（桥无 interpretation，仅 pass-through）：
+    - ``chapter_id``: 章节 ID（mock 内部 seed 变体；语义不解释）
+    - ``assignment_id``: 作业 ID（M3 OMR 评分链路关键；v0.5 §4.1 三维度学情画像写回）
 - 响应只回 scan_id（不暴露内部目录结构 file_path）
 - deterministic：seed = chapter_id → 同样输入 = 同样输出
 - mock 阶段不做真 OMR 解析（M3 范围）；只做 magic bytes peek + size cap + 流式落盘
@@ -21,16 +24,17 @@
 - 请求：multipart/form-data
     - ``file``: UploadFile（PDF / 图片）
     - ``chapter_id``: str（form，必填，1-128 字符）
+    - ``assignment_id``: str（form，必填，1-128 字符）
     - ``question_count``: int（form，必填，5-200）
 - 响应：``ScanOMRResponse``（JSON）
     - ``answers``: list[str | None]，长度 = question_count；前 5 个位置为 A/B/C/D 之一
-    - ``metadata``: dict（含 bridge_layer / chapter_id / question_count /
+    - ``metadata``: dict（含 bridge_layer / chapter_id / assignment_id / question_count /
       detected_count / scan_id / file_size / content_type / magic_kind / timestamp）
 
 错误码：
 - 400：文件为空 / 流读取失败
 - 413：文件超 size cap（默认 50MB）
-- 422：Form 字段校验失败（缺字段 / 类型错 / chapter_id 越界 / question_count 越界）
+- 422：Form 字段校验失败（缺字段 / 类型错 / 字段越界）
 """
 
 from __future__ import annotations
@@ -245,6 +249,17 @@ def scan_omr(
         str,
         Form(min_length=1, max_length=128, description="章节 ID（1-128 字符）"),
     ],
+    assignment_id: Annotated[
+        str,
+        Form(
+            min_length=1,
+            max_length=128,
+            description=(
+                "作业 ID（1-128 字符；perimeter field = 桥无 interpretation，"
+                "M3 OMR 评分用此写回学生档位历史 = v0.5 §4.1 三维度学情画像）"
+            ),
+        ),
+    ],
     question_count: Annotated[
         int,
         Form(ge=MIN_QUESTION_COUNT, le=MAX_QUESTION_COUNT, description="题数（5-200）"),
@@ -253,16 +268,17 @@ def scan_omr(
     """HTTP 桥抽象层入口（mock 阶段）。
 
     流程：
-    1. 校验 Form 字段（FastAPI 自动：chapter_id 长度 / question_count 范围）
+    1. 校验 Form 字段（FastAPI 自动：chapter_id / assignment_id 长度 / question_count 范围）
     2. 流式落盘扫描件到 ``{UPLOAD_ROOT}/scans/{file_id}{ext}``（带 size cap）
     3. deterministic 生成 mock 答案（按 chapter_id seed；前 5 位置填涂）
-    4. 构造响应（answers + metadata 含 bridge_layer + scan_id）
+    4. 构造响应（answers + metadata 含 bridge_layer + chapter_id + assignment_id + scan_id）
 
     M3 替换计划：
     - 替换本函数体为"转发 multipart 到 Windows 宿主机 TWAIN DSM HTTP 桥"即可
     - 接口契约（路径 / Form 字段 / 响应 schema）零返工
     - bridge_layer metadata 字段从 "http_bridge_mock" 改为 "http_bridge_windows_host"
     - scan_id 由 TWAIN DSM 服务返回（mock 阶段 = 本地生成 uuid）
+    - assignment_id 链路不变：桥转发 → M3 OMR 评分 → 写回学生档位历史
     """
     # 1. 落盘（带 magic peek + size cap）
     saved_path, bytes_written, magic_kind, file_id = _save_scan_file(file, UPLOAD_ROOT)
@@ -271,10 +287,11 @@ def scan_omr(
     answers = _generate_mock_answers(chapter_id, question_count)
     detected_count = sum(1 for a in answers if a is not None)
 
-    # 3. 响应 metadata（不暴露 file_path；只回 scan_id）
+    # 3. 响应 metadata（含 assignment_id perimeter field；不暴露 file_path）
     metadata: dict[str, object] = {
         "bridge_layer": BRIDGE_LAYER_MOCK,
         "chapter_id": chapter_id,
+        "assignment_id": assignment_id,
         "question_count": question_count,
         "detected_count": detected_count,
         "scan_id": file_id,
@@ -285,9 +302,10 @@ def scan_omr(
     }
 
     logger.info(
-        "OMR mock 扫描完成：chapter_id=%s question_count=%d "
+        "OMR mock 扫描完成：chapter_id=%s assignment_id=%s question_count=%d "
         "detected_count=%d scan_id=%s bridge=%s",
         chapter_id,
+        assignment_id,
         question_count,
         detected_count,
         file_id,

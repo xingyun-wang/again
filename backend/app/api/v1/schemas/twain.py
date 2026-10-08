@@ -6,6 +6,9 @@
 
 设计要点：
 - 桥的职责 = 「图像 → 填涂位」；不包含出题侧概念（档位 / 题目索引等）
+- perimeter fields（桥无 interpretation，仅 pass-through）：
+    - ``chapter_id``: 章节 ID（用于 mock 内部 seed 变体；mock 阶段不解释语义）
+    - ``assignment_id``: 作业 ID（用于 M3 OMR 评分链路写回学生档位历史；v0.5 §4.1）
 - 答案列表长度 = ``question_count``；前 5 个位置填涂，其余 None
 - 答案字母 A/B/C/D（OMR 答题卡 4 选项）
 - mock deterministic：seed = chapter_id
@@ -40,8 +43,15 @@ class ScanOMRResponse(BaseModel):
     Attributes:
         answers: 长度 = ``question_count``；前 5 个位置为 A/B/C/D 之一，
             其余为 None（未填涂/未识别）。索引 = 0-based 题目序号。
-        metadata: 扫描元数据。显式含 bridge_layer 字段标识抽象层（mock vs 真实现）；
-            scan_id 用于客户端后续取文件（不暴露内部目录 file_path）。
+        metadata: 扫描元数据。显式含：
+            - ``bridge_layer``: 抽象层标识（mock vs 真实现）
+            - ``chapter_id``: 请求入参（echo）
+            - ``assignment_id``: 请求入参（echo；M3 OMR 评分链路关键）
+            - ``question_count``: 请求入参（echo）
+            - ``detected_count``: 实际填涂位（非 None 答案数）
+            - ``scan_id``: 32 字符 hex（uuid4）；客户端取文件用（不暴露内部目录）
+            - ``file_size`` / ``content_type`` / ``magic_kind`` / ``timestamp``:
+              扫描件元信息
     """
 
     model_config = ConfigDict(
@@ -51,6 +61,7 @@ class ScanOMRResponse(BaseModel):
                 "metadata": {
                     "bridge_layer": "http_bridge_mock",
                     "chapter_id": "ch-001",
+                    "assignment_id": "asgmt-2026-10-08-ch3-quiz-1",
                     "question_count": 10,
                     "detected_count": 5,
                     "scan_id": "abc123def456789012345678901234ab",
@@ -72,5 +83,8 @@ class ScanOMRResponse(BaseModel):
     )
     metadata: dict[str, object] = Field(
         ...,
-        description="扫描元数据；显式含 bridge_layer 字段标识抽象层（mock vs 真实现）。",
+        description=(
+            "扫描元数据；显式含 bridge_layer / chapter_id / assignment_id / question_count / "
+            "detected_count / scan_id / file_size / content_type / magic_kind / timestamp。"
+        ),
     )
