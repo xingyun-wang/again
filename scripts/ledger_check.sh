@@ -204,6 +204,61 @@ else
   FAILED=1
 fi
 
+# === 检查 10: tech-debt.md 引用必须与 HEAD mypy 真值一致（双向核对；防 N1 类镜像陈旧）===
+echo "[10/10] tech-debt.md 引用必须与 HEAD mypy 真值一致（双向核对）..."
+if [ -f docs/tech-debt.md ]; then
+  # 1. 验证容器镜像与 HEAD 一致（防 N1 类镜像陈旧）
+  CONTAINER_MD5=$(docker exec thp-backend md5sum /app/app/api/v1/routers/academic.py 2>/dev/null | awk '{print $1}')
+  HEAD_MD5=$(md5sum backend/app/api/v1/routers/academic.py 2>/dev/null | awk '{print $1}')
+  if [ -z "$CONTAINER_MD5" ]; then
+    echo "  ❌ FAIL: 容器 thp-backend 不可达（docker exec 失败）"
+    FAILED=1
+  elif [ "$CONTAINER_MD5" != "$HEAD_MD5" ]; then
+    echo "  ❌ FAIL: 容器镜像陈旧（academic.py md5 不一致）"
+    echo "  容器: $CONTAINER_MD5"
+    echo "  HEAD:  $HEAD_MD5"
+    echo "  修法: docker cp HEAD 文件 / docker build 重建镜像"
+    FAILED=1
+  else
+    # 2. 跑容器内 mypy 拿 HEAD 真值（容器已 sync）
+    MYPY_OUT=$(docker exec thp-backend bash -c "cd /app && python3 -m mypy app/ 2>&1" | grep -E ":\d+: error:" || true)
+    # 3. 路径归一化：mypy 输出 app/... → docs 格式 backend/app/...
+    MYPY_NORMALIZED=$(echo "$MYPY_OUT" | sed 's|^app/|backend/app/|g' | sed 's| app/| backend/app/|g')
+
+    # 4. 提取 tech-debt.md 中的 file:line 引用
+    DOC_LINES=$(grep -oE 'backend/app/[^:]+:[0-9]+' docs/tech-debt.md | sort -u)
+
+    # 5. 双向核对
+    CHECK10_FAIL=0
+    DOC_COUNT=0
+    for LINE in $DOC_LINES; do
+      DOC_COUNT=$((DOC_COUNT+1))
+      if ! echo "$MYPY_NORMALIZED" | grep -q "$LINE"; then
+        echo "  ❌ FAIL: docs/tech-debt.md 引用 $LINE 但 HEAD mypy 不报此错（行号错位）"
+        CHECK10_FAIL=1
+      fi
+    done
+
+    MYPY_LINES=$(echo "$MYPY_NORMALIZED" | grep -oE 'backend/app/[^:]+:[0-9]+' | sort -u)
+    MYPY_COUNT=0
+    for LINE in $MYPY_LINES; do
+      MYPY_COUNT=$((MYPY_COUNT+1))
+      if ! echo "$DOC_LINES" | grep -q "$LINE"; then
+        echo "  ❌ FAIL: HEAD mypy 报 $LINE 但 docs/tech-debt.md 未登记（漏登记）"
+        CHECK10_FAIL=1
+      fi
+    done
+
+    if [ "$CHECK10_FAIL" = "0" ]; then
+      echo "  ✅ ACTUAL=$DOC_COUNT 个 doc 引用 == $MYPY_COUNT 个 mypy 真值（双向核对完全一致）"
+    else
+      FAILED=1
+    fi
+  fi
+else
+  echo "  ⚠️ WARN: docs/tech-debt.md 不存在（无 tech-debt 引用）"
+fi
+
 echo ""
 if [ "$FAILED" = "1" ]; then
   echo "❌ ledger_check 失败；请修复后重跑"
