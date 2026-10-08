@@ -103,13 +103,13 @@ S1 用结构占位 fixture 已够；commit `feat(fixture): ...`（200 行 Q-POOL
 
 - [ ] 3 决策点拍板（D-M2-1 / D-M2-2 / D-M2-4）+ 1 延后（D-M2-3b，S4 后重提）
 - [ ] S0 启动：
-    - 派 subagent TWAIN 架构路径 mock（S0-3）
-    - C 池 ≥100 题内容建设启动（S0-4 / 并轨 B）
+    - 派 subagent TWAIN 架构路径 mock（S0-4 / D-56 编号）
+    - C 池 ≥100 题内容建设启动（S0-5 / D-56 编号 / 并轨 B）
 - [ ] S1 出题引擎派工（per `plans/README.md` 命名规则：`M2-A.1-brief.md`）
 
 ---
 
-## 7. 决策账本（待星云拍板后填）
+## 7. 决策账本
 
 | 决策 | 拍板选项 | 拍板日期 | 落实 commit |
 |---|---|---|---|
@@ -133,7 +133,7 @@ S1 用结构占位 fixture 已够；commit `feat(fixture): ...`（200 行 Q-POOL
 - **驳回选项**：
   - (b) M2 只后端 + UI 推 M2.5 — ❌ 不推荐（M2 不闭环；M2.5 = 新里程碑松散；星云作为老师日常接触面 = UI）
   - (c) 先补 M1 UI 再进 M2 — ❌ 不推荐（M1 已收口；CHARTER §5.3 反 AI 直接入库的未来警惕 = M2-A.1 brief 规则即可；M2 启动延期）
-- **落实 commit**：✅ `3249b1b`（与 D-M2-2/D-M2-4 同笔；commit message 含 `[origin-push]`）
+- **落实 commit**：✅ `3249b1b` + `dc246aa`（D-M2-2 §7.2 内容 dc246aa 修正路径/OSS + 拆 S1 brief；§7.1 本身仅元数据 sync；commit message 含 `[origin-push]`）
 
 ### 7.2 拍板记录（D-M2-2 · 2026-10-08 14:56；技术方案修订后）
 
@@ -155,7 +155,7 @@ S1 用结构占位 fixture 已够；commit `feat(fixture): ...`（200 行 Q-POOL
 - **来源**：星云拍板 + 载曜建议（详见 `memory/2026-10-08.md §十三`）
 - **驳回选项**：
   - (b) 对接第三方 API（菁优网 / 学科网） — ❌ 不推荐（API 鉴权 + 协议适配 + 数据格式转换 = 工作量 ×2-3；违反 CHARTER §5「菁优网 API ⏳ 接口预留」）
-- **落实 commit**：✅ `3249b1b`（与 D-M2-1/D-M2-4 同笔；commit message 含 `[origin-push]`）
+- **落实 commit**：✅ `3249b1b` + `dc246aa`（dc246aa 修正 §7.2 S1 前置债 1 路径/OSS + 拆 S1 brief；commit message 含 `[origin-push]`）
 
 ### 7.3 拍板记录（D-M2-4 · 2026-10-08 15:11）
 
@@ -170,7 +170,7 @@ S1 用结构占位 fixture 已够；commit `feat(fixture): ...`（200 行 Q-POOL
 - **驳回选项**：
   - (b) 买/借扫描仪做实测 — ❌ 不推荐（违反 v0.5 §6.4 真值；M2 提前实测 = 跨里程碑依赖锁住第一步；决策书 §3「注意」明示）
   - (c) 本周不启动 — ❌ 不推荐（决策书 §6 启动清单第 2 项 = 本周必须；推迟 = S0 启动撞 TWAIN 空白）
-- **落实 commit**：✅ `3249b1b`（与 D-M2-1/D-M2-2 同笔；commit message 含 `[origin-push]`）
+- **落实 commit**：✅ `3249b1b` + `dc246aa`（§7.3 本身仅元数据 sync；commit message 含 `[origin-push]`）
 
 ---
 
