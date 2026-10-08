@@ -37,7 +37,7 @@
 - v0.5 §0 灵魂：星云口述，载曜记录；不主动插技术反馈
 - §0 定稿后：载曜进开发者模式
 - **旧工程代码：参考用，不接旧进度；新工程从 v0.5 定稿后写起**
-- **2026-09-14 增**：reset/收工/唤醒工作流——收工由载曜做 4 步（更新 memory / 改 STATE / 跑 backup.sh / 报告），然后星云 reset
+- **2026-09-14 增**：reset/收工/唤醒工作流——收工由载曜做，详见 `WAKEUP.md` §收工后必须做的事（唯一真值源；D-79）；星云 reset
 - **2026-09-14 增**：wake-up 固定 4 项 = 产品定义 / 最近 3 天日志 / 进度 / 宪法（详见 `WAKEUP.md`）
 - **2026-09-14 增**：项目日志放项目本地 `tiered-homework-platform/memory/`，不依赖 zaiyao-memory 全局目录
 - **2026-09-16 增**：v0.5 §10 排期定稿 = 里程碑式 M0-M7 + 依赖图；v0.4 W1-W12 废弃；MVP 启动 = 4 条件 blocker 全满足；CHARTER §7.0 会话分工在 M0-M7 实施阶段严格执行
@@ -851,3 +851,69 @@ $ ls -d --time-style=full-iso ~/.openclaw/agents/again/agent/workshop-skills/ass
 > **法源依据**：D-78 元规则（2026-10-06 18:20 立；并 D-77 家族）+ D-79 首次落地（c17 commit c752eff）+ D-76 台账落后硬约束（销账 #112 同笔）+ 用户拍（2026-10-06 18:41；CHARTER 摘要页现在就开始）
 >
 > **来源**：本笔 commit + 审查员 §六 + `wc -c PROJECT-CHARTER.md` = 5753 B + `wc -c PROJECT-CHARTER-summary.md` = 6487 B + 取数时刻 2026-10-06 18:42 +0800（按 D-75 §2）
+
+---
+
+## §治理.11 收工步骤 7 步化（D-79 + D-77 + D-75/D-76 联合落地；本笔 commit）
+
+> **最后更新**：2026-10-08 09:14（决策室记账；commit 20 同笔落字 + 收工 backup）
+
+### §治理.11.1 触发
+
+- 审查员 §六诊断（2026-10-08）+ 用户拍：收工步骤结构病 = 同一件事写 3 份、值还不一样（WAKEUP.md 6 步 / PROJECT-CHARTER-protocol.md 4 步 / notes/milestones.md 4 步）
+- 5 条结构问题：
+  1. 三真值源 = D-79「流程只写一处」违反（D-79 立条当轮即被自己的执行违反）
+  2. 缺 commit 步 = 三份定义都没有「提交项目仓」+ ledger_check 要求 worktree 干净 ⇒ #106 机制根源
+  3. 悬空法源 = `scripts/ledger_check.sh:3` 写「§7.2 第 5 步 ledger_check」，§7.2 现为 4 步且不含 ledger_check
+  4. 顺序错 = WAKEUP 版「剪枝自检」第 6 步，在 backup.sh（第 4 步）之后 ⇒ 超限文件已经推出去才检测
+  5. 规则悬空 = WAKEUP.md:26 定「memory 单日 100 行 → 次日收工时压缩」，收工 6 步里没这一步（第 6 步只写 wc -c）= D-75/D-76 家族活标本
+  6. 概念错位 + 自违 = WAKEUP.md「灾难恢复」执行者写 backup.sh（做备份，不是恢复）；protocol §7.1 标题写「详见 WAKEUP.md」、下面又把 4 项读数列一遍；protocol 档案自身 6906 B 无上限 + 末尾带 18 行变更说明 ⇒ 自违 D-77
+
+### §治理.11.2 治理步骤
+
+1. **WAKEUP.md 改写**：
+   - 「收工后必须做的事」从 6 步改 7 步：① 更新 memory → ② 改 STATE → ③ 剪枝自检（含压缩昨日日志） → ④ commit → ⑤ ledger_check → ⑥ backup.sh → ⑦ 报告 push
+   - 「灾难恢复」与日常备份分开：执行者 = 手动（git clone + cp）；触发条件 = 项目仓不可用
+   - 删除标题里的硬编码步数（按用户拍）
+2. **PROJECT-CHARTER-protocol.md 改写**：
+   - §7.1 删 4 项读数清单 → 指针化（详见 `WAKEUP.md`）
+   - §7.2 删 4 步收工正文 → 指针化
+   - §7.4 灾难恢复 → 指针化（详见 `WAKEUP.md` §灾难恢复）
+   - 末尾 18 行变更说明 blockquote → 外移到 `docs/changelog/PROJECT-CHARTER-protocol.md`（D-77 落地）
+3. **notes/milestones.md 改写**：
+   - 「2026-09-14 增」行 4 步收工 → 改指针（详见 `WAKEUP.md`）
+   - 新增本节 §治理.11 续写
+4. **scripts/ledger_check.sh 改写**：
+   - 行 3 注释「§7.2 第 5 步 ledger_check」→「WAKEUP.md 第 5 步 ledger_check」
+   - 解 #90 块内「WAKEUP.md §7.2: 第 3 步 ledger_check < 第 4 步 backup.sh」→「WAKEUP.md 第 5 步 ledger_check < 第 6 步 backup.sh」
+5. **新增 `docs/changelog/PROJECT-CHARTER-protocol.md`**（D-77 承接）
+
+### §治理.11.3 当前状态
+
+- HEAD = `<本笔 commit hash>`（待 commit）
+- WAKEUP.md = ~3 KB（仍在 6144 B 软上限内）
+- PROJECT-CHARTER-protocol.md = ~5 KB（变更说明外移后）
+- notes/milestones.md = 增量 ~3 KB
+- scripts/ledger_check.sh = 行 3 + 解 #90 块修订
+- docs/changelog/PROJECT-CHARTER-protocol.md = ~2 KB（D-77 承接）
+- ledger_check：5/5 PASS（commit 后实测）
+
+### §治理.11.4 长期治理节拍（D-79 + D-77 联合落地）
+
+- **唯一真值源**：收工流程只在 `WAKEUP.md` §收工后必须做的事（D-79）
+- **变更说明外移**：所有 D-66 ③ 类协议 / 治理文件的末尾变更说明 → 对应 `docs/changelog/<file>.md`（D-77）
+- **步数不写标题**：避免「改一次就得改标题」型失实
+- **commit 步嵌入**：收工第 4 步 = commit，ledger_check 第 5 步 = 验证 worktree 干净 ⇒ 解 #106 机制
+
+---
+
+> **【2026-10-08 09:14 变更说明 · notes/milestones.md】**
+>
+> **修订范围**：3 项
+> 1. **「2026-09-14 增」行 4 步收工 → 改指针**（详见 `WAKEUP.md`）
+> 2. **§治理.11 收工步骤 7 步化** 续写（本笔）
+> 3. **§家族表暂不追加新失实**（5 条结构问题属于治理层修复，不进 E 家族）
+>
+> **法源依据**：D-79（流程只写一处）+ D-77（变更说明外移）+ D-75/D-76（既有规则严格执行）+ 用户拍（2026-10-08 09:14；收工步骤结构病修复）
+>
+> **来源**：本笔 commit + 审查员 §六 + `wc -c WAKEUP.md` + `wc -c PROJECT-CHARTER-protocol.md` + 取数时刻 2026-10-08 09:14 +0800（按 D-75 §2）

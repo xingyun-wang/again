@@ -31,22 +31,13 @@
 
 **不属于例外**：代码逻辑改动（即使 < 20 行）/ 测试改动 / 任何需要跑 pytest/mypy/ruff/build 的改动。
 
-### 7.1 session 启动（详见 WAKEUP.md）
+### 7.1 session 启动（详见 `WAKEUP.md` §4 项固定读取 + §5 核源动作）
 
-载曜唤醒后固定读 4 项：
-1. `docs/产品定义-v0.5.md`
-2. 最近 3 天 `memory/YYYY-MM-DD.md`
-3. `STATE.md`
-4. 本文件（CHARTER）
+> 本节不再列读数清单（D-79「流程只写一处」）；完整读数见 `WAKEUP.md`。
 
-读完后第一句话：「上次停在 X，下一步 Y，开放问题 Z」（不复述内容）。
+### 7.2 收工（详见 `WAKEUP.md` §收工后必须做的事）
 
-### 7.2 收工（4 步）
-
-1. 更新今天的 `memory/YYYY-MM-DD.md`（写今天做了什么 / 下一步）
-2. 改 `STATE.md`（如有进展）
-3. 跑 `bash ~/zaiyao-memory/backup.sh`（自动同步 + 推送 Gitee）
-4. 报告 push 成功 / 失败
+> 本节不再列收工步骤（D-79「流程只写一处」）；唯一真值源在 `WAKEUP.md`。
 
 ### 7.3 决策记录
 
@@ -56,10 +47,11 @@
 
 ### 7.4 灾难恢复（D-14 / D-15）
 
-- **执行者**：`~/zaiyao-memory/backup.sh`
-- **远端**：`git@gitee.com:wang-xingyun1021/zaiyao-memory.git`
-- **本项目备份位置**：`projects/tiered-homework-platform/`（zaiyao-memory 仓内）
-- **备份内容**：CHARTER / WAKEUP.md / STATE.md / 产品定义 / 最近 3 天日志
+> 本节指针化（D-79）；详见 `WAKEUP.md` §灾难恢复（与日常备份分开）。
+>
+> - **远端**：`git@gitee.com:wang-xingyun1021/zaiyao-memory.git`
+> - **本项目备份位置**：`projects/tiered-homework-platform/`（zaiyao-memory 仓内）
+> - **备份内容**：CHARTER / WAKEUP.md / STATE.md / 产品定义 / 最近 3 天日志
 
 ### 7.5 改动 CHARTER 触发
 
@@ -114,21 +106,4 @@
 
 ---
 
-> **【2026-10-06 18:23 变更说明 · docs/PROJECT-CHARTER-protocol.md】**
->
-> **修订范围**：1 项 D-79 首次落地
-> 1. **CHARTER §7 整段外移**（D-79 元规则首例；§7.0-§7.7 全文 101 行 / 4915 B → 本档案）
-> 2. **PROJECT-CHARTER.md 改写** → §7 整段替换为指针段（"流程外移至 `docs/PROJECT-CHARTER-protocol.md`"）；§1-§6 保留
->
-> **法源依据**：D-79 元规则（2026-10-06 立；并 D-77 家族）+ 用户拍 6（2026-10-06 18:19；§7 整段外移）+ CHARTER §7.5 改动触发（用户已确认）+ 审查员核对回执 §六（R2 = 流程只写一处）
->
-> **新立 / 销账**：
-> - **#111**（E 9；CHARTER 1.95× 超软上限；既有"§5.3 #6 剪枝触发"未被执行 = D-75/D-76）→ 本笔 c17 销账 ✅
->
-> **诊断真值**（@HEAD b70957c；取数时刻 2026-10-06 18:22:28 +0800）：
-> - PROJECT-CHARTER.md = 9970 B / 229 行（1.95× 软上限）
-> - §7 全文 = 101 行 / 4915 B / 49%
-> - §1-§6 全文 = 99 行 / 5055 B / 51%
-> - 改后预期：PROJECT-CHARTER.md ≈ 5500 B / ~130 行（0.55× 一步回绿）
->
-> **来源**：审查员核对回执 §六（D-79 元规则建议）+ `wc -l -c PROJECT-CHARTER.md` = 229 / 9970 + `sed -n '129,229p' PROJECT-CHARTER.md | wc -c` = 4915 B + 用户拍 6（2026-10-06 18:19）
+> **变更说明**：见 `docs/changelog/PROJECT-CHARTER-protocol.md`（D-77 元规则；变更说明不能和它所描述的文件同体）

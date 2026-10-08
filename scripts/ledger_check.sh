@@ -1,6 +1,6 @@
 #!/bin/bash
 # scripts/ledger_check.sh（c12 第五笔 修法版；解 #84/#89/#87/#90）
-# §7.2 第 5 步 ledger_check：收工必跑；失败即拒收
+# WAKEUP.md 第 5 步 ledger_check：收工必跑；失败即拒收
 # 法源：D-76 台账落后硬约束 + 审查员核对回执 2026-10-05 23:11 §三 #89/#90 + §四 拍 1 修法 a-d
 # 立条：commit 12 第五笔 修法（用户拍 1；D-43 §5 触发已解除降级决策室做）
 #
@@ -12,7 +12,7 @@
 # 5. dirty 收口：git status --porcelain = 空（警告而非失败）
 #
 # 解 #90（消息面盲区）：
-#   WAKEUP.md §7.2: 第 3 步 ledger_check < 第 4 步 backup.sh
+#   WAKEUP.md 第 5 步 ledger_check < 第 6 步 backup.sh（D-79 唯一真值源）
 #   commit message 在 commit 后才存在；commit 前检查 message 结构上无效
 #   历史 message 字面（23 行分布在 5 个 commit）为永久审计 trail（按 D-72/D-74 §1）
 #   不引入 git log -1 假判据；显式声明盲区
