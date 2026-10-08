@@ -208,8 +208,8 @@ fi
 echo "[10/10] tech-debt.md 引用必须与 HEAD mypy 真值一致（双向核对）..."
 if [ -f docs/tech-debt.md ]; then
   # 1. 多文件树哈希比对（v3 升级；防单文件 cp 漏文件 = N1/N2 类错）
-  CONTAINER_TREE_HASH=$(docker exec thp-backend bash -c "find /app/app -name '*.py' -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null" 2>/dev/null | md5sum | awk '{print $1}')
-  HEAD_TREE_HASH=$(find backend/app -name '*.py' -type f | sort | xargs md5sum | md5sum | awk '{print $1}')
+  CONTAINER_TREE_HASH=$(docker exec thp-backend bash -c "find /app/app -name '*.py' -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null" 2>/dev/null | awk '{print $1}' | sort | md5sum | awk '{print $1}')
+  HEAD_TREE_HASH=$(find backend/app -name '*.py' -type f | sort | xargs md5sum | awk '{print $1}' | sort | md5sum | awk '{print $1}')
 
   if [ -z "$CONTAINER_TREE_HASH" ]; then
     echo "  ❌ FAIL: 容器 thp-backend 不可达（docker exec 失败）"
