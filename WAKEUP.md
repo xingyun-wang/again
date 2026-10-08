@@ -34,7 +34,7 @@
 
 > **本节 = 项目内收工流程唯一真值源**（D-79「流程只写一处」）
 > **链序**：落盘 → 固化 → 核 → 推
-> **当前步骤数**：7（改一次即更新本节；不要把步数写进标题）
+> **当前步骤数**：8（改一次即更新本节；不要把步数写进标题）
 
 1. **更新 memory**：`memory/YYYY-MM-DD.md`（写今天做了什么 / 下一步）
 2. **改 STATE**：`STATE.md`（如有进展）
@@ -44,7 +44,8 @@
 4. **commit**：本笔改动落到项目仓（commit message 写明 commit 类型 + 范围 + D-XX/D-M2-N 引用）
 5. **跑 ledger_check**：`bash scripts/ledger_check.sh`（自动核验台账；**失败即拒收**；D-76 立条 + 5 条检查项：台账增量 / 失实入家族表 / W-A-U-P.md 错拼 / notes-memory 对齐 / dirty 收口）（若失败 → 立即补 fix commit，**且不得执行第 6 步 push**）
 6. **跑 backup**：`bash ~/zaiyao-memory/backup.sh`（自动同步 + 推送 Gitee；D-14）
-7. **报告 push**：报告 backup 成功/失败
+7. **推 origin**（需用户授权）：`git push origin <branch>`（推送本地 commit 到项目 origin；授权前不推，避免积压）
+8. **报告 push**：报告 backup + origin push 成功/失败
 
 ---
 
@@ -54,7 +55,14 @@
 - **触发**：项目仓 `git status` 不可用 / working tree 不可恢复 / 备份快照整体失联
 - **远端**：`git@gitee.com:wang-xingyun1021/zaiyao-memory.git`
 - **本项目备份位置**：`projects/tiered-homework-platform/`（zaiyao-memory 仓内）
-- **备份内容**：WAKEUP.md / STATE.md / 产品定义 v0.5 / 宪法 / 最近 3 天日志
+- **备份内容**（真实清单 = `backup.sh` 实际同步）：
+  - `WAKEUP.md`
+  - `STATE.md`
+  - `docs/产品定义-v0.5.md`
+  - `docs/PROJECT-CHARTER.md`
+  - `scripts/ledger_check.sh`
+  - `memory/*.md`（最近 3 天，按 `backup.sh` PROJECT_LOG_DAYS=3）
+- **代码不在备份内**：项目代码（backend/ frontend/ tests/ 等）靠 origin 仓；本备份不含代码。
 - **步骤**：
   1. `git clone git@gitee.com:wang-xingyun1021/zaiyao-memory.git ~/zaiyao-memory`
   2. 从 `~/zaiyao-memory/projects/tiered-homework-platform/` 拷贝 WAKEUP.md / STATE.md / 产品定义 v0.5 / 宪法 / 最近 3 天日志 到项目根
