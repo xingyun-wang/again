@@ -2,7 +2,7 @@
 
 > **用途**：每次 reset 后唤醒载曜，**首先读这 4 项**，然后第一句话汇报："上次停在 X，下一步 Y，开放问题 Z"（不复述内容）。
 > **维护**：剪枝触发时立即更新本文档。
-> **最后更新**：2026-10-06 17:41（D-77 治理 4 步落地；销账 #98-#104；详见 `docs/changelog/WAKEUP.md`）
+> **最后更新**：2026-10-08 09:14（收工 7 步化 + D-79/D-77 联合落地；详见 `docs/changelog/WAKEUP.md`）
 
 ---
 
@@ -12,7 +12,7 @@
 2. **最近 3 天项目日志** → `memory/` 下按文件名字符序（YYYY-MM-DD.md）取最新 3 个文件
 3. **进度** → `STATE.md`
 4. **宪法** → 摘要页 `docs/PROJECT-CHARTER-summary.md`（D-78 二次落地；c19）+ 全文按需展开 `docs/PROJECT-CHARTER.md`（§7 流程外移至 `docs/PROJECT-CHARTER-protocol.md`；按 D-79）
-5. **核源动作**（防御"凭印象报告"硬护栏；D-43-X 系列实战失实催生）→ `git -C <repo> rev-parse HEAD` + `git log --oneline -5` + `git status --porcelain`
+5. **核源动作**（防御"凭印象报告"硬护栏；D-43-X 系列实战失实催生）→ `git -C <repo> rev-parse HEAD` + `git log --oneline -5` + `git status --porcelain`；**第一句 X/Y/Z 的取值须以 `STATE.md` / `docs/M2-kickoff-decision.md` 为准**，当日日志只作过程参考（含旧段，会过期）
 
 读完后第一句（不复述）：「上次停在 X，下一步 Y，开放问题 Z」
 
@@ -42,7 +42,7 @@
    - `wc -c` 各文件比软上限（详见 §剪枝触发）
    - **压缩昨日日志**（按 WAKEUP.md:26「memory 单日 100 行 → 次日收工时压缩」；D-75/D-76）
 4. **commit**：本笔改动落到项目仓（commit message 写明 commit 类型 + 范围 + D-XX/D-M2-N 引用）
-5. **跑 ledger_check**：`bash scripts/ledger_check.sh`（自动核验台账；**失败即拒收**；D-76 立条 + 5 条检查项：台账增量 / 失实入家族表 / W-A-U-P.md 错拼 / notes-memory 对齐 / dirty 收口）
+5. **跑 ledger_check**：`bash scripts/ledger_check.sh`（自动核验台账；**失败即拒收**；D-76 立条 + 5 条检查项：台账增量 / 失实入家族表 / W-A-U-P.md 错拼 / notes-memory 对齐 / dirty 收口）（若失败 → 立即补 fix commit，**且不得执行第 6 步 push**）
 6. **跑 backup**：`bash ~/zaiyao-memory/backup.sh`（自动同步 + 推送 Gitee；D-14）
 7. **报告 push**：报告 backup 成功/失败
 
