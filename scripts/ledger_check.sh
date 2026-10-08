@@ -221,7 +221,7 @@ if [ -f docs/tech-debt.md ]; then
     FAILED=1
   else
     # 2. 跑容器内 mypy 拿 HEAD 真值（容器已 sync）
-    MYPY_OUT=$(docker exec thp-backend bash -c "cd /app && python3 -m mypy app/ 2>&1" | grep -E ":\d+: error:" || true)
+    MYPY_OUT=$(docker exec thp-backend bash -c "cd /app && python3 -m mypy app/ 2>&1" | grep -E ':[0-9]+: error:' || true)
     # 3. 路径归一化：mypy 输出 app/... → docs 格式 backend/app/...
     MYPY_NORMALIZED=$(echo "$MYPY_OUT" | sed 's|^app/|backend/app/|g' | sed 's| app/| backend/app/|g')
 
