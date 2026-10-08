@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.v1.routers.academic import router as academic_router
+from app.api.v1.routers.twain import router as twain_router
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
@@ -122,6 +123,10 @@ def create_app() -> FastAPI:
     #   GET    /api/v1/academic/lesson-plans/{id}
     #   PATCH  /api/v1/academic/lesson-plans/{id}/review  ← judgment call（B.2 spec 漏写）
     app.include_router(academic_router, prefix="/api/v1/academic", tags=["academic"])
+
+    # M2 S0-4：TWAIN HTTP 桥 mock 路由（v0.5 §6.4.1 三层架构的容器侧入口；
+    # D-M2-4 拍板 + 3 补丁 A/B/C；M3 替换为真 Windows 宿主机 TWAIN DSM 桥接时接口契约零返工）
+    app.include_router(twain_router, prefix="/api/v1/twain", tags=["twain"])
 
     return app
 
