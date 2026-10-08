@@ -117,8 +117,64 @@ S1 用结构占位 fixture 已够；commit `feat(fixture): ...`（200 行 Q-POOL
 | D-M2-2 外部题库（S6） | — | — | — |
 | D-M2-3a C 池规模 ≥100 | ✅ 已落地 | 2026-10-07 | (fixture commit) |
 | D-M2-3b 生产真题规格 | ⏸ 延后 | — | （S4 完工后重提） |
-| D-M2-4 TWAIN 轨 | — | — | — |
+| D-M2-4 TWAIN 轨 | (a) 先只做架构路径 mock + 3 补丁 A/B/C | 2026-10-08 15:11 | —（待 commit） |
 | ~~D-M2-5 CI 三重阻塞~~ | — | **已撤销**（2026-10-07 12:40 拍板：verify 不进 per-push = 设计；并 D-47/D-49/D-44）| — |
+
+### 7.1 拍板记录（D-M2-1 · 2026-10-08 13:55）
+
+- **决策**：D-M2-1 前端策略（M2 是否必须交付 UI？）
+- **拍板选项**：**(a) 后端先行 + S3 起补 UI**（与决策书源文件默认假设一致）
+- **附 3 个补丁**：
+  - **补丁 A · 防风险 1（前端从零起是隐性大块）**：S0 启动时一并起前端骨架（React 18 + TS + Vite + AntD 5 = v0.5 §7 已定稿）—— 只搭：路由 + 状态管理 + ProTable 模板 + 空白 `App.tsx`；**不连功能页**（路由表 7 段 M2 组件全部 placeholder）
+  - **补丁 B · 防风险 2（scope creep）**：S3 UI 一次只出 **1 个核心页**（题库 CRUD = 教师管理后台入口），做端到端验证；再批量复制到其他组件（教师审阅 / 4 档分配 / PDF 预览）
+  - **补丁 C · 防风险 3（后端期无可视化）**：M2 验收 = **pytest + e2e 脚本 + PDF 文件验收**（每周一次 4 档 × 50 生 = 200 PDF 抽样 → `docs/M2-weekly-review/`）
+- **拍板时点**：2026-10-08 13:55 +0800
+- **来源**：星云拍板 + 载曜建议（详见 `memory/2026-10-08.md §十二`）
+- **驳回选项**：
+  - (b) M2 只后端 + UI 推 M2.5 — ❌ 不推荐（M2 不闭环；M2.5 = 新里程碑松散；星云作为老师日常接触面 = UI）
+  - (c) 先补 M1 UI 再进 M2 — ❌ 不推荐（M1 已收口；CHARTER §5.3 反 AI 直接入库的未来警惕 = M2-A.1 brief 规则即可；M2 启动延期）
+- **落实 commit**：待 commit（与 D-M2-4 拍板后一起；commit 时填 §7 表 + 本段同步）
+
+### 7.2 拍板记录（D-M2-2 · 2026-10-08 14:56；技术方案修订后）
+
+- **决策**：D-M2-2 外部题库（S6）走 CSV/粘贴导入 还是 API 对接？
+- **拍板选项**：**(a) CSV / 粘贴导入**（与 CHARTER §5「菁优网 API ⏳ 接口预留，未来重启」+ v0.5 §3.3「外部题库：菁优网 / 学科网 / 其他」一致）
+- **S1 前置债 1 · 题目图片承载（必修 · 拍板时机 = S1 题库模型定稿前）**：
+  - **模型**：独立 `question_images` 表（1:N，与 `choices` 同构）；12 列字段 = id / question_id(FK) / order_index / file_ext(String(8)) / storage_path(String(512)) / source(enum: self_built|external_imported) / desensitization_status(enum: pending|done|skipped) / desensitized_at / uploaded_at / uploaded_by_user_id(FK) / oss_object_key / oss_uploaded_at
+  - **关系**：`Question.images: Mapped[list[QuestionImage]]` = `relationship(..., order_by="QuestionImage.order_index")`
+  - **路径模板**：`{chapter_id}/{question_id}/{image_id}.{ext}`（修 D-43-X：旧 `{chapter_uuid}/{question_uuid}_{n}.{ext}` = 失实，uuid 列不存在）
+  - **API**：`POST/GET/DELETE /questions/{id}/images[/{image_id}]`
+  - **存储**：
+    - 本地 = `backend/uploads/images/{chapter_id}/{question_id}/{image_id}.{ext}`
+    - 云端 = 阿里云 OSS bucket `thp-images-{env}` + 脱敏后上传（v0.5 §6.5 + §7.2）
+  - **1:N vs ARRAY 优势**：SQLite 测试栈 ✅ / 排序 / 脱敏标记 / 来源追溯 / OSS 状态 per-row（详见 `memory/2026-10-08.md §十三 D`）
+  - **工作量估**：~250 行 backend + 50 行 model migration + 30 行前端上传组件
+- **产品定义补字**（`v0.5 §3.4`，行 146-152 后）：
+  > **图像密集学科（地理等）的题干必须为图片（地图 / 等值线 / 示意图）预留 image / asset 承载**——实现走独立 `question_images` 表（1:N，与 `choices` 同构），不混在 `questions` 表内
+- **导入补丁**（防撞名；§7.1 已用「补丁 A/B/C」）：
+  - **导入补丁 A**：MVP 只支持 1 个标准 CSV schema（schema 由产品定义好）→ 老师手动转格式
+  - **导入补丁 B**：MVP 不做 OCR / auto-detect → Phase 2 再支持
+- **不立元规则**：撤回 D-80 提案（特定学科硬伤前置 = 工程细节级约束，不必上升到元规则层；落字在 §3.4 硬约束 + `QuestionImage` 模型 docstring = 双重落字）
+- **拍板时点**：2026-10-08 14:56 +0800
+- **来源**：星云拍板 + 载曜建议（详见 `memory/2026-10-08.md §十三`）
+- **驳回选项**：
+  - (b) 对接第三方 API（菁优网 / 学科网） — ❌ 不推荐（API 鉴权 + 协议适配 + 数据格式转换 = 工作量 ×2-3；违反 CHARTER §5「菁优网 API ⏳ 接口预留」）
+- **落实 commit**：待 commit（3 决策点齐；commit 时同步填 §7 表 D-M2-2/D-M2-4 行 + §7.2/§7.3 段 + `[origin-push]` 授权）
+
+### 7.3 拍板记录（D-M2-4 · 2026-10-08 15:11）
+
+- **决策**：D-M2-4 TWAIN 轨是否本周启动？
+- **拍板选项**：**(a) 先只做架构路径 mock**（与决策书 §3「并轨 A」+ §D-M2-4「推荐」+ v0.5 §6.4.1 一致）
+- **3 个补丁**：
+  - **补丁 A · 防风险 1（HTTP 桥契约稳定）**：mock = HTTP 桥抽象层 + pytest 桩（4 档答案卡模拟响应）；接口契约 = `POST /scan/omr` 接受 PDF/图片 → 返回 `{"answers": [...], "metadata": {...}}`；M3 接入真扫描仪 = 仅替换 mock 为真 HTTP 桥实现
+  - **补丁 B · 防风险 2（跨边界架构预留）**：v0.5 §6.4.1 三层架构（Linux 容器只走 HTTP 桥 / 容器 ↔ 宿主机 HTTP 通信 / Windows 宿主机跑 TWAIN DSM 服务）；mock 按三层架构做 = M3 替换 mock 时零返工
+  - **补丁 C · 防风险 3（硬件询价并行）**：mock 启动派 subagent（不依赖硬件）+ 硬件询价同步启动（询价/走采购/备选 3 步并行；不影响 M2 启动）；防 M5 前紧急
+- **拍板时点**：2026-10-08 15:11 +0800
+- **来源**：星云拍板 + 载曜建议（详见 `memory/2026-10-08.md §十四`）
+- **驳回选项**：
+  - (b) 买/借扫描仪做实测 — ❌ 不推荐（违反 v0.5 §6.4 真值；M2 提前实测 = 跨里程碑依赖锁住第一步；决策书 §3「注意」明示）
+  - (c) 本周不启动 — ❌ 不推荐（决策书 §6 启动清单第 2 项 = 本周必须；推迟 = S0 启动撞 TWAIN 空白）
+- **落实 commit**：3 决策点齐（D-M2-1 ✅ + D-M2-2 ✅ + D-M2-4 ✅）；可执行 commit + `[origin-push]` 授权
 
 ---
 
