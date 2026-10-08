@@ -113,12 +113,12 @@ S1 用结构占位 fixture 已够；commit `feat(fixture): ...`（200 行 Q-POOL
 
 | 决策 | 拍板选项 | 拍板日期 | 落实 commit |
 |---|---|---|---|
-| D-M2-1 前端策略 | — | — | — |
-| D-M2-2 外部题库（S6） | — | — | — |
+| D-M2-1 前端策略 | (a) 后端先行 + S3 起补 UI + 3 补丁 A/B/C | 2026-10-08 13:55 | `3249b1b` |
+| D-M2-2 外部题库（S6）| (a) CSV / 粘贴导入 + S1 前置债 1（题目图片承载）| 2026-10-08 14:56 | `3249b1b` |
 | D-M2-3a C 池规模 ≥100 | ✅ 已落地 | 2026-10-07 | (fixture commit) |
 | D-M2-3b 生产真题规格 | ⏸ 延后 | — | （S4 完工后重提） |
-| D-M2-4 TWAIN 轨 | (a) 先只做架构路径 mock + 3 补丁 A/B/C | 2026-10-08 15:11 | —（待 commit） |
-| ~~D-M2-5 CI 三重阻塞~~ | — | **已撤销**（2026-10-07 12:40 拍板：verify 不进 per-push = 设计；并 D-47/D-49/D-44）| — |
+| D-M2-4 TWAIN 轨 | (a) 先只做架构路径 mock + 3 补丁 A/B/C | 2026-10-08 15:11 | `3249b1b` |
+| ~~D-M2-5 CI 三重阻塞~~ | ⛔ **已撤销** | 2026-10-07 12:40 | （设计决策；并 D-47/D-49/D-44）|
 
 ### 7.1 拍板记录（D-M2-1 · 2026-10-08 13:55）
 
@@ -133,22 +133,18 @@ S1 用结构占位 fixture 已够；commit `feat(fixture): ...`（200 行 Q-POOL
 - **驳回选项**：
   - (b) M2 只后端 + UI 推 M2.5 — ❌ 不推荐（M2 不闭环；M2.5 = 新里程碑松散；星云作为老师日常接触面 = UI）
   - (c) 先补 M1 UI 再进 M2 — ❌ 不推荐（M1 已收口；CHARTER §5.3 反 AI 直接入库的未来警惕 = M2-A.1 brief 规则即可；M2 启动延期）
-- **落实 commit**：待 commit（与 D-M2-4 拍板后一起；commit 时填 §7 表 + 本段同步）
+- **落实 commit**：✅ `3249b1b`（与 D-M2-2/D-M2-4 同笔；commit message 含 `[origin-push]`）
 
 ### 7.2 拍板记录（D-M2-2 · 2026-10-08 14:56；技术方案修订后）
 
 - **决策**：D-M2-2 外部题库（S6）走 CSV/粘贴导入 还是 API 对接？
 - **拍板选项**：**(a) CSV / 粘贴导入**（与 CHARTER §5「菁优网 API ⏳ 接口预留，未来重启」+ v0.5 §3.3「外部题库：菁优网 / 学科网 / 其他」一致）
 - **S1 前置债 1 · 题目图片承载（必修 · 拍板时机 = S1 题库模型定稿前）**：
-  - **模型**：独立 `question_images` 表（1:N，与 `choices` 同构）；12 列字段 = id / question_id(FK) / order_index / file_ext(String(8)) / storage_path(String(512)) / source(enum: self_built|external_imported) / desensitization_status(enum: pending|done|skipped) / desensitized_at / uploaded_at / uploaded_by_user_id(FK) / oss_object_key / oss_uploaded_at
-  - **关系**：`Question.images: Mapped[list[QuestionImage]]` = `relationship(..., order_by="QuestionImage.order_index")`
-  - **路径模板**：`{chapter_id}/{question_id}/{image_id}.{ext}`（修 D-43-X：旧 `{chapter_uuid}/{question_uuid}_{n}.{ext}` = 失实，uuid 列不存在）
-  - **API**：`POST/GET/DELETE /questions/{id}/images[/{image_id}]`
-  - **存储**：
-    - 本地 = `backend/uploads/images/{chapter_id}/{question_id}/{image_id}.{ext}`
-    - 云端 = 阿里云 OSS bucket `thp-images-{env}` + 脱敏后上传（v0.5 §6.5 + §7.2）
-  - **1:N vs ARRAY 优势**：SQLite 测试栈 ✅ / 排序 / 脱敏标记 / 来源追溯 / OSS 状态 per-row（详见 `memory/2026-10-08.md §十三 D`）
-  - **工作量估**：~250 行 backend + 50 行 model migration + 30 行前端上传组件
+  - **范围**：图像密集学科（地理等）题干必须为图片（地图 / 等值线 / 示意图）预留 image / asset 承载
+  - **实现判据**：独立 `question_images` 表（1:N，与 `choices` 同构），不混在 `questions` 表内；详见 `plans/M2-A.1-brief.md`（12 列 schema / 关系 / 路径 / API / 存储）
+  - **路径实现**：`${UPLOAD_ROOT}/{chapter_id}/{question_id}/{image_id}.{ext}`（默认 `/app/data/uploads`；UPLOAD_ROOT 环境变量覆盖；既有 `DEFAULT_UPLOADS_DIR` = `backend/app/services/textbook_upload.py:58`）
+  - **OSS 时点修正**：云端 OSS 上传 + 脱敏上传逻辑 = **M3 范围**（v0.5 §10.2 行 509「§6.5 本地存储+云端备份（脱敏）」列在 M3）；S1/M2 阶段**仅预留字段** `oss_object_key + oss_uploaded_at` per-row 列设计（不加实际触发逻辑）
+  - **工作量**：~250 行 backend + 50 行 model migration + 30 行前端上传组件
 - **产品定义补字**（`v0.5 §3.4`，行 146-152 后）：
   > **图像密集学科（地理等）的题干必须为图片（地图 / 等值线 / 示意图）预留 image / asset 承载**——实现走独立 `question_images` 表（1:N，与 `choices` 同构），不混在 `questions` 表内
 - **导入补丁**（防撞名；§7.1 已用「补丁 A/B/C」）：
@@ -159,7 +155,7 @@ S1 用结构占位 fixture 已够；commit `feat(fixture): ...`（200 行 Q-POOL
 - **来源**：星云拍板 + 载曜建议（详见 `memory/2026-10-08.md §十三`）
 - **驳回选项**：
   - (b) 对接第三方 API（菁优网 / 学科网） — ❌ 不推荐（API 鉴权 + 协议适配 + 数据格式转换 = 工作量 ×2-3；违反 CHARTER §5「菁优网 API ⏳ 接口预留」）
-- **落实 commit**：待 commit（3 决策点齐；commit 时同步填 §7 表 D-M2-2/D-M2-4 行 + §7.2/§7.3 段 + `[origin-push]` 授权）
+- **落实 commit**：✅ `3249b1b`（与 D-M2-1/D-M2-4 同笔；commit message 含 `[origin-push]`）
 
 ### 7.3 拍板记录（D-M2-4 · 2026-10-08 15:11）
 
@@ -174,7 +170,7 @@ S1 用结构占位 fixture 已够；commit `feat(fixture): ...`（200 行 Q-POOL
 - **驳回选项**：
   - (b) 买/借扫描仪做实测 — ❌ 不推荐（违反 v0.5 §6.4 真值；M2 提前实测 = 跨里程碑依赖锁住第一步；决策书 §3「注意」明示）
   - (c) 本周不启动 — ❌ 不推荐（决策书 §6 启动清单第 2 项 = 本周必须；推迟 = S0 启动撞 TWAIN 空白）
-- **落实 commit**：3 决策点齐（D-M2-1 ✅ + D-M2-2 ✅ + D-M2-4 ✅）；可执行 commit + `[origin-push]` 授权
+- **落实 commit**：✅ `3249b1b`（与 D-M2-1/D-M2-2 同笔；commit message 含 `[origin-push]`）
 
 ---
 

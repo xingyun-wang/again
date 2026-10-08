@@ -1,0 +1,193 @@
+# M2-A.1 brief — 出题引擎 + 题库 CRUD + S1 前置债 1（题目图片承载）
+
+> **承接决策**：`docs/M2-kickoff-decision.md §7.2 拍板记录（D-M2-2 · 2026-10-08 14:56）`
+> **本 brief 范围**：M2 子任务 S1 出题引擎 + 题库 CRUD（含 S1 前置债 1 题目图片承载）
+> **承载体**：本文件 `plans/M2-A.1-brief.md`（per `plans/README.md` 命名规则 + 决策书 §6 启动清单）
+> **最后更新**：2026-10-08 15:30（commit 3249b1b 后；§7 表补全 + 拆 brief；D-79 唯一真值源落地）
+
+---
+
+## 一、范围
+
+### 1.1 S1 出题引擎（决策书 §3）
+
+- 4 档（D 基础 / C 进阶 / B 挑战 / A 扩展，字母升序 = 难度升序）
+- 反马太（D 档强制 20% 拔高，**只从 C 抽** —— v0.5 §3.5）
+- 教师手动覆盖档位（v0.5 §3.2 初始档位）
+
+### 1.2 S1 前置债 1 · 题目图片承载（决策书 §7.2）
+
+- 图像密集学科（地理等）题干必须为图片（地图 / 等值线 / 示意图）预留 image / asset 承载
+- 实现走独立 `question_images` 表（1:N，与 `choices` 同构），不混在 `questions` 表内
+
+## 二、产品定义硬约束（v0.5 §3.4）
+
+> 图像密集学科（地理等）的题干必须为图片（地图 / 等值线 / 示意图）预留 image / asset 承载——实现走独立 `question_images` 表（1:N，与 `choices` 同构），不混在 `questions` 表内
+
+## 三、模型设计
+
+### 3.1 `QuestionImage` 表（1:N 与 `Question` 同构）
+
+```python
+class QuestionImage(Base):
+    """题目图片承载（地理等图像密集学科；v0.5 §3.4 硬约束）。
+    与 Question 是 1 对多（与 Choice 同构）；删 Question 时 cascade 自动清空。
+    """
+    __tablename__ = "question_images"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    order_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    file_ext: Mapped[str] = mapped_column(String(8), nullable=False)  # png/jpg/webp/svg
+    storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    source: Mapped[QuestionImageSource] = mapped_column(SAEnum(...))  # self_built | external_imported
+    desensitization_status: Mapped[DesensitizationStatus] = mapped_column(
+        SAEnum(...), nullable=False, default="pending"
+    )
+    desensitized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    uploaded_by_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True,
+    )
+    oss_object_key: Mapped[str | None] = mapped_column(String(512), nullable=True)  # M3 预留
+    oss_uploaded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)  # M3 预留
+
+    question: Mapped[Question] = relationship("Question", back_populates="images")
+
+# Question 端加：
+images: Mapped[list[QuestionImage]] = relationship(
+    "QuestionImage", back_populates="question",
+    cascade="all, delete-orphan", lazy="selectin",
+    order_by="QuestionImage.order_index",
+)
+```
+
+### 3.2 12 列字段摘要
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `id` | PK | 自增 |
+| `question_id` | FK | → `questions.id` (CASCADE) |
+| `order_index` | Integer | 排序（与 `Choice.order_index` 同款） |
+| `file_ext` | String(8) | png/jpg/webp/svg |
+| `storage_path` | String(512) | 本地相对路径 |
+| `source` | enum | `self_built` / `external_imported` |
+| `desensitization_status` | enum | `pending` / `done` / `skipped` |
+| `desensitized_at` | DateTime? | 脱敏完成时刻（M3 实际用） |
+| `uploaded_at` | DateTime | 上传时刻 |
+| `uploaded_by_user_id` | FK | → `users.id` (RESTRICT) |
+| `oss_object_key` | String? | **M3 预留**；S1/M2 阶段 NULL |
+| `oss_uploaded_at` | DateTime? | **M3 预留**；S1/M2 阶段 NULL |
+
+### 3.3 1:N vs ARRAY 优势真值（决策已落；本段仅记录判据）
+
+| 维度 | ARRAY(String) | 1:N QuestionImage |
+|---|---|---|
+| SQLite 测试栈 | ❌ 失败（无原生类型） | ✅ 标准 String/Integer/DateTime |
+| 排序 | ❌ | ✅ `order_index` |
+| 单图删除 | ❌ UPDATE 全列 | ✅ DELETE WHERE id |
+| 脱敏标记 | ❌ | ✅ `desensitized_at` + status |
+| 来源追溯 | ❌ | ✅ `source` enum per-row |
+| OSS 状态 | ❌ | ✅ `oss_object_key` + `oss_uploaded_at` per-row |
+| 上传者追溯 | ❌ | ✅ `uploaded_by_user_id`（§1.4 用户题库个人资产） |
+
+## 四、路径设计
+
+### 4.1 模板
+
+```
+${UPLOAD_ROOT}/{chapter_id}/{question_id}/{image_id}.{ext}
+```
+
+### 4.2 默认值（既有配置真值）
+
+- **UPLOAD_ROOT 环境变量**：未设置时 = `DEFAULT_UPLOADS_DIR = "/app/data/uploads"`（`backend/app/services/textbook_upload.py:58` 已落）
+- 容器内 = `/app/data/uploads/{chapter_id}/{question_id}/{image_id}.{ext}`
+- 本机测试 = `./data/uploads/{chapter_id}/...`（按 `textbook_upload.py:57` compose 挂载 `./data/uploads:/app/data/uploads`）
+
+### 4.3 三级目录原因
+
+- 1 chapter × ~50 questions × N images = 单目录不爆
+- `image_id` = QuestionImage.id (PK) 稳定，reorder / delete 不触发重命名
+
+### 4.4 历史失实（D-43-X 留痕）
+
+旧 `{chapter_uuid}/{question_uuid}_{n}.{ext}` = **D-43-X**（uuid 列不存在；`academic.py:720-790` Question 列定义无）；改用真 FK 列 `chapter_id` + `question_id` + `image_id`（PK）
+
+## 五、API 设计
+
+### 5.1 接口
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `POST` | `/questions/{id}/images` | 上传图片（multipart + checksum） |
+| `GET` | `/questions/{id}/images/{image_id}` | 获取图片（鉴权 = owner_user_id） |
+| `DELETE` | `/questions/{id}/images/{image_id}` | 删除图片 |
+
+### 5.2 鉴权
+
+- 上传 / 删除 = 必须 `owner_user_id = current_user.id`
+- 获取 = 同上
+
+### 5.3 约束
+
+- 单题最多 N 张图（按性能 / 存储决定；默认 50）
+- 单图最大 size = 5MB（与 nginx `client_max_body_size` 同步）
+- 支持 MIME：`image/png` / `image/jpeg` / `image/webp` / `image/svg+xml`
+
+## 六、存储设计
+
+### 6.1 本地（UPLOAD_ROOT-based）
+
+- 路径：`${UPLOAD_ROOT}/{chapter_id}/{question_id}/{image_id}.{ext}`
+- 容器内默认：`/app/data/uploads/...`
+- Compose 挂载：`./data/uploads:/app/data/uploads`
+- 环境变量覆盖：`UPLOAD_ROOT=/custom/path`
+
+### 6.2 云端 OSS —— **M3 范围**
+
+- 决策书 §7.2 修订（v0.5 §10.2 行 509「§6.5 本地存储+云端备份（脱敏）」列在 M3）
+- **S1/M2 阶段**：仅预留字段 `oss_object_key + oss_uploaded_at`，**不实际触发上传**
+- **M3 实现**：阿里云 OSS bucket `thp-images-{env}` + 脱敏后上传
+
+### 6.3 脱敏 —— **M3 范围**
+
+- 决策书 §7.2 修订：脱敏逻辑 = M3 工作
+- **S1/M2 阶段**：`desensitization_status` 字段默认 `pending`，无实际脱敏处理
+- **M3 实现**：上传前脱敏（题目图片通常不含 PII；v0.5 §6.5）
+
+## 七、测试判据
+
+### 7.1 SQLite 兼容
+
+- `QuestionImage` 表结构与 SQLite 兼容（无 ARRAY）
+- 测试 fixture：每题 3 张图（png/jpg/webp 各 1）= 验证 create / read / update / delete
+
+### 7.2 pytest 桩
+
+- `tests/models/test_question_image.py`：
+  - 7.2.1 创建 + 查询
+  - 7.2.2 排序（order_index）
+  - 7.2.3 删除（cascade）
+  - 7.2.4 字段约束（NOT NULL / FK）
+
+## 八、工作量估
+
+- Backend：~250 行（model 80 行 + API 100 行 + 测试 70 行）
+- Model migration：~50 行（Alembic）
+- 前端上传组件：~30 行
+
+## 九、引用
+
+- **决策书**：`docs/M2-kickoff-decision.md §7.2 拍板记录（D-M2-2 · 2026-10-08 14:56）`
+- **memory**：`memory/2026-10-08.md §十三 · D-M2-2 拍板`
+- **产品定义 v0.5**：`docs/产品定义-v0.5.md §3.4`（图像密集学科 image / asset 承载）
+- **既有 UPLOAD_ROOT**：`backend/app/services/textbook_upload.py:58` + `backend/app/api/v1/routers/academic.py:103`
