@@ -71,14 +71,14 @@ else
   FAILED=1
 fi
 
-# === 检查 4: 失实编号覆盖格式（notes §家族表）===
-echo "[4/5] 失实编号覆盖格式..."
-NOTES_RANGE=$(grep -oE '失实编号覆盖 \*\*#11-#[0-9]+\*\*' notes/milestones.md 2>/dev/null | head -1)
+# === 检查 4: 失实编号覆盖格式（notes §家族表 · 按「当前失实编号覆盖」段锁定）===
+echo "[4/5] 失实编号覆盖格式（按当前失实编号覆盖段锁定）..."
+NOTES_RANGE=$(grep -A 2 '当前失实编号覆盖' notes/milestones.md 2>/dev/null | grep -oE '\*\*#11-#[0-9]+\*\*' | head -1)
 if [ -z "$NOTES_RANGE" ]; then
-  echo "  ❌ FAIL: notes/milestones.md §家族表无失实编号覆盖格式"
+  echo "  ❌ FAIL: notes/milestones.md 无「当前失实编号覆盖」段或段内无 #11-#XX 格式"
   FAILED=1
 else
-  echo "  ✅ notes §家族表含失实编号覆盖：$NOTES_RANGE"
+  echo "  ✅ notes 当前失实编号覆盖：$NOTES_RANGE（按段锁定，不再依赖行序）"
 fi
 
 # === 检查 5: dirty 收口 ===

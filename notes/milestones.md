@@ -663,7 +663,7 @@ $ ls -d --time-style=full-iso ~/.openclaw/agents/again/agent/workshop-skills/ass
 ### §治理.7.4 当前状态
 
 - HEAD = `<commit 16>`（待 commit + push）
-- 失实编号覆盖 **#11-#111**（编号上界 = 111；E 9）
+- 失实编号覆盖 **#11-#112**（编号上界 = 112；E 10；2026-10-08 同步）
 - 元规则累计 = 17 条（D-43 §5 + D-44 + D-66 + D-66 ② + D-67-D-79）
 - ledger_check：5/5 PASS（commit 后实测）
 
