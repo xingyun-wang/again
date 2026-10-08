@@ -207,19 +207,22 @@ fi
 # === 检查 10: tech-debt.md 引用必须与 HEAD mypy 真值一致（双向核对；防 N1 类镜像陈旧）===
 echo "[10/10] tech-debt.md 引用必须与 HEAD mypy 真值一致（双向核对）..."
 if [ -f docs/tech-debt.md ]; then
-  # 1. 验证容器镜像与 HEAD 一致（防 N1 类镜像陈旧）
-  CONTAINER_MD5=$(docker exec thp-backend md5sum /app/app/api/v1/routers/academic.py 2>/dev/null | awk '{print $1}')
-  HEAD_MD5=$(md5sum backend/app/api/v1/routers/academic.py 2>/dev/null | awk '{print $1}')
-  if [ -z "$CONTAINER_MD5" ]; then
+  # 1. 多文件树哈希比对（v3 升级；防单文件 cp 漏文件 = N1/N2 类错）
+  CONTAINER_TREE_HASH=$(docker exec thp-backend bash -c "find /app/app -name '*.py' -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null" 2>/dev/null | md5sum | awk '{print $1}')
+  HEAD_TREE_HASH=$(find app -name '*.py' -type f | sort | xargs md5sum | md5sum | awk '{print $1}')
+
+  if [ -z "$CONTAINER_TREE_HASH" ]; then
     echo "  ❌ FAIL: 容器 thp-backend 不可达（docker exec 失败）"
     FAILED=1
-  elif [ "$CONTAINER_MD5" != "$HEAD_MD5" ]; then
-    echo "  ❌ FAIL: 容器镜像陈旧（academic.py md5 不一致）"
-    echo "  容器: $CONTAINER_MD5"
-    echo "  HEAD:  $HEAD_MD5"
-    echo "  修法: docker cp HEAD 文件 / docker build 重建镜像"
+  elif [ "$CONTAINER_TREE_HASH" != "$HEAD_TREE_HASH" ]; then
+    echo "  ❌ FAIL: 容器 backend/app/ 树哈希 != HEAD（部分文件陈旧；单文件 cp 漏文件 = N1/N2 类错）"
+    echo "  容器: $CONTAINER_TREE_HASH"
+    echo "  HEAD:  $HEAD_TREE_HASH"
+    echo "  修法: docker build 重建镜像 / docker cp -a backend/app/. thp-backend:/app/app/"
     FAILED=1
   else
+    echo "  ✅ 全 backend/app/ .py 文件树哈希 == HEAD（多文件核对）"
+
     # 2. 跑容器内 mypy 拿 HEAD 真值（容器已 sync）
     MYPY_OUT=$(docker exec thp-backend bash -c "cd /app && python3 -m mypy app/ 2>&1" | grep -E ':[0-9]+: error:' || true)
     # 3. 路径归一化：mypy 输出 app/... → docs 格式 backend/app/...
