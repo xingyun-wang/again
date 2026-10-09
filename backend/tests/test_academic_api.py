@@ -72,7 +72,7 @@ def _build_minimal_pdf_bytes(title_line: str = "测试教材") -> bytes:
 
 
 def test_textbook_upload_creates_textbook_and_chapters(
-    mock_db_session: Any, mock_llm_provider: Any
+    mock_db_session: Any, mock_user_system_seed: Any, mock_llm_provider: Any
 ) -> None:
     """POST /textbooks/upload（B.3 multipart/form-data）创建 Textbook + Chapter。
 
@@ -103,7 +103,7 @@ def test_textbook_upload_creates_textbook_and_chapters(
 
 
 def test_textbook_upload_404_subject_not_found(
-    mock_db_session: Any, mock_llm_provider: Any
+    mock_db_session: Any, mock_user_system_seed: Any, mock_llm_provider: Any
 ) -> None:
     """subject_id 不存在 → 404。"""
     client = _build_test_client(mock_db_session, mock_llm_provider)
@@ -139,7 +139,9 @@ def test_list_textbook_chapters_returns_chapter_summary(
     assert data["chapters"][0]["title"] == mock_chapter.title
 
 
-def test_list_textbook_chapters_404(mock_db_session: Any, mock_llm_provider: Any) -> None:
+def test_list_textbook_chapters_404(
+    mock_db_session: Any, mock_user_system_seed: Any, mock_llm_provider: Any
+) -> None:
     """textbook 不存在 → 404。"""
     client = _build_test_client(mock_db_session, mock_llm_provider)
     resp = client.get(
@@ -205,7 +207,9 @@ def test_chapter_extract_calls_llm_and_creates_rows(
     assert len(mock_llm_provider.chat_calls) == 1
 
 
-def test_chapter_extract_404(mock_db_session: Any, mock_llm_provider: Any) -> None:
+def test_chapter_extract_404(
+    mock_db_session: Any, mock_user_system_seed: Any, mock_llm_provider: Any
+) -> None:
     """chapter 不存在 → 404。"""
     client = _build_test_client(mock_db_session, mock_llm_provider)
     resp = client.post(
@@ -283,7 +287,9 @@ def test_chapter_detail_includes_ai_summary(
     assert data["ai_summary"]["ai"] is None
 
 
-def test_chapter_detail_404(mock_db_session: Any, mock_llm_provider: Any) -> None:
+def test_chapter_detail_404(
+    mock_db_session: Any, mock_user_system_seed: Any, mock_llm_provider: Any
+) -> None:
     """chapter 不存在 → 404。"""
     client = _build_test_client(mock_db_session, mock_llm_provider)
     resp = client.get(
@@ -385,7 +391,9 @@ def test_lesson_plan_generate_calls_llm_and_creates_pending(
     assert data["review"]["review_status"] == "pending"
 
 
-def test_lesson_plan_generate_404(mock_db_session: Any, mock_llm_provider: Any) -> None:
+def test_lesson_plan_generate_404(
+    mock_db_session: Any, mock_user_system_seed: Any, mock_llm_provider: Any
+) -> None:
     """chapter 不存在 → 404。"""
     client = _build_test_client(mock_db_session, mock_llm_provider)
     resp = client.post(

@@ -189,6 +189,21 @@ ${UPLOAD_ROOT}/{chapter_id}/{question_id}/{image_id}.{ext}
 - **数据规模**（真值 @2026-10-09 10:00 +0800）：demo = 22 章 / 44 KP；pool = 200 行 / 20 unique 章节 / 40 unique KP；pool ⊆ demo
 - **B1 备注**：demo 22 章 / 44 KP 名称是**数学占位**（如「一次不等式」挂在「函数入门」下）⇒ **仅作 loader 引用完整性测试用**，不可作"章节拓扑/分布"样本。S0-5 人工精录时换真实章节名 + 拓扑。
 
+### 7.4 测量点核对（避免 commit message 错位）
+
+- **本笔测量点（@3727ba0）**：builder 镜像 `sha256:a2681646...` + dirty 树（**不含** `backend/tests/test_academic_api.py` 6 修法）。
+- 任何人照 `git checkout 3727ba0` 跑 **拿不到 233 passed**（缺 6 test 修法 + dirty 不在 commit 里）。
+- **下一笔 commit** 落 6 test 修法后才真值。
+- 法源：commit message 报"233 passed" + conftest 提"6 test 补救" ⇒ 引用了 dirty 树 ⇒ 违反 D-74 §1（环境/commit/run 三项标注）；本节为落字补救。
+
+### 7.5 容器 pytest 用独立测试库（防 A3 清 dev 库）
+
+- **危险**：`conftest` teardown `drop_all`（:115）+ `test_academic_models.py:646` 也 `drop_all`+`stamp base`；容器 `DATABASE_URL` 指向 **dev 库 `tiered_homework`**。
+- **禁止**：`docker exec thp-backend pytest ...`（会 drop dev 库，毁数据）。
+- **安全**：`docker build` 内的 builder stage pytest 走 **SQLite in-memory**，**不碰** dev 库。
+- **CI 安全**：CI 用独立库 `tiered_homework_test`（ci.yml:53），**与 dev 库隔离**。
+- **本地 dev box 想跑 PG 路径**：必须临时 `DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/tiered_homework_test` + 跑 `alembic upgrade head` + 跑完即清（测试库性质）。
+
 ## 八、工作量估
 
 - Backend：~250 行（model 80 行 + API 100 行 + 测试 70 行）
