@@ -29,7 +29,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import sys
@@ -167,7 +166,6 @@ class VerifyReport:
 
         # lesson-plan generate + review
         for lp in self.lesson_plans:
-            status = f"{lp['review_status']} → {lp['final_review_status']}"
             ok = "✅" if lp["final_review_status"] == "reviewed" else "❌"
             print(
                 f"  lesson-plan {lp['lp_id']} (chapter={lp['chapter_id']} "
@@ -331,10 +329,9 @@ def verify_end_to_end(args: argparse.Namespace) -> VerifyReport:
     # 段 A 第一项（<3）直接 return 后续跑不动；
     # 段 A 第二项不 return，仍继续走 extract/lesson-plan 让报告齐，
     # 最终 exit code 由 errors 决定。
-    if not _check_extraction_source_gate(report, chapter_ids, chapter_sources):
-        if len(chapter_ids) < 3:
-            # 段 A 第一项硬阻断：章数 < 3 后续 extract/lesson-plan 没意义
-            return report
+    if not _check_extraction_source_gate(report, chapter_ids, chapter_sources) and len(chapter_ids) < 3:
+        # 段 A 第一项硬阻断：章数 < 3 后续 extract/lesson-plan 没意义
+        return report
 
     # ── Step 2: 5 章节 extract（LLM 真值）──
     logger.info("Step 2: %d 章节 extract（LLM 真值）", len(chapter_ids))

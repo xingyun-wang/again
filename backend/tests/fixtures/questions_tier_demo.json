@@ -18,6 +18,78 @@
     {
       "ref": "CH-DEMO-A-1",
       "name": "高级数学"
+    },
+    {
+      "ref": "CH-DEMO-C-2",
+      "name": "代数方程"
+    },
+    {
+      "ref": "CH-DEMO-C-3",
+      "name": "函数入门"
+    },
+    {
+      "ref": "CH-DEMO-C-4",
+      "name": "不等式"
+    },
+    {
+      "ref": "CH-DEMO-C-5",
+      "name": "数列基础"
+    },
+    {
+      "ref": "CH-DEMO-C-6",
+      "name": "几何初步"
+    },
+    {
+      "ref": "CH-DEMO-C-7",
+      "name": "三角函数"
+    },
+    {
+      "ref": "CH-DEMO-C-8",
+      "name": "解析几何"
+    },
+    {
+      "ref": "CH-DEMO-C-9",
+      "name": "概率统计"
+    },
+    {
+      "ref": "CH-DEMO-C-10",
+      "name": "综合应用"
+    },
+    {
+      "ref": "CH-DEMO-D-2",
+      "name": "整数运算"
+    },
+    {
+      "ref": "CH-DEMO-D-3",
+      "name": "分数运算"
+    },
+    {
+      "ref": "CH-DEMO-D-4",
+      "name": "小数运算"
+    },
+    {
+      "ref": "CH-DEMO-D-5",
+      "name": "百分比"
+    },
+    {
+      "ref": "CH-DEMO-D-6",
+      "name": "基础几何"
+    },
+    {
+      "ref": "CH-DEMO-D-7",
+      "name": "时间货币"
+    },
+    {
+      "ref": "CH-DEMO-D-8",
+      "name": "简单统计"
+    },
+    {
+      "ref": "CH-DEMO-D-9",
+      "name": "基础应用"
+    },
+    {
+      "ref": "CH-DEMO-D-10",
+      "name": "综合练习"
     }
   ],
   "knowledge_points": [
@@ -55,6 +127,191 @@
       "ref": "KP-DEMO-A-2",
       "chapter_ref": "CH-DEMO-A-1",
       "name": "极限理论"
+    },
+    {
+      "ref": "KP-DEMO-C-3",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "一元二次方程"
+    },
+    {
+      "ref": "KP-DEMO-C-4",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "二次函数"
+    },
+    {
+      "ref": "KP-DEMO-C-5",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "函数图像"
+    },
+    {
+      "ref": "KP-DEMO-C-6",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "一次不等式"
+    },
+    {
+      "ref": "KP-DEMO-C-7",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "等差数列"
+    },
+    {
+      "ref": "KP-DEMO-C-8",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "等比数列"
+    },
+    {
+      "ref": "KP-DEMO-C-9",
+      "chapter_ref": "CH-DEMO-C-5",
+      "name": "三角形面积"
+    },
+    {
+      "ref": "KP-DEMO-C-10",
+      "chapter_ref": "CH-DEMO-C-5",
+      "name": "圆周率"
+    },
+    {
+      "ref": "KP-DEMO-C-11",
+      "chapter_ref": "CH-DEMO-C-6",
+      "name": "正弦余弦"
+    },
+    {
+      "ref": "KP-DEMO-C-12",
+      "chapter_ref": "CH-DEMO-C-6",
+      "name": "直线方程"
+    },
+    {
+      "ref": "KP-DEMO-C-13",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "抛物线"
+    },
+    {
+      "ref": "KP-DEMO-C-14",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "古典概率"
+    },
+    {
+      "ref": "KP-DEMO-C-15",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "统计图表"
+    },
+    {
+      "ref": "KP-DEMO-C-16",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "组合计数"
+    },
+    {
+      "ref": "KP-DEMO-C-17",
+      "chapter_ref": "CH-DEMO-C-9",
+      "name": "排列组合"
+    },
+    {
+      "ref": "KP-DEMO-C-18",
+      "chapter_ref": "CH-DEMO-C-9",
+      "name": "数学归纳"
+    },
+    {
+      "ref": "KP-DEMO-C-19",
+      "chapter_ref": "CH-DEMO-C-10",
+      "name": "综合题 C-19"
+    },
+    {
+      "ref": "KP-DEMO-C-20",
+      "chapter_ref": "CH-DEMO-C-10",
+      "name": "综合题 C-20"
+    },
+    {
+      "ref": "KP-DEMO-D-2",
+      "chapter_ref": "CH-DEMO-D-2",
+      "name": "加减法"
+    },
+    {
+      "ref": "KP-DEMO-D-3",
+      "chapter_ref": "CH-DEMO-D-2",
+      "name": "乘法口诀"
+    },
+    {
+      "ref": "KP-DEMO-D-4",
+      "chapter_ref": "CH-DEMO-D-3",
+      "name": "除法运算"
+    },
+    {
+      "ref": "KP-DEMO-D-5",
+      "chapter_ref": "CH-DEMO-D-3",
+      "name": "分数加法"
+    },
+    {
+      "ref": "KP-DEMO-D-6",
+      "chapter_ref": "CH-DEMO-D-4",
+      "name": "分数乘法"
+    },
+    {
+      "ref": "KP-DEMO-D-7",
+      "chapter_ref": "CH-DEMO-D-4",
+      "name": "小数加减"
+    },
+    {
+      "ref": "KP-DEMO-D-8",
+      "chapter_ref": "CH-DEMO-D-5",
+      "name": "小数乘除"
+    },
+    {
+      "ref": "KP-DEMO-D-9",
+      "chapter_ref": "CH-DEMO-D-5",
+      "name": "百分数"
+    },
+    {
+      "ref": "KP-DEMO-D-10",
+      "chapter_ref": "CH-DEMO-D-6",
+      "name": "比和比例"
+    },
+    {
+      "ref": "KP-DEMO-D-11",
+      "chapter_ref": "CH-DEMO-D-6",
+      "name": "长方形周长"
+    },
+    {
+      "ref": "KP-DEMO-D-12",
+      "chapter_ref": "CH-DEMO-D-7",
+      "name": "长方形面积"
+    },
+    {
+      "ref": "KP-DEMO-D-13",
+      "chapter_ref": "CH-DEMO-D-7",
+      "name": "时间换算"
+    },
+    {
+      "ref": "KP-DEMO-D-14",
+      "chapter_ref": "CH-DEMO-D-8",
+      "name": "货币计算"
+    },
+    {
+      "ref": "KP-DEMO-D-15",
+      "chapter_ref": "CH-DEMO-D-8",
+      "name": "条形统计图"
+    },
+    {
+      "ref": "KP-DEMO-D-16",
+      "chapter_ref": "CH-DEMO-D-9",
+      "name": "平均数"
+    },
+    {
+      "ref": "KP-DEMO-D-17",
+      "chapter_ref": "CH-DEMO-D-9",
+      "name": "简单应用题"
+    },
+    {
+      "ref": "KP-DEMO-D-18",
+      "chapter_ref": "CH-DEMO-D-10",
+      "name": "估算"
+    },
+    {
+      "ref": "KP-DEMO-D-19",
+      "chapter_ref": "CH-DEMO-D-10",
+      "name": "单位换算"
+    },
+    {
+      "ref": "KP-DEMO-D-20",
+      "chapter_ref": "CH-DEMO-D-10",
+      "name": "基础几何图形"
     }
   ],
   "questions": [

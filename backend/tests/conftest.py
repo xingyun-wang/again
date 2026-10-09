@@ -75,12 +75,14 @@ def mock_db_engine():
     - ``DATABASE_URL`` 环境变量以 ``postgresql`` 开头 → 用 PG（CI 真 PG fixture）
     - 否则 → 用 SQLite in-memory（本地 dev box 默认；保留旧行为）
 
-    注意（pre-existing baseline 已知约束，与本工单无关）：
-    - ``tests/test_academic_models.py`` 内部定义了同名 ``engine`` fixture 走
-      SQLite in-memory，不走本 fixture（pytest 同名 fixture 文件级优先）。
-    - 那批测试因 ``Subject.owner_user_id`` NOT NULL 与本地 fixture 未赋值
-      不一致而失败 — 是 M1-B 工单 B owner 字段迁移后的预存问题，CI 也
-      会失败，本工单不修（与 B3 范围无关）。
+    注意（历史沿革 · 2026-09-26 已修 / 2026-10-09 收尾）：
+    - 09-26：M1-B retro 工单 B 修 user 字段（test_academic_models.py:97 文件级
+      ``user_1`` + 16 个 owner_user_id=user_1.id），CI run #20 转绿。
+    - 10-09：修法 (a) 删 .dockerignore:10 后 builder stage 真跑 233 test，
+      test_academic_api.py 6 个 test 走 conftest mock_db_session 未继承
+      09-26 fix ⇒ 加 ``mock_user_system_seed`` 补救。
+    - 当前：conftest 本 fixture 不再触发 owner_user_id 失败；旧"本工单不修"
+      措辞作废。
 
     PG 路径（CI）：
     - 假设运行 pytest 前 CI 已执行 ``alembic upgrade head``（ci.yml 保证）
@@ -394,7 +396,11 @@ def question_pool_fixtures():
     demo_path = fixtures_dir / 'questions_tier_demo.json'
     pool_path = fixtures_dir / 'questions_pool.jsonl'
 
-    demo_questions = json.loads(demo_path.read_text(encoding='utf-8'))['questions']
+    demo_data = json.loads(demo_path.read_text(encoding='utf-8'))
+    demo_questions = demo_data['questions']
+    # S1-0: 暴露 demo 章节 / KP 引用集合，供 test_question_pool_fixture.py C1/C2 成员测试用
+    demo_chapter_refs = {c['ref'] for c in demo_data['chapters']}
+    demo_kp_refs = {kp['ref'] for kp in demo_data['knowledge_points']}
     pool_questions = [
         json.loads(line)
         for line in pool_path.read_text(encoding='utf-8').strip().split('\n')
@@ -404,6 +410,8 @@ def question_pool_fixtures():
     return {
         'demo': demo_questions,
         'pool': pool_questions,
+        'demo_chapter_refs': demo_chapter_refs,
+        'demo_kp_refs': demo_kp_refs,
         'total': len(demo_questions) + len(pool_questions),
         'by_difficulty': {
             tier: [q for q in demo_questions + pool_questions if q['difficulty'] == tier]

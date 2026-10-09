@@ -179,6 +179,16 @@ ${UPLOAD_ROOT}/{chapter_id}/{question_id}/{image_id}.{ext}
   - 7.2.3 删除（cascade）
   - 7.2.4 字段约束（NOT NULL / FK）
 
+### 7.3 引用完整性判据（S1-0 必修；防 FK 解析不到）
+
+- **C1**：pool 每行 `chapter_ref` ∈ `demo.chapters[].ref`（FK 解析可达）
+- **C2**：pool 每行每个 `knowledge_points[*]` ∈ `demo.knowledge_points[].ref`
+- **C3**：`grep -c 'CP-DEMO' backend/tests/fixtures/questions_pool.jsonl` = 0（typo 清零）
+- **C4**：`backend/tests/test_question_pool_fixture.py` 引用完整性断言已替换（line 41 升级为集合成员测试）
+- **fixture 改造**：`conftest.py question_pool_fixtures` 增 `demo_chapter_refs` + `demo_kp_refs` 两个集合键
+- **数据规模**（真值 @2026-10-09 10:00 +0800）：demo = 22 章 / 44 KP；pool = 200 行 / 20 unique 章节 / 40 unique KP；pool ⊆ demo
+- **B1 备注**：demo 22 章 / 44 KP 名称是**数学占位**（如「一次不等式」挂在「函数入门」下）⇒ **仅作 loader 引用完整性测试用**，不可作"章节拓扑/分布"样本。S0-5 人工精录时换真实章节名 + 拓扑。
+
 ## 八、工作量估
 
 - Backend：~250 行（model 80 行 + API 100 行 + 测试 70 行）

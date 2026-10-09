@@ -27,6 +27,10 @@ def test_question_pool_fixture_loads(question_pool_fixtures):
     demo = fixtures['demo']
     pool = fixtures['pool']
 
+    # ─── S1-0: 引用完整性判据前奏（C1/C2 成员测试用 valid_*_refs）───
+    valid_chapter_refs = fixtures['demo_chapter_refs']
+    valid_kp_refs = fixtures['demo_kp_refs']
+
     # ─── 原断言（D-47 #1 fixture schema 校验，迁过来的）───
     assert len(demo) >= 20, f"D-47 #1 应至少 20 题（D/C/B/A 各 5），实有 {len(demo)}"
 
@@ -38,7 +42,12 @@ def test_question_pool_fixture_loads(question_pool_fixtures):
         assert q['difficulty'] in 'DCBA'
         assert q['type'] in ('choice', 'fill', 'subjective')
         assert 'content' in q and len(q['content']) > 0
-        assert 'chapter_ref' in q
+        # ─── S1-0: 引用完整性判据（替换原 'chapter_ref' in q 弱断言；C1 chapter + C2 KP）───
+        assert q['chapter_ref'] in valid_chapter_refs, \
+            f"C1: {q['ref']}: chapter_ref '{q['chapter_ref']}' 不在 demo.chapters[].ref 中"
+        for kp in q.get('knowledge_points', []):
+            assert kp in valid_kp_refs, \
+                f"C2: {q['ref']}: KP '{kp}' 不在 demo.knowledge_points[].ref 中"
         assert isinstance(q.get('knowledge_points'), list)
         if q['type'] == 'choice':
             assert 'choices' in q and len(q['choices']) >= 2
