@@ -101,7 +101,15 @@ def user_1(session: Session) -> User:
     修复（2026-09-26 CI run #20）：Subject/Textbook/Chapter.owner_user_id NOT NULL
     要求 User 存在（FK → users.id）；test_academic_models 自带 engine fixture
     （不走 conftest），故 user_1 必须在文件级提供。
+
+    F1 修（2026-10-09）：idempotent — 跨 file / 跨 scope 安全复用。
+    - 之前：每次 INSERT user 1 ⇒ 跨文件 fixture 冲突
+    - 现在：先 .get(User, 1) 查存在性，已存在则 return
+    - 同步 backend/tests/conftest.py:231 mock_user_system_seed 同样 idempotent
     """
+    existing = session.get(User, 1)
+    if existing is not None:
+        return existing
     u = User(id=1, name="system-seed", is_system_owned=True)
     session.add(u)
     session.commit()

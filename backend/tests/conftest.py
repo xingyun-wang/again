@@ -236,8 +236,17 @@ def mock_user_system_seed(mock_db_session):
 
     M1-B retro 工单 B（D-29 B 项）：默认 owner。test fixtures 默认 owner
     都指向 system-seed（既有数据在 0005 migration 里也是被回填到 id=1）。
+
+    F1 修（2026-10-09）：idempotent — 跨 file / 跨 scope 安全复用。
+    - 之前：每次 INSERT user 1 ⇒ 跨文件 fixture 冲突（CI run #XX UniqueViolation 红）
+    - 现在：先 .get(User, 1) 查存在性，已存在则 return
+    - 同步 test_academic_models.py:97 user_1 同样 idempotent
     """
     from app.models import User
+
+    existing = mock_db_session.get(User, 1)
+    if existing is not None:
+        return existing
 
     user = User(id=1, name="system-seed", is_system_owned=True)
     mock_db_session.add(user)
