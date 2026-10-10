@@ -210,7 +210,7 @@ def generate_assignment_for_chapter(
     for q in questions:
         diff = q.difficulty.value if hasattr(q.difficulty, "value") else str(q.difficulty)
         if diff in pool_by_difficulty:
-            pool_by_difficulty[diff].append(q)  # type: ignore[index]
+            pool_by_difficulty[diff].append(q)
 
     # 3. 抽题
     selected = select_questions(
@@ -259,5 +259,5 @@ def pool_to_dict(
     for q in questions:
         diff = q.difficulty.value if hasattr(q.difficulty, "value") else str(q.difficulty)
         if diff in pool:
-            pool[diff].append(q)  # type: ignore[index]
+            pool[diff].append(q)
     return pool
