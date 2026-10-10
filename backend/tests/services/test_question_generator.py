@@ -28,12 +28,33 @@ class _FakeQuestion:
 
 
 class TestAntiMatthewConstants:
-    """反马太常量 verbatim 锚定 v0.5 line 168。"""
+    """反马太常量 verbatim 锚定 v0.5 line 168 + 消费验证。"""
 
-    def test_constants(self) -> None:
+    def test_constants_exist(self) -> None:
+        """常量存在性 + 字面量值（v0.5 line 168 锚定）。"""
         assert ANTI_MATTHEW_B_PULL == 0, "B 池永不被反马太抽（v0.5 line 168）"
         assert ANTI_MATTHEW_C_RATIO == 0.20, "C 池反马太 20% 拔高"
         assert ANTI_MATTHEW_C_RATIO_TOLERANCE == 0.05, "±5% 浮动"
+
+    def test_anti_matthew_ratio_consumed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A3 pre-fix red: monkeypatch ANTI_MATTHEW_C_RATIO → c_count 随之变（证生产代码真消费）。
+
+        Pre-fix: compute_distribution 硬编码 0.80 ⇒ c_count 总是 = total - round(0.80 * total)
+        Post-fix: c_count = round(ANTI_MATTHEW_C_RATIO * total) ⇒ monkeypatch 0.30 → c=30。
+        """
+        monkeypatch.setattr(
+            "app.services.question_generator.ANTI_MATTHEW_C_RATIO", 0.30
+        )
+        d = compute_distribution("D", 100)
+        assert d.C == 30, f"Expected 30 (0.30 * 100), got {d.C} (constant not consumed)"
+
+    def test_anti_matthew_b_pull_consumed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A3 配套: monkeypatch ANTI_MATTHEW_B_PULL → B 仍 = 0（设计内 = B 池永不被反马太抽）。"""
+        monkeypatch.setattr(
+            "app.services.question_generator.ANTI_MATTHEW_B_PULL", 99
+        )
+        d = compute_distribution("D", 100)
+        assert d.B == 0, f"B 池永不被反马太抽, got {d.B}"
 
 
 class TestComputeDistribution:

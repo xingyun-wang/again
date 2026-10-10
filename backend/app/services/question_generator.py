@@ -80,9 +80,12 @@ def compute_distribution(tier: TierLiteral, total_count: int) -> Distribution:
         raise ValueError(f"total_count 必须 > 0,实际 {total_count}")
 
     if tier == "D":
-        # 80/20 反马太分配;D 数 = round(0.80 * n),C 数 = 余数(保证 sum = n)
-        d_count = round(0.80 * total_count)
-        c_count = total_count - d_count  # 20% 部分(n=100 → 20;n=50 → 10;n=25 → 5)
+        # A3 fix: 反马太比例从 ANTI_MATTHEW_C_RATIO 消费（主变量 = C）。
+        # 旧实现 D 数 = round(0.80 * n), C 数 = 余数（以 D 为舍入主体）。
+        # 新实现 C 数 = round(ANTI_MATTHEW_C_RATIO * n), D 数 = 余数（以 C 为舍入主体）。
+        # 舍入归属会变：n=100→c=20 / 50→10 / 25→5 与旧值一致；奇数 n 可能差 1（可接受）。
+        c_count = round(ANTI_MATTHEW_C_RATIO * total_count)
+        d_count = total_count - c_count  # D 取补集，保证 sum = total_count
         return Distribution(D=d_count, C=c_count, B=0, A=0)
     # C / B / A: 100% 来自自身档位
     return Distribution(D=0, C=total_count if tier == "C" else 0,

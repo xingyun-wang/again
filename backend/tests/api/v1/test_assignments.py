@@ -19,16 +19,49 @@ from typing import TYPE_CHECKING
 import pytest
 from fastapi.testclient import TestClient
 
+# A2 修法补充: module level import 所有模型,让 conftest 的 Base.metadata.create_all
+# 看到它们(否则 fixture setup 阶段就崩: "no such table: users")
+from app.models import (  # noqa: F401
+    Assignment,
+    AssignmentItem,
+    Chapter,
+    Question,
+    QuestionDifficulty,
+    QuestionType,
+    User,
+)
+
 if TYPE_CHECKING:
     pass
 
 
 @pytest.fixture()
-def client(mock_db_engine) -> TestClient:
-    """FastAPI TestClient（每次测试新 client，SQLite in-memory）。"""
-    from app.main import create_app
+def client(mock_db_session) -> TestClient:
+    """FastAPI TestClient（hermetic：API 与 fixture 用同一 session）。
 
-    app = create_app()
+    A2 fix v3: 极简 app（只挂 assignments_router）+ dependency_overrides[get_db]
+    + mock_db_session。
+
+    为什么不走 create_app()：
+    - create_app() 拉所有 router + lifespan 链 lifespan 拉模块级 engine（默认 PG URL）
+    - lifespan 在 setup 时连不到 PG → 可能阻塞 app 启动
+    - 多 router include 会被其他 fixture 干扰（如 get_llm_dep）
+    - 极简 app + 单 router + get_db override = 最小副作用路径
+
+    hermetic 保证：override 走 mock_db_session ⇒ API 与 fixture 用同一 session。
+    """
+    from fastapi import FastAPI
+
+    from app.api.v1.routers.assignments import router as assignments_router
+    from app.db.session import get_db
+
+    app = FastAPI()
+
+    def _override_get_db():
+        yield mock_db_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    app.include_router(assignments_router, prefix="/api/v1")
     return TestClient(app)
 
 
@@ -37,7 +70,7 @@ def chapter_with_questions(
     mock_db_session, mock_user_system_seed, mock_textbook
 ):
     """章节 + 100 C + 100 D 池（与 pool fixture 对齐）。"""
-    from app.models import Chapter, Question, QuestionDifficulty, QuestionType
+    from app.models import Question, QuestionDifficulty, QuestionType
 
     ch = Chapter(
         textbook_id=mock_textbook.id,
@@ -105,7 +138,9 @@ class TestCreateAssignment:
         assert r.status_code == 401
         assert "X-User-Id" in r.json()["detail"]
 
-    def test_404_chapter_not_found(self, client: TestClient) -> None:
+    def test_404_chapter_not_found(
+        self, client: TestClient, mock_user_system_seed
+    ) -> None:
         r = client.post(
             "/api/v1/assignments",
             json={"chapter_id": 99999, "tier": "D", "total_count": 50},
@@ -153,6 +188,77 @@ class TestCreateAssignment:
         assert data["d_count"] == 0
         assert data["b_count"] == 0
         assert all(it["tier_origin"] == "C" for it in data["items"])
+
+    def test_post_cross_user_chapter_404(
+        self, client: TestClient, chapter_with_questions, mock_db_session
+    ) -> None:
+        """A1 pre-fix red: user2 POST with user1's chapter_id → 404（跨用户隔离）。
+
+        Pre-fix: chapter 404 判断之后无 owner 校验 ⇒ user2 拿到 201（存在性预言机 + 跨用户引用污染）。
+        Post-fix: chapter 404 之后调 _enforce_owner_or_404(chapter, user_id) ⇒ user2 拿到 404。
+        """
+
+        user2 = User(id=2, name="user-2-cross", is_system_owned=False)
+        mock_db_session.add(user2)
+        mock_db_session.commit()
+
+        r = client.post(
+            "/api/v1/assignments",
+            json={"chapter_id": chapter_with_questions.id, "tier": "C", "total_count": 10, "seed": 1},
+            headers={"X-User-Id": "2"},  # user2; chapter 属 user1
+        )
+        assert r.status_code == 404, (
+            f"Expected 404 (cross-user), got {r.status_code}: {r.text}"
+        )
+
+    def test_client_uses_fixture_session_hermetic(
+        self, client: TestClient, mock_db_session, mock_user_system_seed, mock_textbook
+    ) -> None:
+        """A2 pre-fix red: client 与 fixture 用同一 session（hermetic）。
+
+        Pre-fix: client 走模块级 engine（app/db/session.py:25 settings.database_url）
+        ≠ fixture mock_db_session（SQLite in-memory）⇒ API 看不到 fixture 创的 chapter。
+        Post-fix: dependency_overrides[get_db] = mock_db_session ⇒ 同一 session。
+
+        本地 SQLite 路径（DATABASE_URL=""）验证：
+        - Pre-fix: 404（找不到 chapter）
+        - Post-fix: 422（找到 chapter 但 C 池不足）— 也是 hermetic 成功证据
+        - 本测再加 10 道 C 池题 → 走到 201
+
+        验收：API 能看到 fixture 创的 chapter（从 404 → 422 转变是 hermetic 标志）。
+        """
+
+        ch = Chapter(
+            textbook_id=mock_textbook.id,
+            owner_user_id=mock_user_system_seed.id,
+            chapter_number=1,
+            title="hermetic-test-chapter",
+            content_summary="test",
+            extraction_source="detected",
+        )
+        mock_db_session.add(ch)
+        mock_db_session.commit()  # commit 后 ch.id 才有值
+        # 给 chapter 加 10 道 C 池题（让 C 档 10 题作业能走到 201）
+        for i in range(10):
+            q = Question(
+                owner_user_id=mock_user_system_seed.id,
+                chapter_id=ch.id,
+                content=f"hermetic-q-{i}",
+                difficulty=QuestionDifficulty.C,
+                type=QuestionType.CHOICE,
+            )
+            mock_db_session.add(q)
+        mock_db_session.commit()
+
+        r = client.post(
+            "/api/v1/assignments",
+            json={"chapter_id": ch.id, "tier": "C", "total_count": 10, "seed": 1},
+            headers={"X-User-Id": "1"},
+        )
+        assert r.status_code == 201, (
+            f"Expected 201 (hermetic: client sees fixture's chapter + C 池足), "
+            f"got {r.status_code}: {r.text}"
+        )
 
     def test_422_pool_insufficient(
         self, client: TestClient, chapter_with_questions

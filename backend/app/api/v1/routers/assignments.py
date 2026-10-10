@@ -21,6 +21,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.api.v1.routers.academic import _enforce_owner_or_404
 from app.api.v1.schemas.assignments import (
     AssignmentCreate,
     AssignmentRead,
@@ -86,6 +87,9 @@ def create_assignment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"chapter {payload.chapter_id} 不存在",
         )
+    # A1 fix: 跨用户 chapter 引用污染（v0.5 §3.6 第 1 步 + D-29 B 项）。
+    # 存在性预言机防护：别人的 chapter 也返 404，不泄漏存在性。
+    _enforce_owner_or_404(chapter, user_id)
     try:
         assignment = generate_assignment_for_chapter(
             db,
