@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError
 
 # A2 配套修法（与 test_assignments.py 同）: module-level import 所有模型，
 # 让 conftest Base.metadata.create_all 看到它们(否则 fixture setup 阶段崩)
@@ -130,7 +130,10 @@ class TestAssignmentModel:
             total_count=50,
         )
         mock_db_session.add(a)
-        with pytest.raises(IntegrityError):
+        # PG enum 越界 → InvalidTextRepresentation → sqlalchemy.exc.DataError
+        # (不是 IntegrityError; FK/UNIQUE/CHECK 违反才是 IntegrityError)
+        # CI feedback (commit f6b48f3): 实际抛 DataError 而非 IntegrityError
+        with pytest.raises(DataError):
             mock_db_session.commit()
         mock_db_session.rollback()
 
