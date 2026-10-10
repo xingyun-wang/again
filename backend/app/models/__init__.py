@@ -30,6 +30,7 @@ from app.models.academic import (
     User,
     question_knowledge_points,
 )
+from app.models.assignment import Assignment, AssignmentItem
 
 __all__ = [
     # enums
@@ -59,4 +60,7 @@ __all__ = [
     "Question",
     "Choice",
     "question_knowledge_points",
+    # M2-A.1：作业单 + 作业题行
+    "Assignment",
+    "AssignmentItem",
 ]
