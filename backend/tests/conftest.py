@@ -136,7 +136,7 @@ def mock_db_session(mock_db_engine):
 
 
 @pytest.fixture()
-def mock_textbook(mock_db_session, mock_user_system_seed):
+def mock_textbook(mock_db_session, mock_user_system_seed, mock_subject):
     """默认 mock 教材（人教版七年级数学上）。owner=system-seed。
 
     fix（M1-B B.2.1 retro）：教材创建后 expire textbook.chapters 属性，
@@ -147,6 +147,10 @@ def mock_textbook(mock_db_session, mock_user_system_seed):
     约定一致；测试不需要真落盘，只是占位相对路径）。
 
     M1-B retro 工单 B（D-29 B 项）：owner_user_id = system-seed id=1。
+
+    fix（commit eb1c29d 后 CI pytest 反馈）：加 mock_subject 依赖 +
+    subject_id/grade_level（NOT NULL + FK 约束;缺这俩 INSERT textbook 报
+    'FOREIGN KEY constraint failed'）。
     """
     from app.models import Textbook
 
@@ -154,6 +158,8 @@ def mock_textbook(mock_db_session, mock_user_system_seed):
         name="人教版数学七上",
         file_path="uploads/0/mock-textbook.pdf",
         owner_user_id=mock_user_system_seed.id,
+        subject_id=mock_subject.id,
+        grade_level=mock_subject.grade_level,
     )
     mock_db_session.add(tb)
     mock_db_session.commit()

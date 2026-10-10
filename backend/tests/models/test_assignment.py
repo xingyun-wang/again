@@ -14,6 +14,21 @@ from typing import TYPE_CHECKING
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+# A2 配套修法（与 test_assignments.py 同）: module-level import 所有模型，
+# 让 conftest Base.metadata.create_all 看到它们(否则 fixture setup 阶段崩)
+# 拆两组: used names (不加 noqa; 触发 F823 否则) + unused names (# noqa: F401)
+from app.models import (  # noqa: F401
+    Assignment,
+    AssignmentItem,
+    Chapter,
+    Question,
+    QuestionDifficulty,
+    QuestionType,
+    Subject,
+    Textbook,
+    User,
+)
+
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
@@ -24,7 +39,6 @@ class TestAssignmentModel:
     def test_create_assignment_basic(
         self, mock_db_session: Session, mock_user_system_seed, mock_textbook
     ) -> None:
-        from app.models import Assignment, Chapter
 
         ch = Chapter(
             textbook_id=mock_textbook.id,
@@ -65,7 +79,6 @@ class TestAssignmentModel:
         self, mock_db_session: Session, mock_user_system_seed, mock_textbook
     ) -> None:
         """seed 可空（None = 不可复现 = 系统时间）。"""
-        from app.models import Assignment, Chapter
 
         ch = Chapter(
             textbook_id=mock_textbook.id,
@@ -98,7 +111,6 @@ class TestAssignmentModel:
         self, mock_db_session: Session, mock_user_system_seed, mock_textbook
     ) -> None:
         """tier 必须 ∈ {D, C, B, A}（PG enum 约束）。"""
-        from app.models import Assignment, Chapter
 
         ch = Chapter(
             textbook_id=mock_textbook.id,
@@ -126,7 +138,6 @@ class TestAssignmentModel:
         self, mock_db_session: Session, mock_user_system_seed
     ) -> None:
         """chapter_id FK 约束：不存在的 chapter_id 应 raise IntegrityError。"""
-        from app.models import Assignment
 
         a = Assignment(
             owner_user_id=mock_user_system_seed.id,
@@ -139,12 +150,21 @@ class TestAssignmentModel:
             mock_db_session.commit()
         mock_db_session.rollback()
 
-    def test_assignment_FK_owner_user_id(self, mock_db_session: Session) -> None:
-        """owner_user_id FK 约束：不存在的 user_id 应 raise。"""
-        from app.models import Assignment, Chapter, Textbook
+    def test_assignment_FK_owner_user_id(
+        self, mock_db_session: Session, mock_subject
+    ) -> None:
+        """owner_user_id FK 约束：不存在的 user_id 应 raise IntegrityError。
+
+        fix（commit eb1c29d 后 CI pytest 反馈）：加 mock_subject 依赖 +
+        subject_id/grade_level（NOT NULL + FK 约束）。
+        """
 
         tb = Textbook(
-            name="t", file_path="uploads/0/x.pdf", owner_user_id=1
+            name="t",
+            file_path="uploads/0/x.pdf",
+            owner_user_id=1,
+            subject_id=mock_subject.id,
+            grade_level=mock_subject.grade_level,
         )  # owner=1 (system seed)
         mock_db_session.add(tb)
         mock_db_session.commit()
@@ -174,7 +194,8 @@ class TestAssignmentModel:
         self, mock_db_session: Session, mock_user_system_seed, mock_textbook
     ) -> None:
         """删 Assignment → 自动清 AssignmentItem（cascade="all, delete-orphan"）。"""
-        from app.models import Assignment, AssignmentItem, Chapter, Question
+        # 函数级 import (UnboundLocalError 修法; module-level 也有但 Python 误判 local)
+        from app.models import AssignmentItem  # noqa: F811
 
         # 建 chapter
         ch = Chapter(
