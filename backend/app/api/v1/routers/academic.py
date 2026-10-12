@@ -34,6 +34,7 @@ from typing import Annotated, Any, Literal, cast
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.api.deps import _enforce_owner_or_404  # noqa: F401  # re-export 给 conftest monkeypatch
 from app.api.v1.schemas.academic import (
     AIAnnotation,
     ChapterAISummary,
@@ -140,25 +141,10 @@ def get_llm_dep() -> LLMProvider:
 # 归属过滤：访问不属于当前用户的资源 → 返 404（不是 403），不泄漏 id 存在性。
 # D-37 测试可证伪：monkeypatch 本函数为 no-op 即可让 fail-open 实现暴露
 # （错误实现 `if obj.owner_user_id == 1: return obj` 会返 200 暴露数据）。
-_NOT_OWNER_DETAIL = "该资源不属于当前用户"
-
-
-def _enforce_owner_or_404(obj: object, user_id: int) -> None:
-    """跨用户隔离硬门槛（D-29 B 项）。
-
-    检查 obj.owner_user_id != user_id → 404（不是 403）。
-    错误体统一为「该资源不属于当前用户」，避免泄漏 id 是否存在。
-
-    Args:
-        obj: 任意带 ``owner_user_id`` 属性的 ORM 实例（Subject/Textbook/Chapter）
-        user_id: 当前请求的 user_id（X-User-Id header）
-
-    Raises:
-        HTTPException 404: obj.owner_user_id != user_id
-    """
-    owner_id = getattr(obj, "owner_user_id", None)
-    if owner_id is None or owner_id != user_id:
-        raise HTTPException(status_code=404, detail=_NOT_OWNER_DETAIL)
+#
+# M2-S2 收口：原 _enforce_owner_or_404 已迁到 app.api.deps，本文件顶部 re-export
+# 让 conftest 的 monkeypatch.setattr(academic, "_enforce_owner_or_404", ...)
+# 仍可生效（D-37 跨用户隔离硬门槛由 deps 单点提供）。
 
 
 # ─────────────────────────────── LLM Prompt 模板 ────────────────────────────

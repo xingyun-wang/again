@@ -21,7 +21,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.v1.routers.academic import _enforce_owner_or_404
+from app.api.deps import _enforce_owner_or_404
 from app.api.v1.schemas.assignments import (
     AssignmentCreate,
     AssignmentRead,

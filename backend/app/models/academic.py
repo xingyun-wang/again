@@ -217,7 +217,13 @@ class Class(Base):
 
 
 class Student(Base):
-    """学生。归属一个 Class，有一个 current_tier（v0.5 §3.2）。"""
+    """学生。归属一个 Class，有一个 current_tier（v0.5 §3.2）。
+
+    S2 audit 字段（migration 0009）：
+    - tier_changed_by_user_id: 谁把 current_tier 改了（users.id FK，RESTRICT）
+    - tier_changed_at: 改档位时间戳（timestamptz，nullable）
+    既存 Student 行这两个字段默认 NULL（历史未追踪；不回填）。
+    """
 
     __tablename__ = "students"
 
@@ -245,6 +251,15 @@ class Student(Base):
         ),
         nullable=False,
     )
+    # S2 audit 字段（migration 0009）：手动覆盖档位时记录
+    tier_changed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    tier_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -254,7 +269,6 @@ class Student(Base):
         onupdate=func.now(),
         nullable=False,
     )
-
     # 注意：`class_` 是因为 `class` 是 Python 关键字
     class_: Mapped[Class] = relationship("Class", back_populates="students", lazy="selectin")
     knowledge_points: Mapped[list[StudentKnowledgePoint]] = relationship(
@@ -832,3 +846,25 @@ class Choice(Base):
     __table_args__ = (
         Index("ix_choices_question_order", "question_id", "order_index"),
     )
+
+
+# ──────────────────── S2 tier → difficulty 显式映射（v0.5 §3.2 / M2-S2 brief §五）────────
+#
+# 落点理由：紧贴 Tier + QuestionDifficulty 两 enum 定义（同一文件末），让 reader
+# 看到「两 enum 同值空间」的契约。
+#
+# 为什么不直接 `return QuestionDifficulty(t.value)` 后用 type 强制：
+# - Pydantic / mypy 都不强制 Tier == QuestionDifficulty；两个 enum 独立定义
+#   + 独立 SAEnum 列。
+# - 显式 mapping 函数 = 单一来源契约，避免后续任一 enum 改动后悄悄漂移。
+# - 同值空间恒等（D=D / C=C / B=B / A=A）= brief §三 §五 拍板定论。
+def tier_to_difficulty(t: Tier) -> QuestionDifficulty:
+    """Tier → QuestionDifficulty 显式映射（同值空间恒等映射）。
+
+    两 enum 值空间必须同构（顺序 + 元素 + 唯一），由 ``test_tier_difficulty_value_space_isomorphic``
+    守住；本函数是「同构的具体兑现」= 单一来源契约。
+
+    Raises:
+        ValueError: 当 enum 值漂移（brief §五 开工核对项）时显式报错。
+    """
+    return QuestionDifficulty(t.value)

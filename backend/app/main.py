@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.health import router as health_router
 from app.api.v1.routers.academic import router as academic_router
 from app.api.v1.routers.assignments import router as assignments_router
+from app.api.v1.routers.students import router as students_router
 from app.api.v1.routers.twain import router as twain_router
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
@@ -131,6 +132,9 @@ def create_app() -> FastAPI:
 
     # M2-A.1：作业单路由（v0.5 §3.6 老师审阅流程第 1 步产物；4 档 + 反马太）
     app.include_router(assignments_router, prefix="/api/v1", tags=["assignments"])
+
+    # M2-S2：档位管理路由（v0.5 §3.2 + M2-S2 brief §四；3 端点 + 跨用户隔离）
+    app.include_router(students_router, prefix="/api/v1/students", tags=["students"])
 
     return app
 
