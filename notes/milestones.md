@@ -1107,14 +1107,10 @@ M2-S3 收口审核（审核员转载曜 2026-10-13 09:14 A3 反馈）。
 - **本笔 P1 落字 token = 「M2-A.1 内容承载三决策」**（明确指向 §治理.15 = 三决策，避开 S0-5 撞名）
 
 #### §治理.15.4 当前状态
-
-- HEAD = `7748bd1`（master HEAD；12 commit 链 668fddd..7748bd1 已落字 + push 双 remote = origin = github = master）
-- P1 commit 待落（本节 §治理.15）
-- P2 commit 待落（`plans/M2-A.1-brief.md` 3 处订正）
-- subagent 派工待发（修正规则 #1 第 N 次试；用 M2-A.1-brief §3-§7 + 我自己加 commit 拆 + 禁动清单 + 入场闸 + mypy 豁免 as brief）
-- mypy 既有债豁免 = 与 S3 同型（`question_generator.py:213,262` 2 narrowing），需 §治理.16 落字（同 §治理.14 模式）
-
----
+- 拍板时点 = 2026-10-13 10:36（星云 拍 (a) 路径 = 父会话 P1+P2 落字 + 派 subagent）
+- 后续状态（11:38 父会话接管 C2 + subagent 第 N+1 次试 C3-C6 全部落地 + 收工 8 步完成）= **见 `memory/2026-10-13.md` §治理.16/17/18/19 + master = `8a8c6f8`（22 commit 668fddd..master）**
+- P1 落字 = ce410eb（已落） + P2 落字 = ea0cbfe（已落） + subagent 第 N+1 次试 C3-C6 = bd6504d, 8323ec1, 32ca2d4, 1c4905e, a8d38d1, ea50649（6 commit 已落）+ 收工 commit 8 = 6eb5f7e + 8a8c6f8（2 commit 已落）= **7 组分明 22 笔 = 668fddd..master = 8a8c6f8** ✓
+- 拍板保留 = 本节 §治理.15 = 三决策边界 + 撞名修正 = 持久化价值（防下个会话误读 S0-5 token）---
 
 > **【2026-10-13 10:36 变更说明 · notes/milestones.md】**
 >
