@@ -699,6 +699,36 @@ class QuestionType(str, Enum):  # noqa: UP042
     SUBJECTIVE = "subjective"
 
 
+class QuestionImageSource(str, Enum):  # noqa: UP042
+    """题目图片来源（M2-A.1 brief §3.1）。
+
+    - SELF_BUILT = 教师自建（如地理教师画地图示意图、标注图）
+    - EXTERNAL_IMPORTED = 外部导入（如截图 / 教材扫描 / 共享图库）
+
+    区别于 1:N vs ARRAY 判据中"上传者追溯"列：source 是图像本身的来源
+    （who drew / where from），uploaded_by_user_id 是系统动作的归属
+    （who uploaded this row to system）。两者独立字段，分别追溯。
+    """
+
+    SELF_BUILT = "self_built"
+    EXTERNAL_IMPORTED = "external_imported"
+
+
+class DesensitizationStatus(str, Enum):  # noqa: UP042
+    """图片脱敏状态（M2-A.1 brief §3.1 + §6.3）。
+
+    - PENDING = 脱敏未做（M3 实际跑脱敏处理；S1/M2 阶段默认值）
+    - DONE = 脱敏已完成（脱敏时间戳落 desensitized_at）
+    - SKIPPED = 主动跳过脱敏（题目图片通常不含 PII；v0.5 §6.5）
+
+    S1/M2 阶段：所有新建行 = PENDING；无实际脱敏处理（M3 范围）。
+    """
+
+    PENDING = "pending"
+    DONE = "done"
+    SKIPPED = "skipped"
+
+
 # 题目-知识点多对多关联表（M2-A.0 新增）。
 # KnowledgePoint 自身无 owner_user_id（KP 归属 = chapter.owner_user_id），
 # 因此 KP 的归属校验走 chapter 路径（router 层 _enforce_owner_or_404 chapter）。
@@ -778,6 +808,17 @@ class Question(Base):
         back_populates="question",
         cascade="all, delete-orphan",
         lazy="selectin",
+    )
+    # M2-A.1（brief §3.1）：题目图片承载（1:N，图像密集学科图像）
+    # - cascade="all, delete-orphan": 删 Question 时 QuestionImage 自动清空
+    # - lazy="selectin": 与 choices/knowledge_points 同款 selectin eager load
+    # - order_by="QuestionImage.order_index": 渲染时按 order_index 排（同 Choice）
+    images: Mapped[list[QuestionImage]] = relationship(
+        "QuestionImage",
+        back_populates="question",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="QuestionImage.order_index",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -868,3 +909,113 @@ def tier_to_difficulty(t: Tier) -> QuestionDifficulty:
         ValueError: 当 enum 值漂移（brief §五 开工核对项）时显式报错。
     """
     return QuestionDifficulty(t.value)
+
+
+# ──────────────── M2-A.1 题目图片承载（v0.5 §3.4 / brief §3.1） ───────────────
+#
+# 范围锁定（brief §3.1）：
+# - 独立 ``question_images`` 表（1:N，与 choices 同构）
+# - 12 列：id / question_id / order_index / file_ext / storage_path /
+#   source / desensitization_status / desensitized_at / uploaded_at /
+#   uploaded_by_user_id / oss_object_key / oss_uploaded_at
+# - 2 enum：QuestionImageSource (self_built | external_imported) +
+#           DesensitizationStatus (pending | done | skipped)
+# - svg 不收（v0.5 §3.4 风险 + brief §3.1 file_ext 注释）；
+#   文件后缀限定 png/jpg/jpeg/webp（接口层 MIME 校验，model 层仅做长度约束）
+#
+# 字段语义：
+# - question_id FK → questions.id CASCADE（删 Question 自动清图）
+# - uploaded_by_user_id FK → users.id RESTRICT（删 user 阻挡；与 Question 同款）
+# - order_index：渲染顺序（与 Choice.order_index 同款语义；1-based 排序由接口层
+#   控制，model 层仅存整数）
+# - storage_path：本地相对路径（接口层写；UPLOAD_ROOT-based 路径模板
+#   ``{UPLOAD_ROOT}/{chapter_id}/{question_id}/{image_id}.{ext}``）
+# - source / desensitization_status：M2-A.1 新增独立 enum（不与
+#   KnowledgeReviewStatus 复用——语义不同：source 是"来源"，desens status
+#   是"脱敏进度"；与 review 状态"老师审阅"是另一维度）
+# - desensitized_at：脱敏完成时间戳（M3 实际写入；S1/M2 = NULL）
+# - uploaded_at：上传时间戳（server_default=func.now()；不暴露 client 写）
+# - oss_object_key + oss_uploaded_at：M3 预留字段；S1/M2 阶段 NULL
+#
+# 1:N vs ARRAY（brief §3.3 拍板）：1:N。判据 = 排序/单图删除/脱敏标记/
+# 来源追溯/OSS 状态/上传者追溯 —— ARRAY 无法满足任一项。
+#
+# 范围外（brief §3 锁 + §6 锁）：
+# - 实际文件 IO（接口层走 service 路径；本阶段 model 仅承载元数据）
+# - MIME 校验 / 实际大小校验（接口层；本 model 信任 file_ext 字符串）
+# - OSS 实际上传（M3 范围）
+# - 脱敏实际处理（M3 范围）
+# - 共建 is_public（M2-A.0 lock MVP）
+
+
+class QuestionImage(Base):
+    """题目图片承载（地理等图像密集学科；v0.5 §3.4 + brief §3.1 硬约束）。
+
+    与 Question 是 1 对多（与 Choice 同构）；删 Question 时 cascade 自动清空。
+    字段语义详见上方节注释。
+    """
+
+    __tablename__ = "question_images"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    order_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    # 8 字符 = 够 png/jpg/jpeg/webp/gif/bmp/tiff；svg 不收（brief §3.1）
+    file_ext: Mapped[str] = mapped_column(String(8), nullable=False)
+    # 512 字符 = 足够 ${UPLOAD_ROOT}/{chapter_id}/{question_id}/{image_id}.{ext}
+    # 留余量给未来 UPLOAD_ROOT 变长（如 OSS bucket prefix）
+    storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    source: Mapped[QuestionImageSource] = mapped_column(
+        SAEnum(
+            QuestionImageSource,
+            name="question_image_source_enum",
+            native_enum=True,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        nullable=False,
+    )
+    desensitization_status: Mapped[DesensitizationStatus] = mapped_column(
+        SAEnum(
+            DesensitizationStatus,
+            name="desensitization_status_enum",
+            native_enum=True,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        nullable=False,
+        default=DesensitizationStatus.PENDING,
+        server_default=DesensitizationStatus.PENDING.value,
+    )
+    desensitized_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    uploaded_by_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    # M3 预留：OSS object key（阿里云 OSS bucket = thp-images-{env}）
+    oss_object_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # M3 预留：OSS 上传完成时间
+    oss_uploaded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    question: Mapped[Question] = relationship("Question", back_populates="images")
+
+    __table_args__ = (
+        # 渲染按 (question_id, order_index) 排；同 Choice 模式
+        Index(
+            "ix_question_images_question_order",
+            "question_id",
+            "order_index",
+        ),
+    )
