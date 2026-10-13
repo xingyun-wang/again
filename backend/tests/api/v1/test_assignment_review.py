@@ -342,3 +342,45 @@ def test_F1_full_review_export_flow_200(
     assert row.reviewed_by == 1
     assert row.review_notes == notes_value
     assert row.reviewed_at is not None
+
+
+# ────────── R6：modified → POST /export 闸门 = 403（D-43-X §5 收口补） ──────────
+
+
+def test_R6_modified_export_403(
+    client: TestClient,
+    chapter_with_questions: Any,
+) -> None:
+    """§7.5 闸门反向用例：review_status=modified 时 POST /export 必须 403。
+
+    补于 D-43-X §5 修正规则 #1 收口审核（A1 反馈，2026-10-13 09:14）：
+    brief §192 声明 403 判据「含 pending + modified」，6 用例只覆盖
+    pending；补 1 个 modified 用例收口闸门覆盖。
+    """
+    aid = _create_assignment_pending(client, chapter_with_questions.id)
+
+    # 1. PATCH /review status=modified → 200（先转到 modified 状态）
+    patch_resp = client.patch(
+        f"/api/v1/assignments/{aid}/review",
+        json={"status": "modified", "notes": "R6 验证 modified 状态不能导出"},
+        headers={"X-User-Id": "1"},
+    )
+    assert patch_resp.status_code == 200, (
+        f"owner PATCH modified 应 200，实际 {patch_resp.status_code}：{patch_resp.text}"
+    )
+    assert patch_resp.json()["review"]["review_status"] == "modified", (
+        f"review_status 应 'modified'，实际 {patch_resp.json()['review']['review_status']}"
+    )
+
+    # 2. POST /export → 403（闸门：review_status=MODIFIED != APPROVED）
+    export_resp = client.post(
+        f"/api/v1/assignments/{aid}/export",
+        headers={"X-User-Id": "1"},
+    )
+    assert export_resp.status_code == 403, (
+        f"modified assignment 导出应 403，实际 {export_resp.status_code}：{export_resp.text}"
+    )
+    detail = export_resp.json().get("detail", "")
+    assert "未通过" in detail or "review" in detail.lower(), (
+        f"403 detail 应说明未审原因，实际：{detail}"
+    )
