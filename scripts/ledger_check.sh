@@ -9,7 +9,7 @@
 #   ⑧ 文件自述「commit X 后」时 X 的 stat 必须包含该文件（解 plans/M2-A.1-brief.md 头部错位）
 #   ⑨ 所有「详见 X」的 X 必须存在（防止跨文档引用失联）
 #
-# 检查项（9 条 — 单一真值源 + 双真值源同构 + 元数据一致性）：
+# 检查项（10 条 — 单一真值源 + 双真值源同构 + 元数据一致性）：
 # 1. 元规则累计：notes §家族表 [META] 段数 == decisions.md [META] 段数（双真值源同构；解 #84 + #89）
 # 2. 5 家族段存在：A/B/C/D/E 5 家族段都存在（读 notes §家族表）
 # 3. W-A-U-P.md 错拼：git grep -nF "${TYPO}" = 0 命中（文件面；消息面为已知盲区 — 解 #87 + #90）
@@ -19,6 +19,7 @@
 # 7. §7 表「落实 commit」sha 真值：git log 存在 + stat 包含被引文件（解 :136/:158/:173 漏写 dc246aa）
 # 8. 文件自述「commit X 后」时 X 的 stat 必须包含该文件（解 plans/M2-A.1-brief.md 头部错位）
 # 9. 所有「详见 X」的 X 必须存在
+# 10. tech-debt.md 引用必须与 HEAD mypy 真值一致（双向核对；防 N1 类镜像陈旧）
 #
 # 解 #90（消息面盲区）：
 #   WAKEUP.md 第 5 步 ledger_check < 第 6 步 backup.sh（D-79 唯一真值源）
@@ -44,7 +45,7 @@ cd ~/tiered-homework-platform 2>/dev/null || {
 FAILED=0
 
 # === 检查 1: 元规则累计（双真值源同构；解 #84 + #89）===
-echo "[1/9] 元规则累计（双真值源同构）..."
+echo "[1/11] 元规则累计（双真值源同构）..."
 ACTUAL_NOTES=$(grep -cE '^### \[META\] D-' notes/milestones.md 2>/dev/null)
 ACTUAL_DEC=$(grep -cE '^### \[META\] D-' docs/decisions.md 2>/dev/null)
 if [ -z "$ACTUAL_NOTES" ] || [ "$ACTUAL_NOTES" = "0" ]; then
@@ -58,7 +59,7 @@ else
 fi
 
 # === 检查 2: 5 家族段存在（读 notes §家族表）===
-echo "[2/9] 5 家族段..."
+echo "[2/11] 5 家族段..."
 for FAMILY in "A 家族" "B 家族" "C 家族" "D 家族" "E 家族"; do
   if ! grep -qF "$FAMILY" notes/milestones.md 2>/dev/null; then
     echo "  ❌ FAIL: 未找到 $FAMILY in notes/milestones.md §家族表"
@@ -70,7 +71,7 @@ if [ "$FAILED" = "0" ]; then
 fi
 
 # === 检查 3: W-A-U-P.md 错拼（文件面；消息面为已知盲区；解 #87 + #90）===
-echo "[3/9] W-A-U-P.md 错拼（文件面；消息面盲区已声明）..."
+echo "[3/11] W-A-U-P.md 错拼（文件面；消息面盲区已声明）..."
 HITS=$(git grep -nF "${TYPO}" 2>/dev/null | wc -l)
 if [ "$HITS" = "0" ]; then
   echo "  ✅ 0 命中（无 W-A-U-P.md 错拼；消息面为已知盲区）"
@@ -81,7 +82,7 @@ else
 fi
 
 # === 检查 4: 失实编号覆盖格式（notes §家族表 · 按「当前失实编号覆盖」段锁定）===
-echo "[4/9] 失实编号覆盖格式（按当前失实编号覆盖段锁定）..."
+echo "[4/11] 失实编号覆盖格式（按当前失实编号覆盖段锁定）..."
 NOTES_RANGE=$(grep -A 2 '当前失实编号覆盖' notes/milestones.md 2>/dev/null | grep -oE '\*\*#11-#[0-9]+\*\*' | head -1)
 if [ -z "$NOTES_RANGE" ]; then
   echo "  ❌ FAIL: notes/milestones.md 无「当前失实编号覆盖」段或段内无 #11-#XX 格式"
@@ -91,7 +92,7 @@ else
 fi
 
 # === 检查 5: dirty 收口 ===
-echo "[5/9] dirty 收口..."
+echo "[5/11] dirty 收口..."
 DIRTY=$(git status --porcelain 2>/dev/null | wc -l)
 if [ "$DIRTY" = "0" ]; then
   echo "  ✅ working tree clean"
@@ -101,7 +102,7 @@ fi
 
 # === 检查 6: §7 表已填行数 == §7.1/§7.2/§7.3 段数 ===
 # 通用做法：从 §7.1/§7.2/§7.3 段标题里提取 D-M2-X 名，再去 §7 表里 check 这些行的拍板日期都不为 "—"
-echo "[6/9] §7 表已填行数 == §7.1/§7.2/§7.3 段数..."
+echo "[6/11] §7 表已填行数 == §7.1/§7.2/§7.3 段数..."
 SECTION_DM2S=$(grep -oE '### 7\.[123] 拍板记录（D-M2-[0-9]+' docs/M2-kickoff-decision.md | grep -oE 'D-M2-[0-9]+')
 CHECK6_FAIL=0
 CHECK6_COUNT=0
@@ -120,7 +121,7 @@ else
 fi
 
 # === 检查 7: §7 表「落实 commit」sha 真值（git log 存在 + stat 包含被引文件）===
-echo "[7/9] §7 表「落实 commit」sha 真值..."
+echo "[7/11] §7 表「落实 commit」sha 真值..."
 # 提取 §7 表中所有 sha（5+ 行 + 5+ 字符 hex；跨多 sha 用 space 拆）
 SHAS_RAW=$(grep -E '^\| D-M2-' docs/M2-kickoff-decision.md | awk -F'|' '{ gsub(/[ `]+/, "", $5); print $5 }')
 SHAS=$(echo "$SHAS_RAW" | grep -oE '[0-9a-f]{7,}')
@@ -146,7 +147,7 @@ else
 fi
 
 # === 检查 8: 文件自述「commit X 后」时 X 的 stat 必须包含该文件 ===
-echo "[8/9] 文件自述「commit X 后」时 X 的 stat 必须包含该文件..."
+echo "[8/11] 文件自述「commit X 后」时 X 的 stat 必须包含该文件..."
 CHECK8_FAIL=0
 CHECK8_COUNT=0
 while IFS= read -r match; do
@@ -169,7 +170,7 @@ else
 fi
 
 # === 检查 9: 所有「详见 X」的 X 必须存在 ===
-echo "[9/9] 所有「详见 X」的 X 必须存在..."
+echo "[9/11] 所有「详见 X」的 X 必须存在..."
 CHECK9_FAIL=0
 CHECK9_COUNT=0
 while IFS= read -r match; do
@@ -205,7 +206,7 @@ else
 fi
 
 # === 检查 10: tech-debt.md 引用必须与 HEAD mypy 真值一致（双向核对；防 N1 类镜像陈旧）===
-echo "[10/10] tech-debt.md 引用必须与 HEAD mypy 真值一致（双向核对）..."
+echo "[10/11] tech-debt.md 引用必须与 HEAD mypy 真值一致（双向核对）..."
 if [ -f docs/tech-debt.md ]; then
   # 1. 多文件树哈希比对（v3 升级；防单文件 cp 漏文件 = N1/N2 类错）
   CONTAINER_TREE_HASH=$(docker exec thp-backend bash -c "find /app/app -name '*.py' -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null" 2>/dev/null | awk '{print $1}' | sort | md5sum | awk '{print $1}')
@@ -260,6 +261,59 @@ if [ -f docs/tech-debt.md ]; then
   fi
 else
   echo "  ⚠️ WARN: docs/tech-debt.md 不存在（无 tech-debt 引用）"
+fi
+
+# === 检查 11: dev 库 DB 一致性（alembic head + user tables ≥ 19 + enums ≥ 7）===
+# 法源：§治理.17 DB 失实 incident 落字 + §17.4 修正规则 #4
+# （防 subagent 撞破 dev 库 alembic_version=0010 + 0 表同类 incident）
+# 判据：
+# 1. docker exec thp-backend alembic current 期望 0011_question_images (head)
+# 2. dev 库 user tables count ≥ 19（alembic_version 排除）
+# 3. dev 库 enums count ≥ 7（含 question_image_source + desensitization）
+# 任一不一致 = ❌ 失败即拒收工 + 触发 §治理.17 流程
+echo "[11/11] dev 库 DB 一致性（alembic head + user_tables ≥ 19 + enums ≥ 7）..."
+CHECK11_FAIL=0
+
+# 1. alembic current 期望 0011_question_images (head)
+ALEMBIC_HEAD=$(docker exec thp-backend bash -c "alembic current 2>/dev/null | tail -1" 2>/dev/null)
+if [ -z "$ALEMBIC_HEAD" ]; then
+  echo "  ❌ FAIL: 容器 thp-backend 不可达 或 alembic current 返回空（dev 库未联）"
+  CHECK11_FAIL=1
+elif ! echo "$ALEMBIC_HEAD" | grep -qF "0011_question_images"; then
+  echo "  ❌ FAIL: alembic head 不匹配（期望包含 '0011_question_images'；实际 '$ALEMBIC_HEAD'）"
+  echo "  修法: cd backend && alembic upgrade head （应 0011 (head) 已 verified）"
+  CHECK11_FAIL=1
+fi
+
+# 2. user tables count ≥ 19 + 3. enums count ≥ 7（仅在 alembic head 匹配后才查，避免重复报）
+if [ "$CHECK11_FAIL" = "0" ]; then
+  DB_STATS=$(docker exec thp-backend python3 -c "
+import psycopg
+c = psycopg.connect(host='postgres', port=5432, user='postgres', password='postgres', dbname='tiered_homework')
+cur = c.cursor()
+cur.execute(\"SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name != 'alembic_version';\")
+tables = cur.fetchone()[0]
+cur.execute(\"SELECT count(*) FROM pg_type WHERE typtype='e';\")
+enums = cur.fetchone()[0]
+print(f'{tables}|{enums}')
+" 2>/dev/null)
+  USER_TABLES=$(echo "$DB_STATS" | cut -d'|' -f1)
+  ENUMS=$(echo "$DB_STATS" | cut -d'|' -f2)
+  if [ -z "$USER_TABLES" ] || [ "$USER_TABLES" -lt 19 ]; then
+    echo "  ❌ FAIL: user_tables 数不足（期望 ≥ 19；实际 $USER_TABLES）"
+    echo "  修法: alembic upgrade head 重跑 + 检查 0011 migration 幂等性"
+    CHECK11_FAIL=1
+  elif [ -z "$ENUMS" ] || [ "$ENUMS" -lt 7 ]; then
+    echo "  ❌ FAIL: enums 数不足（期望 ≥ 7 含 question_image_source + desensitization；实际 $ENUMS）"
+    echo "  修法: 同上（alembic upgrade head 重跑；0011 应建 2 个新 enum）"
+    CHECK11_FAIL=1
+  else
+    echo "  ✅ ACTUAL=alembic=$ALEMBIC_HEAD / user_tables=$USER_TABLES / enums=$ENUMS（DB 一致性 OK）"
+  fi
+fi
+
+if [ "$CHECK11_FAIL" = "1" ]; then
+  FAILED=1
 fi
 
 echo ""
