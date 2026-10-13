@@ -479,3 +479,111 @@ class QuestionListResponse(BaseModel):
 
     items: list[QuestionRead]
     total: int = Field(..., ge=0)
+
+
+# ─────────────────────────── M2-A.1 题目图片承载（v0.5 §3.4 / brief §3） ─────
+#
+# 范围锁定（brief §3 + §5）：
+# - 题目图片承载 = 独立 ``question_images`` 表（1:N，与 choices 同构）
+# - 2 Pydantic：QuestionImageUploadRequest（POST multipart 非文件字段）+ QuestionImageRead（POST/GET 响应）
+# - 3 endpoint：POST /questions/{id}/images / GET /questions/{id}/images/{image_id} / DELETE
+# - 限制：file_ext ∈ {png, jpg, jpeg, webp}（svg 不收 — brief §5.3）；单图 ≤ 5MB；
+#         单题 ≤ 10 张图（brief §5.3；50→10 降一档降落地复杂度）
+# - 鉴权：owner check 仿 get_assignment（brief §5.2 + routers/assignments.py:111-130）
+#
+# 范围外（brief §3 锁 + §6 锁）：
+# - 实际 OSS 上传（M3）
+# - 脱敏实际处理（M3）
+# - 共建 is_public（M2-A.0 lock MVP）
+
+
+# v0.5 §3.4 + brief §5.3：仅 png/jpg/jpeg/webp（svg 不收；M3 阶段再开）
+QuestionImageFileExtLiteral = Literal["png", "jpg", "jpeg", "webp"]
+
+# brief §3.1 QuestionImageSource enum：self_built | external_imported
+QuestionImageSourceLiteral = Literal["self_built", "external_imported"]
+
+# brief §3.1 DesensitizationStatus enum：pending | done | skipped
+DesensitizationStatusLiteral = Literal["pending", "done", "skipped"]
+
+
+class QuestionImageUploadRequest(BaseModel):
+    """POST /questions/{id}/images 请求 body（multipart form 非文件字段契约）。
+
+    实际文件走 ``UploadFile``（multipart/form-data 接收），本 schema 只承载
+    非文件字段，作为 OpenAPI 契约 + 手动校验用。router 端用 ``Form(...)`` 逐
+    字段接收（FastAPI 不支持 Pydantic model + UploadFile 混用）。
+
+    字段说明（brief §5.1 + §5.3）：
+    - file_ext: 文件扩展名；与上传文件实际内容一致；svg 不收
+    - order_index: 排序（与 Choice.order_index 同款；≥ 0）
+    - source: 来源（self_built / external_imported）
+    - checksum: 可选 SHA256（用于客户端 / 服务端一致性校验；本阶段不强制）
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    file_ext: QuestionImageFileExtLiteral = Field(
+        ...,
+        description=(
+            "文件扩展名（与上传文件实际内容一致；svg 不收 — 渲染/安全/排版 3 风险，brief §5.3）"
+        ),
+    )
+    order_index: int = Field(
+        default=0,
+        ge=0,
+        description="排序（与 Choice.order_index 同款；渲染时按 order_index 升序）",
+    )
+    source: QuestionImageSourceLiteral = Field(
+        default="self_built",
+        description="图片来源（brief §3.1 QuestionImageSource enum）",
+    )
+    checksum: str | None = Field(
+        default=None,
+        max_length=128,
+        description=(
+            "可选文件 SHA256（用于客户端 / 服务端一致性校验；本阶段不强制）"
+        ),
+    )
+
+
+class QuestionImageRead(BaseModel):
+    """GET /questions/{id}/images/{image_id} 响应（也用于 POST 返回）。
+
+    11 列（model 12 列 - 路径已含的 question_id）：
+    - id / order_index / file_ext / storage_path / source /
+      desensitization_status / desensitized_at / uploaded_at /
+      uploaded_by_user_id / oss_object_key / oss_uploaded_at
+    """
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    id: int
+    order_index: int
+    file_ext: str
+    storage_path: str
+    source: QuestionImageSourceLiteral = Field(
+        ...,
+        description="图片来源（brief §3.1 QuestionImageSource enum 值）",
+    )
+    desensitization_status: DesensitizationStatusLiteral = Field(
+        ...,
+        description="脱敏状态（brief §3.1 DesensitizationStatus enum 值；S1/M2 阶段默认 pending）",
+    )
+    desensitized_at: datetime | None = Field(
+        default=None,
+        description="脱敏完成时间戳（M3 实际写入；S1/M2 = NULL）",
+    )
+    uploaded_at: datetime
+    uploaded_by_user_id: int = Field(
+        ...,
+        description="上传者 user_id（与 QuestionImage row 的归属字段对齐；D-29 §1.4 跨用户隔离）",
+    )
+    oss_object_key: str | None = Field(
+        default=None,
+        description="OSS object key（M3 预留字段；S1/M2 = NULL）",
+    )
+    oss_uploaded_at: datetime | None = Field(
+        default=None,
+        description="OSS 上传完成时间（M3 预留字段；S1/M2 = NULL）",
+    )

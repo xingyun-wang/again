@@ -54,6 +54,7 @@ from app.api.v1.schemas.academic import (
     LessonPlanReviewResponse,
     QuestionCreate,
     QuestionDifficulty,
+    QuestionImageRead,
     QuestionListResponse,
     QuestionRead,
     QuestionType,
@@ -84,6 +85,16 @@ from app.models import (
 )
 from app.models import (
     QuestionType as ORMQuestionType,
+)
+
+# M2-A.1：QuestionImage + 2 enum 从 app.models.academic 直导入
+# (QuestionImage/QuestionImageSource/DesensitizationStatus 尚未在 app.models.__init__
+#  re-export，禁动清单锁 __init__，故直导入；不影响既有 import 结构)
+from app.models.academic import (
+    QuestionImage,
+)
+from app.models.academic import (
+    QuestionImageSource as ORMQuestionImageSource,
 )
 from app.services.textbook_upload import (
     DEFAULT_MAX_UPLOAD_BYTES,
@@ -1223,3 +1234,355 @@ def delete_question(
     _enforce_owner_or_404(q, user_id)
     db.delete(q)
     db.commit()
+
+
+# ─────────────── M2-A.1 题目图片承载 3 endpoint（v0.5 §3.4 + brief §5） ────────
+#
+# 范围锁定（brief §5）：
+# - POST   /questions/{id}/images
+# - GET    /questions/{id}/images/{image_id}
+# - DELETE /questions/{id}/images/{image_id}
+# - owner check 仿 get_assignment（routers/assignments.py:111-130）= 直接
+#   question.owner_user_id != user_id 返 404（不暴露存在性）
+# - 限制：file_ext ∈ {png, jpg, jpeg, webp}（svg 不收 — brief §5.3）；
+#         单图 ≤ 5MB（与 nginx client_max_body_size 同步 — brief §5.3）；
+#         单题 ≤ 10 张图（brief §5.3；50→10 降一档降落地复杂度）
+#
+# 路径模板（brief §4.1）：${UPLOAD_ROOT}/{chapter_id}/{question_id}/{image_id}.{ext}
+#   容器内默认 = /app/data/uploads/{chapter_id}/{question_id}/{image_id}.{ext}
+#   本机测试 = ./data/uploads/{chapter_id}/...（compose 挂载）
+#
+# 范围外（brief §3 + §6 锁）：
+# - 实际 OSS 上传（M3 范围）
+# - 脱敏实际处理（M3 范围）
+# - 共建 is_public（M2-A.0 lock MVP）
+
+
+# 5MB 限制（brief §5.3；与 nginx client_max_body_size 同步）
+MAX_QUESTION_IMAGE_BYTES = 5 * 1024 * 1024
+
+# 单题最多 10 张图（brief §5.3；50→10 降一档降落地复杂度）
+MAX_IMAGES_PER_QUESTION = 10
+
+# 支持的文件扩展名（brief §5.3 + §3.1 file_ext 注释；svg 不收）
+_ALLOWED_FILE_EXTS: frozenset[str] = frozenset({"png", "jpg", "jpeg", "webp"})
+
+# 支持的 MIME（brief §5.3）
+_ALLOWED_CONTENT_TYPES: frozenset[str] = frozenset(
+    {"image/png", "image/jpeg", "image/webp"}
+)
+
+
+# ────────────── 1. POST /questions/{id}/images ──────────────
+
+
+@router.post(
+    "/questions/{question_id}/images",
+    response_model=QuestionImageRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="上传题目图片（brief §5.1 + D-29 §1.4）",
+    tags=["academic"],
+)
+def upload_question_image(
+    question_id: int,
+    file: Annotated[UploadFile, File(description="题目图片二进制（image/png|jpeg|webp）")],
+    file_ext: Annotated[
+        str,
+        Form(description="文件扩展名（png/jpg/jpeg/webp；svg 不收 — brief §5.3）"),
+    ],
+    order_index: Annotated[
+        int,
+        Form(
+            ge=0,
+            description="排序（与 Choice.order_index 同款；渲染时按 order_index 升序）",
+        ),
+    ] = 0,
+    source: Annotated[
+        str,
+        Form(description="图片来源（self_built/external_imported — brief §3.1）"),
+    ] = "self_built",
+    checksum: Annotated[
+        str | None,
+        Form(
+            max_length=128,
+            description="可选 SHA256（用于客户端 / 服务端一致性校验；本阶段不强制）",
+        ),
+    ] = None,
+    db: Annotated[Session, Depends(get_db)] = ...,  # type: ignore[assignment]
+    user_id: Annotated[int, Depends(get_current_user_id)] = ...,  # type: ignore[assignment]
+) -> QuestionImage:
+    """POST /api/v1/academic/questions/{id}/images — 上传题目图片。
+
+    校验（顺序：
+        1 → 6 严格 = owner 先于内容；存在性先于格式）：
+    1. question 存在 + 归属当前 user（D-29 §1.4）→ 404 if mismatch
+    2. file_ext ∈ {png, jpg, jpeg, webp}（svg 不收 — brief §5.3）→ 422
+    3. file.content_type ∈ {image/png, image/jpeg, image/webp}（brief §5.3）→ 422
+    4. source ∈ {self_built, external_imported}（防御未来 schema 改）→ 422
+    5. 单题 ≤ 10 张图（brief §5.3）→ 422
+    6. 文件 ≤ 5MB（brief §5.3）→ 413
+
+    路径模板（brief §4.1）：``${UPLOAD_ROOT}/{chapter_id}/{question_id}/{image_id}.{ext}``。
+    落盘后写 DB（先 INSERT flush 拿 id，再写文件 + 回填 storage_path + commit）。
+    失败回滚：删文件 + DB rollback。
+
+    Raises:
+        HTTPException 401: 缺失 X-User-Id
+        HTTPException 404: question 不存在 / 不属于当前 user（D-29 §1.4）
+        HTTPException 413: 文件超过 5MB 上限（brief §5.3）
+        HTTPException 422: file_ext / MIME / source 不支持；超 10 张图上限
+        HTTPException 500: 落盘失败 / DB write failed
+    """
+    # 1. question 存在 + owner check（owner check 仿 get_assignment 模式）
+    question = db.get(Question, question_id)
+    if question is None:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+    if question.owner_user_id != user_id:
+        # D-29 §1.4：跨用户返 404（不暴露存在性）
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+
+    # 2. file_ext 白名单（svg 不收 — brief §5.3）
+    file_ext_lower = file_ext.lower()
+    if file_ext_lower not in _ALLOWED_FILE_EXTS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"file_ext {file_ext!r} 不支持"
+                f"（仅 png/jpg/jpeg/webp；svg 不收 — brief §5.3）"
+            ),
+        )
+
+    # 3. MIME 白名单（client 自报 content_type；首关在 brief §5.3 = 允许列表）
+    if (
+        file.content_type is not None
+        and file.content_type not in _ALLOWED_CONTENT_TYPES
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"MIME {file.content_type!r} 不支持"
+                f"（仅 image/png|jpeg|webp；brief §5.3）"
+            ),
+        )
+
+    # 4. source 白名单（防御：未来 schema 改了也不会静默接受）
+    if source not in ("self_built", "external_imported"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"source {source!r} 不支持（self_built/external_imported）",
+        )
+
+    # 5. 单题最多 10 张图（brief §5.3；50→10 降一档）
+    if len(question.images) >= MAX_IMAGES_PER_QUESTION:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"question_id {question_id} 已达 {MAX_IMAGES_PER_QUESTION} 张图上限"
+                f"（brief §5.3）"
+            ),
+        )
+
+    # 6. INSERT QuestionImage row（先 flush 拿 id，再写文件，再回填 storage_path）
+    image = QuestionImage(
+        question_id=question_id,
+        order_index=order_index,
+        file_ext=file_ext_lower,
+        storage_path="",  # 暂空；flush 拿 id 后回填
+        source=ORMQuestionImageSource(source),
+        uploaded_by_user_id=user_id,
+    )
+    db.add(image)
+    try:
+        db.flush()  # 拿 image.id
+    except Exception as e:
+        db.rollback()
+        logger.exception(
+            "QuestionImage INSERT flush failed: question_id=%s", question_id
+        )
+        raise HTTPException(
+            status_code=500, detail=f"DB write failed: {e}"
+        ) from e
+
+    # 7. 路径模板 + 写文件（仿 service 模式：D-28 第 4 条可证伪 = 流式 + 5MB cap）
+    chapter = db.get(Chapter, question.chapter_id)
+    if chapter is None:
+        # 数据异常：FK 一定存在，但守一手
+        raise HTTPException(
+            status_code=500,
+            detail=f"question {question_id} 关联 chapter 不存在（数据异常）",
+        )
+
+    uploads_root = os.environ.get("UPLOAD_ROOT", DEFAULT_UPLOADS_DIR)
+    storage_path = (
+        f"{uploads_root}/{chapter.id}/{question_id}/{image.id}.{file_ext_lower}"
+    )
+    image.storage_path = storage_path
+
+    target_path = Path(storage_path)
+    try:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"创建目录失败 {target_path.parent}: {e}"
+        ) from e
+
+    bytes_written = 0
+    try:
+        with open(target_path, "wb") as f:
+            while True:
+                chunk = file.file.read(8192)
+                if not chunk:
+                    break
+                bytes_written += len(chunk)
+                if bytes_written > MAX_QUESTION_IMAGE_BYTES:
+                    raise UploadTooLargeError(
+                        f"文件超出 {MAX_QUESTION_IMAGE_BYTES // (1024 * 1024)} MB 上限"
+                    )
+                f.write(chunk)
+    except UploadTooLargeError as e:
+        with contextlib.suppress(OSError):
+            target_path.unlink(missing_ok=True)
+        db.rollback()
+        raise HTTPException(status_code=413, detail=str(e)) from e
+    except OSError as e:
+        with contextlib.suppress(OSError):
+            target_path.unlink(missing_ok=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"文件写入失败 {target_path}: {e}"
+        ) from e
+
+    # 8. commit + refresh
+    try:
+        db.commit()
+        db.refresh(image)
+    except Exception as e:
+        with contextlib.suppress(OSError):
+            target_path.unlink(missing_ok=True)
+        db.rollback()
+        logger.exception(
+            "QuestionImage commit failed: image_id=%s", image.id
+        )
+        raise HTTPException(status_code=500, detail=f"DB write failed: {e}") from e
+
+    # checksum 暂不强制校验（本阶段 M2-A.1；M3+ 加服务端校验）
+    _ = checksum  # noqa: F841  # 避免未用警告
+    return image
+
+
+# ────────────── 2. GET /questions/{id}/images/{image_id} ──────────────
+
+
+@router.get(
+    "/questions/{question_id}/images/{image_id}",
+    response_model=QuestionImageRead,
+    summary="获取题目图片（brief §5.1 + D-29 §1.4）",
+    tags=["academic"],
+)
+def get_question_image(
+    question_id: int,
+    image_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> QuestionImage:
+    """GET /api/v1/academic/questions/{id}/images/{image_id} — 获取题目图片。
+
+    鉴权（仿 get_assignment 模式，routers/assignments.py:111-130）：
+        question.owner_user_id != user_id → 404（不暴露存在性）
+        image.question_id != question_id → 404（不暴露 image 是否在别题下）
+    """
+    question = db.get(Question, question_id)
+    if question is None:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+    if question.owner_user_id != user_id:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+
+    image = db.get(QuestionImage, image_id)
+    if image is None:
+        raise HTTPException(
+            status_code=404, detail=f"image_id {image_id} 不存在"
+        )
+    if image.question_id != question_id:
+        # image 不属于此 question：404（不暴露存在性）
+        raise HTTPException(
+            status_code=404, detail=f"image_id {image_id} 不存在"
+        )
+    return image
+
+
+# ────────────── 3. DELETE /questions/{id}/images/{image_id} ──────────────
+
+
+@router.delete(
+    "/questions/{question_id}/images/{image_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="删除题目图片（brief §5.1 + D-29 §1.4）",
+    tags=["academic"],
+)
+def delete_question_image(
+    question_id: int,
+    image_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> None:
+    """DELETE /api/v1/academic/questions/{id}/images/{image_id} — 删除题目图片。
+
+    鉴权（仿 get_assignment 模式，routers/assignments.py:111-130）：
+        question.owner_user_id != user_id → 404（不暴露存在性）
+        image.question_id != question_id → 404（不暴露 image 是否在别题下）
+
+    清理顺序：先删 DB row（commit）→ 再删磁盘文件（best effort，DB 已 commit
+    不回滚；若文件删失败，row 已删，孤儿文件由运维兜底 —— brief §三 §六
+    强调「落盘 + DB 一致性最佳努力」）。
+    """
+    question = db.get(Question, question_id)
+    if question is None:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+    if question.owner_user_id != user_id:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+
+    image = db.get(QuestionImage, image_id)
+    if image is None:
+        raise HTTPException(
+            status_code=404, detail=f"image_id {image_id} 不存在"
+        )
+    if image.question_id != question_id:
+        raise HTTPException(
+            status_code=404, detail=f"image_id {image_id} 不存在"
+        )
+
+    # 记录 storage_path 后删 row
+    storage_path = image.storage_path
+    db.delete(image)
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.exception(
+            "QuestionImage DELETE commit failed: image_id=%s", image_id
+        )
+        raise HTTPException(status_code=500, detail=f"DB write failed: {e}") from e
+
+    # best effort 删磁盘文件（DB 已 commit；删失败只 log，不抛 500）
+    if storage_path:
+        try:
+            Path(storage_path).unlink(missing_ok=True)
+        except OSError as e:  # noqa: BLE001
+            logger.warning(
+                "清理已删除 QuestionImage 的磁盘文件失败 %s: %s（孤儿文件）",
+                storage_path,
+                e,
+            )
