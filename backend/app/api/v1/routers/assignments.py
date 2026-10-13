@@ -32,6 +32,7 @@ from app.api.deps import _enforce_owner_or_404
 from app.api.v1.schemas.academic import TeacherReviewStatus
 from app.api.v1.schemas.assignments import (
     AssignmentCreate,
+    AssignmentExportResponse,
     AssignmentRead,
     AssignmentReviewRequest,
     AssignmentReviewResponse,
@@ -264,4 +265,73 @@ def review_assignment(
             reviewed_at=assignment.reviewed_at,
             review_notes=assignment.review_notes,
         ),
+    )
+
+
+# ────────────────── 4. POST /assignments/{id}/export（M2-S3 §5.3） ──────────────
+#
+# PDF stub 闸门（§7.5 硬约束：未审不得导出）。
+# - 闸门判 review_status == APPROVED（DB 层 ORM enum；不判 API Literal）
+# - != APPROVED → 403（含 pending + modified；同 DB 侧判断）
+# - == APPROVED → 200 + stub response（不实际生成 PDF；S4 接真生成）
+#
+# 词汇不一致债（DB `approved` vs API `reviewed`）= 既有债，**不动**
+# （§十三 严禁）。DB 侧直接判 ORM enum APPROVED 是唯一以「与既有
+# routers/academic.py 一致」为理由的决策。
+#
+# 错误码：
+# - 401：缺失 X-User-Id（get_current_user_id 扌）
+# - 403：review_status != APPROVED（闸门）
+# - 404：assignment 不存在 / 不属于当前 user
+# - 500：DB / 其他意外失败
+
+
+@router.post(
+    "/assignments/{assignment_id}/export",
+    response_model=AssignmentExportResponse,
+    summary="作业单 PDF 导出闸门（S3 stub；S4 接真 PDF）",
+)
+def export_assignment(
+    assignment_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> AssignmentExportResponse:
+    """§7.5 闸门：review_status == APPROVED 才放行；S3 仅 stub。
+
+    Brief §5.3：
+    - 404：assignment 不存在 / 不属于当前 user（D-29 不暴露存在性）
+    - 403：review_status != APPROVED（DB 侧判 ORM enum）
+    - 200：返 stub response（不实际生成 PDF）
+    """
+    from app.models import Assignment
+
+    assignment = db.get(Assignment, assignment_id)
+    if assignment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"assignment {assignment_id} 不存在",
+        )
+    # M1-B retro 工单 B（D-29 B 项）：跨用户访问返 404（owner 直查）。
+    if assignment.owner_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"assignment {assignment_id} 不存在",
+        )
+
+    # §7.5 闸门：DB 侧判 ORM enum APPROVED（不用 API Literal；brief §7.5 拍板）
+    if assignment.review_status != KnowledgeReviewStatus.APPROVED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"assignment {assignment_id} 未通过教师审阅（review_status="
+                f"{assignment.review_status.value}），不能导出"
+            ),
+        )
+
+    # 闸门通过 → 返 stub response（S3 不实际生成 PDF；S4 接真 PDF）
+    return AssignmentExportResponse(
+        assignment_id=assignment.id,
+        export_id=f"stub-{assignment.id}",
+        status="queued",
+        note="S3 stub; S4 接真 PDF 生成",
     )
