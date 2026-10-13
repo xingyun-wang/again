@@ -355,3 +355,35 @@ review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 - 改既有 _enforce_owner_or_404 / _to_api_review_status / _to_orm_review_status / TeacherReviewStatus / KnowledgeReviewStatus（既有债不属 S3 范围）
 - 引入新 enum / 新 mixin / 新 mapping 函数（违反 Q2 复用）
 - 改 C4 词汇不一致（DB `approved` vs API `reviewed`）= 既有债，留独立工单
+
+
+## 修订追记（2026-10-13 09:35 父会话收口 / 审核员转载曜 round 2 反馈）
+
+**触发**：审核员转载曜 2026-10-13 09:32 round 2 A1 反馈 — brief 是唯一真值源但落地与描述逐条互斥；建议加"修订追记"（不改正文，便宜且保历史定稿完整）。
+
+**brief 描述 vs 落地差异表**（落地 = 668fddd..6caf9b0 9 笔收工）：
+
+| # | 维度 | brief 描述 | 落地 | 收口路径 |
+|---|---|---|---|---|
+| 1 | 用例数 | 6 用例（5 反向 + 1 正向）| **7 用例**（6 反向 + 1 正向；R6 modified → 403 闸门补） | A1 修法 = 补用例 C6 |
+| 2 | commit 数 | 5 commit | **9 笔**（5 S3-backend + C6 R6 + C7 brief 入库 + commit 8 §治理.14 + commit 9 收工 amend）| A2 修法 = brief 入库 C7 + A3 修法 = commit 8 §治理.14 + 收工 amend |
+| 3 | mypy 入场闸 | mypy app → 0 errors | mypy app → **2 errors in question_generator.py:213,262**（pre-existing base 债）| A3 修法 = §治理.14 落字豁免（决策不是默认）|
+| 4 | 基线 SHA | dba448d | **668fddd**（frontend 3 commit landed via CI #85）| 父会话 21:55 merge m2-prep/frontend-skeleton 后推进 |
+| 5 | working tree | status empty | status non-empty: 9 files +1239/-10 | 9 笔落地数字真值 |
+
+**修法说明**：
+
+- **不改正文**（brief 是决策室历史定稿；保留 2026-10-13 08:45 初版完整记录）
+- **加追记**（保历史 + 当前真值双轨；下游读者既可看 brief 原意又可看落地差异）
+- **不重 commit brief**（不重写文件，brief 在 C7 已 tracked）
+
+**法源依据**：
+- 审核员转载曜 2026-10-13 09:32 round 2 A1 反馈（brief 是唯一真值源，定稿需追记差异）
+- D-43-X §5 修正规则 #1（自报字段必 fresh read 核源 = commit 8 + memory/STATE 失实 5 处的同源教训）
+- D-43-X §5 round 1 收口规则（豁免是决策不是默认；brief 是决策室记录不是工程代码 = 修法不同）
+
+**来源**：
+- 本笔 commit 10 + reflog 证 c3486d3 → 854af47 → 6caf9b0（同一笔收工 amend 二次）
+- `git diff --shortstat 668fddd..6caf9b0` 实测 = 9 files +1239/-10
+- 9 笔 SHA 真值（按时间倒序）：6caf9b0 / ee2f528 / 958cb69 / 2b98662 / d8efe8b / 825e442 / 8c222c4 / b8d507d / 340280d
+- 取数时刻 2026-10-13 09:35 +0800（按 D-75 §2）
