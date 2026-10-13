@@ -1,8 +1,10 @@
-"""Assignment API router（M2-A.1 · v0.5 §3.6 老师审阅流程第 1 步产物）。
+"""Assignment API router（M2-A.1 · v0.5 §3.6 老师审阅流程 + M2-S3 §7.5 闸门）。
 
 端点：
-- POST /api/v1/assignments              → 创建作业单（出题引擎跑 + 落库）
-- GET  /api/v1/assignments/{id}         → 查作业单详情（含 items + 鉴权 owner）
+- POST  /api/v1/assignments              → 创建作业单（出题引擎跑 + 落库）
+- GET   /api/v1/assignments/{id}         → 查作业单详情（含 items + 鉴权 owner）
+- PATCH /api/v1/assignments/{id}/review  → 老师审阅（M2-S3 §5.2）
+- POST  /api/v1/assignments/{id}/export  → PDF stub 闸门（M2-S3 §5.3）
 
 设计要点：
 - 鉴权：X-User-Id header（M1-B B.2 简化 auth；与 academic router 一致）
@@ -10,7 +12,11 @@
   越权返 404 而非 403，避免暴露存在性）
 - 反马太：v0.5 §3.5 line 168 verbatim 判据由 question_generator 实现
   （100 题 D 档作业 C 抽 ∈ [15, 25]、B 抽 = 0）
-- §7.5 硬约束：作业单 review_status = pending（S3 才有 review 流程）
+- §7.5 硬约束：作业单 review_status = pending → reviewed/modified；
+  C4 export 闸门 = review_status != APPROVED → 403
+- Q2 复用：TeacherReviewStatus mixin 从 academic 复用，不重定义；
+  mapping 函数 local copy 在本文件（不抽到 app/api/deps.py — §十三禁
+  动既有债；C4 词汇不一致 = 既有债，照搬不改）
 """
 
 from __future__ import annotations
@@ -25,9 +31,14 @@ from app.api.deps import _enforce_owner_or_404
 from app.api.v1.schemas.assignments import (
     AssignmentCreate,
     AssignmentRead,
+    ReviewStatusLiteral,
 )
 from app.db.session import get_db
-from app.models import Chapter, User
+from app.models import (
+    Chapter,
+    KnowledgeReviewStatus,
+    User,
+)
 from app.services.question_generator import (
     generate_assignment_for_chapter,
 )
@@ -35,6 +46,36 @@ from app.services.question_generator import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ────────────────── §7.5 enum 映射（local copy；与 academic 隔离） ────────────
+#
+# ORM KnowledgeReviewStatus 三态：pending / approved / modified
+# API spec §7.5 三态：           pending / reviewed / modified
+# 两者仅 APPROVED 命名不一致（"approved" vs "reviewed"）；语义一致。
+# 映射：API "reviewed" ↔ ORM APPROVED；其余名字一致。
+#
+# §十三 严禁：
+# - 不动 routers/academic.py 既有 _to_api_review_status / _to_orm_review_status
+#   （既有债不属 S3 范围；照搬逻辑即满足"不修"原则）
+# - 不抽到 app/api/deps.py（不在 S3 范围；保持 inline 模式）
+# - C4 词汇不一致（DB `approved` vs API `reviewed`）照搬不改（既有债）
+
+
+def _to_api_review_status(orm_status: KnowledgeReviewStatus) -> ReviewStatusLiteral:
+    """ORM enum value → API schema 用的 string（local copy；routers/academic.py:193-211 对齐）。"""
+    if orm_status == KnowledgeReviewStatus.APPROVED:
+        return "reviewed"
+    if orm_status == KnowledgeReviewStatus.PENDING:
+        return "pending"
+    return "modified"
+
+
+def _to_orm_review_status(api_status: str) -> KnowledgeReviewStatus:
+    """API schema string → ORM enum value（local copy；routers/academic.py:193-211 对齐）。"""
+    if api_status == "reviewed":
+        return KnowledgeReviewStatus.APPROVED
+    return KnowledgeReviewStatus(api_status)
 
 
 def get_current_user_id(
