@@ -43,7 +43,7 @@ class QuestionImage(Base):
     order_index: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
-    file_ext: Mapped[str] = mapped_column(String(8), nullable=False)  # png/jpg/webp/svg
+    file_ext: Mapped[str] = mapped_column(String(8), nullable=False)  # png/jpg/webp (svg 不收 — 渲染/安全/排版 3 风险；D-XX 后续立条时再开)
     storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
     source: Mapped[QuestionImageSource] = mapped_column(SAEnum(...))  # self_built | external_imported
     desensitization_status: Mapped[DesensitizationStatus] = mapped_column(
@@ -77,7 +77,7 @@ images: Mapped[list[QuestionImage]] = relationship(
 | `id` | PK | 自增 |
 | `question_id` | FK | → `questions.id` (CASCADE) |
 | `order_index` | Integer | 排序（与 `Choice.order_index` 同款） |
-| `file_ext` | String(8) | png/jpg/webp/svg |
+| `file_ext` | String(8) | png/jpg/webp (svg 不收) |
 | `storage_path` | String(512) | 本地相对路径 |
 | `source` | enum | `self_built` / `external_imported` |
 | `desensitization_status` | enum | `pending` / `done` / `skipped` |
@@ -139,9 +139,9 @@ ${UPLOAD_ROOT}/{chapter_id}/{question_id}/{image_id}.{ext}
 
 ### 5.3 约束
 
-- 单题最多 N 张图（按性能 / 存储决定；默认 50）
+- 单题最多 N 张图（按性能 / 存储决定；默认 10（per 星轨 2026-10-13 拍；50→10 降一档降落地复杂度；S0-5 阶段 MVP 够用）
 - 单图最大 size = 5MB（与 nginx `client_max_body_size` 同步）
-- 支持 MIME：`image/png` / `image/jpeg` / `image/webp` / `image/svg+xml`
+- 支持 MIME：`image/png` / `image/jpeg` / `image/webp`（svg 不收；M3 阶段再开）
 
 ## 六、存储设计
 
