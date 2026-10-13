@@ -1027,3 +1027,52 @@ $ ls -d --time-style=full-iso ~/.openclaw/agents/again/agent/workshop-skills/ass
 > **法源依据**：星云 14:04 拍板（Option B = 不改 commit + 留痕 + 修法）；D-43 §5（决策室不修代码逻辑）；D-04（决策室自实施例外）；D-43-X 协作纪律（"结论性陈述必须自我验证"）；D-83 不立原则（元规则通胀防御）
 >
 > **来源**：本笔 commit + git log aba2164 真值验证 + 星云 14:04 callout + 取数时刻 2026-10-12 14:00 +0800（按 D-75 §2）
+
+---
+
+### §治理.14 M2-S3 mypy 既有债豁免（question_generator.py:213,262）
+
+#### §治理.14.1 触发
+
+M2-S3 收口审核（审核员转载曜 2026-10-13 09:14 A3 反馈）。
+
+#### §治理.14.2 失实真值
+
+- M2-S3 brief §294 入场闸要 `mypy app → 0 errors`，实测 2 errors in
+  `app/services/question_generator.py:213,262`
+- 该文件 base `668fddd` / head `958cb69` hash 相同 ⇒ **确非 S3 引入**（pre-existing 债）
+- S3 5 commit 0 改动 question_generator.py（`git diff 668fddd..958cb69` 已核）
+- 既有债豁免**没落字** = 字面红、口头绿 = 入场闸字面未达
+
+#### §治理.14.3 决策（豁免 + 落字 = 决策不是默认）
+
+**豁免** `app/services/question_generator.py:213,262` 两处 narrowing errors
+于 M2-S3 backend 落地期间（C1-C7 7 commit + C6 R6 + C7 brief 入库）。
+豁免范围**仅** M2-S3 backend 落地期；后续 M2+ 阶段如需 mypy 0 errors
+入场闸，必须先修该 2 处 narrowing（独立 brief + D-XX 拍板，不属 S3 范围）。
+
+**修法** = 本节落字 + `memory/2026-10-13.md §X` 写既有债豁免追踪 + 后续
+独立 D-XX 拍板修 narrowing（**不立 D-XX 编号**于本笔 — per D-83 不立原则）。
+
+#### §治理.14.4 当前状态
+
+- HEAD = `958cb69`（M2-S3 7 commit + brief 入库 + 双 remote 0/0 同步待 push +
+  7 commit 4 字段齐 + 容器 PG pytest 7/7 PASSED + 容器 alembic head 0010 +
+  ruff 0 + mypy 2 既有债豁免）
+- 豁免落字 = 本节（§治理.14）
+- S3-backend 7 commit 0 触达禁动清单 9 文件
+- 修正规则 = D-43-X §5 入场闸字面/口头分清（豁免是决策不是默认）
+
+---
+
+> **【2026-10-13 09:35 变更说明 · notes/milestones.md】**
+>
+> **修订范围**：1 项治理豁免落字
+> 1. **§治理.14 M2-S3 mypy 既有债豁免**（question_generator.py:213,262）新增（本笔）
+>
+> **法源依据**：M2-S3 收口审核 A3 反馈（审核员转载曜 2026-10-13 09:14）+
+> 星云 09:14 同意走 (b) 不必再排一轮 + D-43-X §5 修正规则 #1（入场闸字面/口头分清 +
+> 豁免是决策不是默认）
+>
+> **来源**：本笔 commit 8 + git diff 668fddd..958cb69 验证 question_generator.py
+> 0 改动 + git log 真值 + 取数时刻 2026-10-13 09:35 +0800（按 D-75 §2）
