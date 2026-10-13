@@ -384,3 +384,86 @@ def test_R6_modified_export_403(
     assert "未通过" in detail or "review" in detail.lower(), (
         f"403 detail 应说明未审原因，实际：{detail}"
     )
+
+
+# ─── F2：GET 响应含 review 字段（M2-S3-frontend B4 验证用例，brief §6.3） ───
+
+
+def test_F2_get_assignment_includes_review_field_200(
+    client: TestClient,
+    chapter_with_questions: Any,
+    mock_db_session: Any,
+) -> None:
+    """M2-S3-frontend B4 验证：GET /api/v1/assignments/{id} 响应必含 review 字段。
+
+    防恒真门槛（防 D-28 家族）：
+    - 预检 status_code == 200
+    - 预检 response JSON 含 "review" key（顶层）
+    - 预检 review 是 dict（TeacherReviewStatus 序列化产物）
+    - 预检 review.review_status == "pending"（新建作业单默认）
+    - 预检 review.reviewed_by is None（未审过）
+    - 预检 review.reviewed_at is None（未审过）
+    - 预检 review.review_notes is None（未审过）
+    - DB 直查 ORM 字段无修改（review_status.value == "pending"），
+      确保 B4 修法没误改 ORM 数据
+
+    Brief §4.1 关键发现: TeacherReviewStatus schema 无 from_attributes=True，
+    B4 在 routers/assignments.py GET/POST 改成手动构造 review 子对象。
+    本用例验证 GET 路径手动构造输出 = API 契约符合。
+    """
+    aid = _create_assignment_pending(client, chapter_with_questions.id)
+
+    # 1. GET /api/v1/assignments/{id} (同 user, owner check pass)
+    resp = client.get(
+        f"/api/v1/assignments/{aid}",
+        headers={"X-User-Id": "1"},
+    )
+    assert resp.status_code == 200, (
+        f"GET 应 200，实际 {resp.status_code}：{resp.text}"
+    )
+    data = resp.json()
+
+    # 2. 顶层必含 "review" 字段
+    assert "review" in data, (
+        f"GET 响应顶层应含 'review' 字段，实际 keys: {sorted(data.keys())}"
+    )
+    review = data["review"]
+    assert isinstance(review, dict), (
+        f"review 应为 dict（TeacherReviewStatus 序列化产物），实际 {type(review).__name__}"
+    )
+
+    # 3. review 4 子字段全在（TeacherReviewStatus mixin 4 件套）
+    expected_keys = {"review_status", "reviewed_by", "reviewed_at", "review_notes"}
+    actual_keys = set(review.keys())
+    assert expected_keys.issubset(actual_keys), (
+        f"review 字段不完整，期望 {expected_keys}，实际 {actual_keys}"
+    )
+
+    # 4. 新建作业单 review_status = "pending"（默认 PENDING → API pending）
+    assert review["review_status"] == "pending", (
+        f"新建作业单 review_status 应 'pending'，实际 {review['review_status']}"
+    )
+
+    # 5. 3 个 nullable 字段都是 None
+    assert review["reviewed_by"] is None, (
+        f"未审 reviewed_by 应 None，实际 {review['reviewed_by']}"
+    )
+    assert review["reviewed_at"] is None, (
+        f"未审 reviewed_at 应 None，实际 {review['reviewed_at']}"
+    )
+    assert review["review_notes"] is None, (
+        f"未审 review_notes 应 None，实际 {review['review_notes']}"
+    )
+
+    # 6. DB 直查：ORM review_status 未被 B4 修法误改
+    row = mock_db_session.get(Assignment, aid)
+    assert row is not None
+    assert row.review_status == KnowledgeReviewStatus.PENDING, (
+        f"DB review_status 应为 PENDING（未被 B4 改），实际 {row.review_status}"
+    )
+    assert row.review_status.value == "pending", (
+        f"DB review_status.value 应为 'pending'，实际 {row.review_status.value}"
+    )
+    assert row.reviewed_by is None
+    assert row.reviewed_at is None
+    assert row.review_notes is None
