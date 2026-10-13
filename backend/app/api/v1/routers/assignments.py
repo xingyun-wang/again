@@ -33,6 +33,7 @@ from app.api.v1.schemas.academic import TeacherReviewStatus
 from app.api.v1.schemas.assignments import (
     AssignmentCreate,
     AssignmentExportResponse,
+    AssignmentItemRead,
     AssignmentRead,
     AssignmentReviewRequest,
     AssignmentReviewResponse,
@@ -151,7 +152,29 @@ def create_assignment(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
-    return AssignmentRead.model_validate(assignment)
+    # M2-S3-frontend B4：手动构造（含 review 字段；仿 PATCH /review 模式，
+    # brief §4.1）。原因：TeacherReviewStatus schema 无 from_attributes=True，
+    # model_validate(assignment) 不会从 ORM 4 字段构造 review 子对象。
+    return AssignmentRead(
+        id=assignment.id,
+        owner_user_id=assignment.owner_user_id,
+        chapter_id=assignment.chapter_id,
+        tier=assignment.tier,
+        total_count=assignment.total_count,
+        d_count=assignment.d_count,
+        c_count=assignment.c_count,
+        b_count=assignment.b_count,
+        a_count=assignment.a_count,
+        seed=assignment.seed,
+        created_at=assignment.created_at,
+        items=[AssignmentItemRead.model_validate(item) for item in assignment.items],
+        review=TeacherReviewStatus(
+            review_status=_to_api_review_status(assignment.review_status),
+            reviewed_by=assignment.reviewed_by,
+            reviewed_at=assignment.reviewed_at,
+            review_notes=assignment.review_notes,
+        ),
+    )
 
 
 @router.get("/assignments/{assignment_id}", response_model=AssignmentRead)
@@ -180,7 +203,29 @@ def get_assignment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"assignment {assignment_id} 不存在",
         )
-    return AssignmentRead.model_validate(assignment)
+    # M2-S3-frontend B4：手动构造（含 review 字段；仿 PATCH /review 模式，
+    # brief §4.1）。原因：TeacherReviewStatus schema 无 from_attributes=True，
+    # model_validate(assignment) 不会从 ORM 4 字段构造 review 子对象。
+    return AssignmentRead(
+        id=assignment.id,
+        owner_user_id=assignment.owner_user_id,
+        chapter_id=assignment.chapter_id,
+        tier=assignment.tier,
+        total_count=assignment.total_count,
+        d_count=assignment.d_count,
+        c_count=assignment.c_count,
+        b_count=assignment.b_count,
+        a_count=assignment.a_count,
+        seed=assignment.seed,
+        created_at=assignment.created_at,
+        items=[AssignmentItemRead.model_validate(item) for item in assignment.items],
+        review=TeacherReviewStatus(
+            review_status=_to_api_review_status(assignment.review_status),
+            reviewed_by=assignment.reviewed_by,
+            reviewed_at=assignment.reviewed_at,
+            review_notes=assignment.review_notes,
+        ),
+    )
 
 
 # ────────────────── 3. PATCH /assignments/{id}/review（M2-S3 §5.2） ────────────

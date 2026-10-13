@@ -54,7 +54,14 @@ class AssignmentItemRead(BaseModel):
 
 
 class AssignmentRead(BaseModel):
-    """作业单读（含 items + 4 档分布审计字段）。"""
+    """作业单读（含 items + 4 档分布审计字段 + 审阅状态）。
+
+    M2-S3-frontend B4：加 ``review: TeacherReviewStatus`` 字段。
+    原因：``TeacherReviewStatus`` schema 无 ``from_attributes=True``
+    （academic.py:49-65），直接 ``model_validate(assignment)`` 不会从
+    ORM 字段构造 review 子对象。解法：routers/assignments.py 的 GET
+    + POST 改成手动构造 review（仿 PATCH /review 模式，brief §4.1）。
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -70,6 +77,8 @@ class AssignmentRead(BaseModel):
     seed: int | None
     created_at: datetime
     items: list[AssignmentItemRead] = Field(default_factory=list)
+    # M2-S3-frontend B4：复用既有 TeacherReviewStatus mixin（academic.py）
+    review: TeacherReviewStatus
 
 
 # ──────────────────── M2-S3 §7.5 老师审阅 + PDF 闸门 schemas ────────────────
