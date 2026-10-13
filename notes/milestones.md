@@ -1125,3 +1125,142 @@ M2-S3 收口审核（审核员转载曜 2026-10-13 09:14 A3 反馈）。
 > **法源依据**：星云 2026-10-13 10:36 拍 S0-5 三 schema + 同意走 (a)（拆路径：父会话做 P1+P2 + 派 subagent 实施 C1-C4）+ 星轨派工稿澄清 + 决策书 §7.2 D-M2-2 题目图片承载 + D-43-X §5 修正规则 #1 派工纪律
 >
 > **来源**：本笔 commit + `M2-A.1-brief.md §3-§7` 真值（已 read）+ 决策书 §7.2 真值（已 read）+ 仓内 grep "三 schema|3 schema" 0 命中印证（星轨 spec 真值）+ 取数时刻 2026-10-13 10:36 +0800（按 D-75 §2）
+
+
+### §治理.16 M2-A.1 mypy 既有债豁免（question_generator.py:213,262）
+
+#### §治理.16.1 触发
+
+M2-A.1 收口审核（subagent 落 C3-C4 期间；2026-10-13 11:14-11:20）。
+
+#### §治理.16.2 失实真值
+
+- M2-A.1 brief §入场闸要 `mypy app → 0 errors`，实测 2 errors in
+  `app/services/question_generator.py:213,262`（同 M2-S3 报点）
+- 该文件 `git diff 668fddd..ea0cbfe` = 0 改动（C1+C2 0 触达 question_generator.py）
+- 既有债豁免**没落字** = 字面红、口头绿 = 入场闸字面未达
+
+#### §治理.16.3 决策（豁免 + 落字 = 决策不是默认）
+
+**豁免** `app/services/question_generator.py:213,262` 两处 narrowing errors
+于 M2-A.1 backend 落地期间（C1-C6 6 commit + brief 入库 + 修正规则 #1 第 N+1 次试）。
+豁免范围**仅** M2-A.1 backend 落地期；后续 M2+ 阶段如需 mypy 0 errors
+入场闸，必须先修该 2 处 narrowing（独立 brief + D-XX 拍板，不属 M2-A.1 范围）。
+
+**修法** = 本节落字 + `memory/2026-10-13.md` 写既有债豁免追踪 + 后续
+独立 D-XX 拍板修 narrowing（**不立 D-XX 编号**于本笔 — per D-83 不立原则）。
+
+#### §治理.16.4 当前状态
+
+- HEAD = `32ca2d4`（worktree `m2-prep/s0-5-questionimage`；6 commit 链
+  ea0cbfe..32ca2d4 = C1 + C2 + C3 + C4 + brief 订正 + subagent 落地 C3+C4；
+  push 双 remote 0/0 同步待收工 8 步 §7）
+- C1 = `bd6504d`（QuestionImage model 12 列 + 2 enum + 1:N）
+- C2 = `ea50649`（0011_question_images migration）
+- C3 = `8323ec1`（3 endpoint API + 2 Pydantic）
+- C4 = `32ca2d4`（4 tests + 3 防 D-28 = 7/7 容器 PG pytest PASSED）
+- 豁免落字 = 本节（§治理.16）
+- C1-C4 0 触达禁动清单 22 文件（父会话核过：subagent 仅改 5 可改文件 + 新建 1 测试文件）
+- 修正规则 = D-43-X §5 入场闸字面/口头分清（豁免是决策不是默认）
+
+---
+
+> **【2026-10-13 11:20 变更说明 · notes/milestones.md】**
+>
+> **修订范围**：1 项治理豁免落字
+> 1. **§治理.16 M2-A.1 mypy 既有债豁免**（question_generator.py:213,262）新增（本笔）
+>
+> **法源依据**：M2-A.1 收口审核（subagent 落 C3-C4 期间 mypy 真值 2 errors
+> 复现 §治理.14 报点）+ subagent 派工稿承诺豁免落字 + D-43-X §5 修正规则
+> #1（入场闸字面/口头分清 + 豁免是决策不是默认）
+>
+> **来源**：本笔 commit C5 + `git diff 668fddd..ea0cbfe` 验证
+> question_generator.py 0 改动 + 容器 mypy 真值 2 errors + 取数时刻
+> 2026-10-13 11:20 +0800（按 D-75 §2）
+
+
+### §治理.17 M2-A.1 dev 库 alembic_version=0010 + 0 表 incident 落字（修正规则 #1 第 N+1 次试）
+
+#### §治理.17.1 触发
+
+2026-10-13 10:40-11:06 subagent 第 N 次试跑 C2（0011 migration）撞破：
+- subagent 入场核 `docker compose exec -T backend alembic current` =
+  `0010_assignment_review_fields (head)`
+- subagent 跑 `alembic upgrade head` → DuplicateObject / 已存在 error（alembic
+  重跑 base + 0001-0010 失败；DB schema 与 code 错位）
+- 父会话独立核源：`SELECT count(*) FROM information_schema.tables WHERE
+  table_schema='public' AND table_name != 'alembic_version'` = **0** = **dev
+  库 0 张表**
+
+#### §治理.17.2 失实真值
+
+| 项 | subagent 报 | 父会话核 | 性质 |
+|---|---|---|---|
+| dev 库表数 | （未报） | **0** | D-43-X 失实（dev 库全空，无 user table）|
+| alembic_version | 0010 head | 0010（已 stamp base；alembic 视头）| D-43-X 漂移（code 报 head 但 DB 无 schema）|
+| 第 N 次试结果 | 撞破升级报错 | 撞破源头 = dev 库空 | §治理.13 修正规则（连续 2 次假阳性）触发 |
+
+#### §治理.17.3 决策（修正规则 #1 第 N+1 次试 = 父会话修 DB + 接管 C2 + 重派 subagent）
+
+**不退 subagent 第 N+1 次试**（连撞第 N 次 已 = §治理.13.4 第 1 条
+「D-04 例外举证 = 2 次连续假阳性」一半；连撞第 N+1 次 = 假阳性连击 2 =
+subagent silent failure 锁定）。
+
+**修法 = 父会话接管 C2 + 重派 subagent 跑 C3-C6**（同 §治理.13.4 第 1 条
+拍板路径）：
+1. 父会话 `alembic stamp base + alembic upgrade head`（0001-0011 全跑 + 幂等
+   2 轮）→ 19 user tables + 7 enums 重建
+2. 父会话同步 C1+C2 落地（commit `bd6504d` + `ea50649` 已落 worktree）
+3. 父会话派 subagent 重跑 C3-C6（修正规则 #1 第 N+1 次试）= 父会话已接管
+   退场；subagent 不撞同 blocker
+4. C5 §治理.17 落字（本节）
+5. C6 ledger_check.sh 增第 11/11 项 DB 一致性 check（防同类 incident 再撞）
+
+**不立 D-XX 编号**（per D-83 不立原则 = 元规则通胀防御；D-43-X 家族已覆盖
+「决策室不修代码逻辑 + 连续 2 次假阳性退 subagent」）。
+
+#### §治理.17.4 修正规则（下次同类场景必查）
+
+1. **D-04 例外举证 = 2 次连续假阳性**：subagent silent failure / partial work /
+   DB 错位 / code 与 schema 漂移 = 连撞 2 次 = 父会话**立即接管实施** +
+   派 subagent 重跑。**不**让 subagent 撞第 3 次。
+2. **subagent 入场必核 DB 一致性**：`alembic current` 期望值（brief §五报 sha =
+   `0011_question_images` head）vs 实际值 + `user_tables count` 期望 ≥ 19 +
+   `enums count` 期望 ≥ 7；任一不匹配 = 立即报告父会话，**不**擅自 `alembic stamp
+   / upgrade / downgrade`。
+3. **DB 失实留痕必走 §治理.13 模式**：触发 / 失实真值表 / 决策 / 修正规则 /
+   当前状态 = 5 段齐；commit time 报 `git log -1 --format=%ci` 实测，不写
+   约 X / 感觉 X。
+4. **ledger_check.sh 加 DB 一致性 check**（C6 落地）：`alembic current` 期望
+   `0011_question_images` head + user_tables ≥ 19 + enums ≥ 7；任一不匹配 =
+   ❌ 失败拒收工 + 触发本节 §治理.17 流程。
+
+#### §治理.17.5 当前状态
+
+- HEAD = `32ca2d4`（worktree `m2-prep/s0-5-questionimage`；C1+C2 已落 + C3+C4
+  已落 subagent + brief 订正已落）
+- DB 现状 = dev 库 19 user tables + 7 enums + alembic 0011 head（父会话 11:08
+  修过；subagent 11:11 入场核过）
+- 修正规则 = 本节 §17.4（下次同类场景必查）
+- 不立 D-XX 编号 = Option B 拍板决定
+- subagent 落地 4 commit = C3 + C4 + C5（本笔）+ C6（ledger_check）
+- 0 触达禁动清单 22 文件（父会话核过：subagent 仅改 5 可改文件 + 新建 1 测试
+  文件 + 增 1 ledger_check 项）
+
+---
+
+> **【2026-10-13 11:25 变更说明 · notes/milestones.md】**
+>
+> **修订范围**：1 项 incident 落字 + 1 项修正规则新增 + 1 项 ledger_check 防
+> 1. **§治理.17 M2-A.1 dev 库 alembic_version=0010 + 0 表 incident 落字**新增（本笔）
+> 2. **§17.4 修正规则**（D-04 2 次假阳性 + subagent 入场核 DB + 必走 §治理.13 模式 + ledger_check 加 DB 一致性）
+> 3. **C6 ledger_check.sh 第 11/11 项**（DB 一致性 check；防同类 incident 再撞）
+>
+> **法源依据**：subagent 第 N 次试撞破 + 父会话独立核源 0 tables 确认 +
+> §治理.13.4 第 1 条「D-04 例外举证 = 2 次连续假阳性」+ §治理.13 Option B
+> 拍板模式 + D-43-X §5 修正规则 #1（派工纪律）+ 星云 11:06 派工稿承诺
+> 修正规则 #1 第 N+1 次试
+>
+> **来源**：本笔 commit C5 + 父会话报回 0 tables 真值 + subagent 11:11 入场
+> 核 DB 19/7/0011 head（docker compose exec 真值）+ 取数时刻 2026-10-13
+> 11:25 +0800（按 D-75 §2）
