@@ -1076,3 +1076,52 @@ M2-S3 收口审核（审核员转载曜 2026-10-13 09:14 A3 反馈）。
 >
 > **来源**：本笔 commit 8 + git diff 668fddd..958cb69 验证 question_generator.py
 > 0 改动 + git log 真值 + 取数时刻 2026-10-13 09:35 +0800（按 D-75 §2）
+
+
+### §治理.15 M2-A.1 内容承载三决策（图片 / 表格 / 题组）
+
+#### §治理.15.1 触发
+
+2026-10-13 星云 10:31 拍 S0-5 三 schema 决策（**注意：仓内 `S0-5` 官方语义 = C/D 池内容建设**（decisions.md:1476 / 1535 拍板 = F-3 = D-56 = S0-X 阶段命名采纳），**与本三决策是不同概念**；详见 §15.3 撞名修正）。
+
+#### §治理.15.2 失实真值（派工前必读）
+
+星轨派工稿澄清（2026-10-13）："三 schema" 在决策层 = 3 个**内容承载**决策（**不是 3 个 Pydantic schema / SQLAlchemy schema**）：
+
+- **① 图片**：题目图片承载（地理等图像密集学科）— 实现走独立 `question_images` 表（1:N，与 `choices` 同构），12 列 + 2 enum（`QuestionImageSource` self_built/external_imported + `DesensitizationStatus` pending/done/skipped）+ 1:N relationship（`Question.images` cascade delete-orphan order_by order_index）+ 3 endpoint API（POST upload multipart / GET image / DELETE image）+ 4 test 判据（create+query/sort/cascade/constraints）+ 3 防 D-28 反向用例
+- **② 表格**：本笔不立内容（拍板未定；星轨派工稿仅举名 = 内容承载层「表格」概念位，未给具体 schema 详规）
+- **③ 题组**：本笔不立内容（同上；拍板未定；星轨派工稿仅举名 = 内容承载层「题组」概念位，未给具体 schema 详规）
+
+#### §治理.15.3 决策（内容承载三决策的边界 + 撞名修正）
+
+**三决策边界**：
+- **只有 ① 出代码**（~300 行 backend + migration `0011`，与 S3-backend 同量级）
+- **② ③ 当前不立内容**（如有 spec = 独立 brief + 独立 D-XX 拍板，**不与 ① 混** = 守"不并片" = §5 教训 #9）
+
+**撞名修正**（持久化价值，防下个会话误读）：
+- **仓内 `S0-5` token 有 2 个不同含义**：
+  - **含义 A**：C/D 池内容建设（decisions.md:1476 / 1535 = F-3 拍板 = D-56 = S0-X 阶段命名采纳）— 任务是 fixture 内容填充
+  - **含义 B**：三 schema 决策（= 本 §治理.15 落字）— 任务是 QuestionImage + 后续表格/题组
+- **两者无业务关联**（C/D 池 = 题目文本内容；三 schema = 题目载体 = 图片/表格/题组）
+- **修法**：后续文档**禁用 `S0-5` 单独使用**，必须带上下文（如「S0-5 C/D 池内容」或「S0-5 三 schema 决策」或「S0-5 = §治理.15 三决策落地」）
+- **本笔 P1 落字 token = 「M2-A.1 内容承载三决策」**（明确指向 §治理.15 = 三决策，避开 S0-5 撞名）
+
+#### §治理.15.4 当前状态
+
+- HEAD = `7748bd1`（master HEAD；12 commit 链 668fddd..7748bd1 已落字 + push 双 remote = origin = github = master）
+- P1 commit 待落（本节 §治理.15）
+- P2 commit 待落（`plans/M2-A.1-brief.md` 3 处订正）
+- subagent 派工待发（修正规则 #1 第 N 次试；用 M2-A.1-brief §3-§7 + 我自己加 commit 拆 + 禁动清单 + 入场闸 + mypy 豁免 as brief）
+- mypy 既有债豁免 = 与 S3 同型（`question_generator.py:213,262` 2 narrowing），需 §治理.16 落字（同 §治理.14 模式）
+
+---
+
+> **【2026-10-13 10:36 变更说明 · notes/milestones.md】**
+>
+> **修订范围**：1 项三决策落字 + 1 项撞名修正
+> 1. **§治理.15 M2-A.1 内容承载三决策** 续写（本笔）
+> 2. **撞名修正**：S0-5 token 禁用单独使用（已说明本节约束）
+>
+> **法源依据**：星云 2026-10-13 10:36 拍 S0-5 三 schema + 同意走 (a)（拆路径：父会话做 P1+P2 + 派 subagent 实施 C1-C4）+ 星轨派工稿澄清 + 决策书 §7.2 D-M2-2 题目图片承载 + D-43-X §5 修正规则 #1 派工纪律
+>
+> **来源**：本笔 commit + `M2-A.1-brief.md §3-§7` 真值（已 read）+ 决策书 §7.2 真值（已 read）+ 仓内 grep "三 schema|3 schema" 0 命中印证（星轨 spec 真值）+ 取数时刻 2026-10-13 10:36 +0800（按 D-75 §2）
