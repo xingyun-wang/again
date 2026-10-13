@@ -22,15 +22,19 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import _enforce_owner_or_404
+from app.api.v1.schemas.academic import TeacherReviewStatus
 from app.api.v1.schemas.assignments import (
     AssignmentCreate,
     AssignmentRead,
+    AssignmentReviewRequest,
+    AssignmentReviewResponse,
     ReviewStatusLiteral,
 )
 from app.db.session import get_db
@@ -176,3 +180,88 @@ def get_assignment(
             detail=f"assignment {assignment_id} 不存在",
         )
     return AssignmentRead.model_validate(assignment)
+
+
+# ────────────────── 3. PATCH /assignments/{id}/review（M2-S3 §5.2） ────────────
+#
+# 模式：复用 review_lesson_plan（routers/academic.py:880-955）+ Assignment
+# owner 直查模式（brief §4.2 差异：assignment.owner_user_id 直接查；不 JOIN
+# chapter）。同既有 get_assignment (routers/assignments.py:111-130) 模式。
+#
+# §7.5 硬约束：review_status 只允许 pending → reviewed / modified（Literal
+# 拒 pending）。DB `approved` vs API `reviewed` 词汇不一致债 = 既有债，照搬
+# 不改（§十三 严禁）。
+#
+# 错误码：
+# - 401：缺失 X-User-Id（get_current_user_id 扌）
+# - 404：assignment 不存在 / 不属于当前 user（D-29 不暴露存在性）
+# - 422：body.status = "pending"（Pydantic Literal 扌）或缺字段
+# - 500：DB write failed
+
+
+@router.patch(
+    "/assignments/{assignment_id}/review",
+    response_model=AssignmentReviewResponse,
+    summary="作业单审阅标记（§7.5 流程硬约束：reviewed / modified）",
+)
+def review_assignment(
+    assignment_id: int,
+    body: AssignmentReviewRequest,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> AssignmentReviewResponse:
+    """§7.5 流程：assignment 创建后 = pending；PATCH /review 标记 reviewed/modified。
+
+    Brief §5.2：
+    - reviewed → review_status = APPROVED
+    - modified → review_status = MODIFIED
+    - reviewed_by / reviewed_at 落当前 user + UTC
+    - notes 落 review_notes
+    """
+    from app.models import Assignment
+
+    assignment = db.get(Assignment, assignment_id)
+    if assignment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"assignment {assignment_id} 不存在",
+        )
+    # M1-B retro 工单 B（D-29 B 项）：跨用户访问返 404，不暴露存在性。
+    # Assignment owner 直查（不同于 lesson-plan 的 JOIN chapter）— 同既有
+    # get_assignment 模式（routers/assignments.py:111-130）。
+    if assignment.owner_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"assignment {assignment_id} 不存在",
+        )
+
+    # §7.5 流程硬约束：status 必为 reviewed / modified（Literal 扌 pending）
+    target = _to_orm_review_status(body.status)
+    assignment.review_status = target
+    assignment.reviewed_by = user_id
+    assignment.reviewed_at = datetime.now(timezone.utc)  # noqa: UP017 (3.8 兼容)
+    if body.notes is not None:
+        assignment.review_notes = body.notes
+
+    try:
+        db.commit()
+        db.refresh(assignment)
+    except Exception as e:
+        db.rollback()
+        logger.exception(
+            "assignment review DB write failed: assignment_id=%s", assignment_id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"DB write failed: {e}",
+        ) from e
+
+    return AssignmentReviewResponse(
+        id=assignment.id,
+        review=TeacherReviewStatus(
+            review_status=_to_api_review_status(assignment.review_status),
+            reviewed_by=assignment.reviewed_by,
+            reviewed_at=assignment.reviewed_at,
+            review_notes=assignment.review_notes,
+        ),
+    )
