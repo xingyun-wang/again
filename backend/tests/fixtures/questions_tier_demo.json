@@ -5,11 +5,11 @@
   "chapters": [
     {
       "ref": "CH-DEMO-D-1",
-      "name": "基础算术"
+      "name": "第一章第一节"
     },
     {
       "ref": "CH-DEMO-C-1",
-      "name": "代数基础"
+      "name": "第一章第一节"
     },
     {
       "ref": "CH-DEMO-B-1",
@@ -21,75 +21,91 @@
     },
     {
       "ref": "CH-DEMO-C-2",
-      "name": "代数方程"
+      "name": "第一章第二节"
     },
     {
       "ref": "CH-DEMO-C-3",
-      "name": "函数入门"
+      "name": "第二章第一节"
     },
     {
       "ref": "CH-DEMO-C-4",
-      "name": "不等式"
+      "name": "第二章第二节"
     },
     {
       "ref": "CH-DEMO-C-5",
-      "name": "数列基础"
+      "name": "第二章第三节"
     },
     {
       "ref": "CH-DEMO-C-6",
-      "name": "几何初步"
+      "name": "第三章第一节"
     },
     {
       "ref": "CH-DEMO-C-7",
-      "name": "三角函数"
+      "name": "第三章第二节"
     },
     {
       "ref": "CH-DEMO-C-8",
-      "name": "解析几何"
+      "name": "第三章第三节"
     },
     {
       "ref": "CH-DEMO-C-9",
-      "name": "概率统计"
+      "name": "第四章第一节"
     },
     {
       "ref": "CH-DEMO-C-10",
-      "name": "综合应用"
+      "name": "第四章第二节"
     },
     {
       "ref": "CH-DEMO-D-2",
-      "name": "整数运算"
+      "name": "第一章第二节"
     },
     {
       "ref": "CH-DEMO-D-3",
-      "name": "分数运算"
+      "name": "第二章第一节"
     },
     {
       "ref": "CH-DEMO-D-4",
-      "name": "小数运算"
+      "name": "第二章第二节"
     },
     {
       "ref": "CH-DEMO-D-5",
-      "name": "百分比"
+      "name": "第二章第三节"
     },
     {
       "ref": "CH-DEMO-D-6",
-      "name": "基础几何"
+      "name": "第三章第一节"
     },
     {
       "ref": "CH-DEMO-D-7",
-      "name": "时间货币"
+      "name": "第三章第二节"
     },
     {
       "ref": "CH-DEMO-D-8",
-      "name": "简单统计"
+      "name": "第四章第一节"
     },
     {
       "ref": "CH-DEMO-D-9",
-      "name": "基础应用"
+      "name": "第四章第二节"
     },
     {
       "ref": "CH-DEMO-D-10",
-      "name": "综合练习"
+      "name": "第四章第三节"
+    },
+    {
+      "ref": "CH-DEMO-C-11",
+      "name": "第四章第三节"
+    },
+    {
+      "ref": "CH-DEMO-C-12",
+      "name": "第五章第一节"
+    },
+    {
+      "ref": "CH-DEMO-C-13",
+      "name": "第五章第二节"
+    },
+    {
+      "ref": "CH-DEMO-D-11",
+      "name": "第四章第四节"
     }
   ],
   "knowledge_points": [
@@ -312,6 +328,901 @@
       "ref": "KP-DEMO-D-20",
       "chapter_ref": "CH-DEMO-D-10",
       "name": "基础几何图形"
+    },
+    {
+      "ref": "KP-DEMO-C-21",
+      "chapter_ref": "CH-DEMO-C-1",
+      "name": "太阳直射点的回归运动"
+    },
+    {
+      "ref": "KP-DEMO-C-22",
+      "chapter_ref": "CH-DEMO-C-1",
+      "name": "地球公转的地理意义（3）-四季更替和五带的划分"
+    },
+    {
+      "ref": "KP-DEMO-C-23",
+      "chapter_ref": "CH-DEMO-C-1",
+      "name": "黄赤交角"
+    },
+    {
+      "ref": "KP-DEMO-C-24",
+      "chapter_ref": "CH-DEMO-C-1",
+      "name": "昼夜长短的季节变化"
+    },
+    {
+      "ref": "KP-DEMO-C-25",
+      "chapter_ref": "CH-DEMO-C-1",
+      "name": "昼夜长短的纬度变化"
+    },
+    {
+      "ref": "KP-DEMO-C-26",
+      "chapter_ref": "CH-DEMO-C-1",
+      "name": "昼夜现象与昼夜交替现象的区别"
+    },
+    {
+      "ref": "KP-DEMO-C-27",
+      "chapter_ref": "CH-DEMO-C-1",
+      "name": "地方时的定义、计算"
+    },
+    {
+      "ref": "KP-DEMO-C-28",
+      "chapter_ref": "CH-DEMO-C-1",
+      "name": "地转偏向力的规律和判定"
+    },
+    {
+      "ref": "KP-DEMO-C-29",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "生物演化"
+    },
+    {
+      "ref": "KP-DEMO-C-30",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "地层和化石"
+    },
+    {
+      "ref": "KP-DEMO-C-31",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "地震波分类及其传播特征"
+    },
+    {
+      "ref": "KP-DEMO-C-32",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "地震"
+    },
+    {
+      "ref": "KP-DEMO-C-33",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "天体"
+    },
+    {
+      "ref": "KP-DEMO-C-34",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "地球自转的角速度、线速度"
+    },
+    {
+      "ref": "KP-DEMO-C-35",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "昼夜交替现象的周期"
+    },
+    {
+      "ref": "KP-DEMO-C-36",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "正午太阳高度的季节变化"
+    },
+    {
+      "ref": "KP-DEMO-C-37",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "存在生命的行星"
+    },
+    {
+      "ref": "KP-DEMO-C-38",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "太阳系八大行星"
+    },
+    {
+      "ref": "KP-DEMO-C-39",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "太阳系行星运动特征"
+    },
+    {
+      "ref": "KP-DEMO-C-40",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "太阳辐射及能量来源"
+    },
+    {
+      "ref": "KP-DEMO-C-41",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "气压带和风带对气候的影响"
+    },
+    {
+      "ref": "KP-DEMO-C-42",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "亚热带气候类型的分布与特征"
+    },
+    {
+      "ref": "KP-DEMO-C-43",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "我国气候的主要特征"
+    },
+    {
+      "ref": "KP-DEMO-C-44",
+      "chapter_ref": "CH-DEMO-C-2",
+      "name": "气温的空间分布"
+    },
+    {
+      "ref": "KP-DEMO-C-45",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "温带气候类型的分布与特征"
+    },
+    {
+      "ref": "KP-DEMO-C-46",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "大气对太阳辐射的削弱作用"
+    },
+    {
+      "ref": "KP-DEMO-C-47",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "大气受热过程原理的应用"
+    },
+    {
+      "ref": "KP-DEMO-C-48",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "气压带、风带的分布及移动规律"
+    },
+    {
+      "ref": "KP-DEMO-C-49",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "陆地水体之间的水源补给关系"
+    },
+    {
+      "ref": "KP-DEMO-C-50",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "水文特征"
+    },
+    {
+      "ref": "KP-DEMO-C-51",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "大气污染"
+    },
+    {
+      "ref": "KP-DEMO-C-52",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "地形逆温"
+    },
+    {
+      "ref": "KP-DEMO-C-53",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "大气对地面的保温作用"
+    },
+    {
+      "ref": "KP-DEMO-C-54",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "水平气压梯度力与风的形成"
+    },
+    {
+      "ref": "KP-DEMO-C-55",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "近地面风与高空风的风向判断"
+    },
+    {
+      "ref": "KP-DEMO-C-56",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "厄尔尼诺、拉尼娜及其影响"
+    },
+    {
+      "ref": "KP-DEMO-C-57",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "水循环的类型及其主要环节"
+    },
+    {
+      "ref": "KP-DEMO-C-58",
+      "chapter_ref": "CH-DEMO-C-3",
+      "name": "海水的盐度"
+    },
+    {
+      "ref": "KP-DEMO-C-59",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "海水的密度"
+    },
+    {
+      "ref": "KP-DEMO-C-60",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "水循环的意义"
+    },
+    {
+      "ref": "KP-DEMO-C-61",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "人类活动对水循环的影响"
+    },
+    {
+      "ref": "KP-DEMO-C-62",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "中国的自然灾害"
+    },
+    {
+      "ref": "KP-DEMO-C-63",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "海浪"
+    },
+    {
+      "ref": "KP-DEMO-C-64",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "我国南水北调工程"
+    },
+    {
+      "ref": "KP-DEMO-C-65",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "海水的温度"
+    },
+    {
+      "ref": "KP-DEMO-C-66",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "外力作用的能量来源、表现形式及影响"
+    },
+    {
+      "ref": "KP-DEMO-C-67",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "背斜、向斜的成因与形态"
+    },
+    {
+      "ref": "KP-DEMO-C-68",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "地壳运动"
+    },
+    {
+      "ref": "KP-DEMO-C-69",
+      "chapter_ref": "CH-DEMO-C-4",
+      "name": "板块构造"
+    },
+    {
+      "ref": "KP-DEMO-C-70",
+      "chapter_ref": "CH-DEMO-C-5",
+      "name": "冰川地貌"
+    },
+    {
+      "ref": "KP-DEMO-C-71",
+      "chapter_ref": "CH-DEMO-C-5",
+      "name": "海岸地貌"
+    },
+    {
+      "ref": "KP-DEMO-C-72",
+      "chapter_ref": "CH-DEMO-C-5",
+      "name": "河流侵蚀地貌"
+    },
+    {
+      "ref": "KP-DEMO-C-73",
+      "chapter_ref": "CH-DEMO-C-5",
+      "name": "河流堆积地貌"
+    },
+    {
+      "ref": "KP-DEMO-C-74",
+      "chapter_ref": "CH-DEMO-C-5",
+      "name": "岩石圈的物质循环过程"
+    },
+    {
+      "ref": "KP-DEMO-C-75",
+      "chapter_ref": "CH-DEMO-C-5",
+      "name": "岩浆活动"
+    },
+    {
+      "ref": "KP-DEMO-C-76",
+      "chapter_ref": "CH-DEMO-C-5",
+      "name": "地球内部圈层的划分及各层主要特征"
+    },
+    {
+      "ref": "KP-DEMO-C-77",
+      "chapter_ref": "CH-DEMO-C-5",
+      "name": "喀斯特地貌"
+    },
+    {
+      "ref": "KP-DEMO-C-78",
+      "chapter_ref": "CH-DEMO-C-5",
+      "name": "风成地貌"
+    },
+    {
+      "ref": "KP-DEMO-C-79",
+      "chapter_ref": "CH-DEMO-C-6",
+      "name": "地形对交通的影响"
+    },
+    {
+      "ref": "KP-DEMO-C-80",
+      "chapter_ref": "CH-DEMO-C-6",
+      "name": "由赤道向两极的地域分异规律"
+    },
+    {
+      "ref": "KP-DEMO-C-81",
+      "chapter_ref": "CH-DEMO-C-6",
+      "name": "从沿海向内陆的地域分异规律"
+    },
+    {
+      "ref": "KP-DEMO-C-82",
+      "chapter_ref": "CH-DEMO-C-6",
+      "name": "山地垂直地域分异规律"
+    },
+    {
+      "ref": "KP-DEMO-C-83",
+      "chapter_ref": "CH-DEMO-C-6",
+      "name": "自然地理环境的差异性与自然带"
+    },
+    {
+      "ref": "KP-DEMO-C-84",
+      "chapter_ref": "CH-DEMO-C-6",
+      "name": "地方性分异规律"
+    },
+    {
+      "ref": "KP-DEMO-C-85",
+      "chapter_ref": "CH-DEMO-C-6",
+      "name": "要素之间的影响"
+    },
+    {
+      "ref": "KP-DEMO-C-86",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "影响山地垂直带谱的因素"
+    },
+    {
+      "ref": "KP-DEMO-C-87",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "旱灾"
+    },
+    {
+      "ref": "KP-DEMO-C-88",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "寒潮"
+    },
+    {
+      "ref": "KP-DEMO-C-89",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "农业区位因素的概念及其分类"
+    },
+    {
+      "ref": "KP-DEMO-C-90",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "农业区位因素的变化"
+    },
+    {
+      "ref": "KP-DEMO-C-91",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "中国的农业"
+    },
+    {
+      "ref": "KP-DEMO-C-92",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "农业的分类及特征"
+    },
+    {
+      "ref": "KP-DEMO-C-93",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "工业的主要区位因素"
+    },
+    {
+      "ref": "KP-DEMO-C-94",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "工业区位因素的变化现状"
+    },
+    {
+      "ref": "KP-DEMO-C-95",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "服务业的区位因素"
+    },
+    {
+      "ref": "KP-DEMO-C-96",
+      "chapter_ref": "CH-DEMO-C-7",
+      "name": "工业发展方向及措施"
+    },
+    {
+      "ref": "KP-DEMO-C-97",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "城市土地利用类型与城市功能区的形成"
+    },
+    {
+      "ref": "KP-DEMO-C-98",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "城市中各功能区的分布和特征"
+    },
+    {
+      "ref": "KP-DEMO-C-99",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "循环经济"
+    },
+    {
+      "ref": "KP-DEMO-C-100",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "清洁生产"
+    },
+    {
+      "ref": "KP-DEMO-C-101",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "资源枯竭型地区振兴的措施"
+    },
+    {
+      "ref": "KP-DEMO-C-102",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "区域发展差异与因地制宜"
+    },
+    {
+      "ref": "KP-DEMO-C-103",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "农业发展方向与措施"
+    },
+    {
+      "ref": "KP-DEMO-C-104",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "农业发展对区域的影响"
+    },
+    {
+      "ref": "KP-DEMO-C-105",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "区域关联性与区域发展"
+    },
+    {
+      "ref": "KP-DEMO-C-106",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "产业转移对区域发展的影响"
+    },
+    {
+      "ref": "KP-DEMO-C-107",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "工业（区）发展对区域的影响"
+    },
+    {
+      "ref": "KP-DEMO-C-108",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "服务业及类型"
+    },
+    {
+      "ref": "KP-DEMO-C-109",
+      "chapter_ref": "CH-DEMO-C-8",
+      "name": "交通运输线（网）布局的区位因素及其变化"
+    },
+    {
+      "ref": "KP-DEMO-C-110",
+      "chapter_ref": "CH-DEMO-C-9",
+      "name": "经济因素（地租）"
+    },
+    {
+      "ref": "KP-DEMO-C-111",
+      "chapter_ref": "CH-DEMO-C-9",
+      "name": "堰塞湖"
+    },
+    {
+      "ref": "KP-DEMO-C-112",
+      "chapter_ref": "CH-DEMO-C-9",
+      "name": "台风"
+    },
+    {
+      "ref": "KP-DEMO-C-113",
+      "chapter_ref": "CH-DEMO-C-9",
+      "name": "自然灾害的概念及分类"
+    },
+    {
+      "ref": "KP-DEMO-C-114",
+      "chapter_ref": "CH-DEMO-C-10",
+      "name": "区域的类型"
+    },
+    {
+      "ref": "KP-DEMO-C-115",
+      "chapter_ref": "CH-DEMO-C-10",
+      "name": "描述位置特征"
+    },
+    {
+      "ref": "KP-DEMO-C-116",
+      "chapter_ref": "CH-DEMO-C-10",
+      "name": "京津冀一体化"
+    },
+    {
+      "ref": "KP-DEMO-C-117",
+      "chapter_ref": "CH-DEMO-C-11",
+      "name": "区域的特征"
+    },
+    {
+      "ref": "KP-DEMO-C-118",
+      "chapter_ref": "CH-DEMO-C-11",
+      "name": "资源枯竭型地区衰落的原因"
+    },
+    {
+      "ref": "KP-DEMO-C-119",
+      "chapter_ref": "CH-DEMO-C-11",
+      "name": "湿地及其功能"
+    },
+    {
+      "ref": "KP-DEMO-C-120",
+      "chapter_ref": "CH-DEMO-C-11",
+      "name": "荒漠化防治的对策和措施"
+    },
+    {
+      "ref": "KP-DEMO-C-121",
+      "chapter_ref": "CH-DEMO-C-11",
+      "name": "水土流失的原因"
+    },
+    {
+      "ref": "KP-DEMO-C-122",
+      "chapter_ref": "CH-DEMO-C-11",
+      "name": "资源枯竭型地区兴起的条件"
+    },
+    {
+      "ref": "KP-DEMO-C-123",
+      "chapter_ref": "CH-DEMO-C-12",
+      "name": "荒漠化的原因"
+    },
+    {
+      "ref": "KP-DEMO-C-124",
+      "chapter_ref": "CH-DEMO-C-12",
+      "name": "水土流失的治理措施"
+    },
+    {
+      "ref": "KP-DEMO-C-125",
+      "chapter_ref": "CH-DEMO-C-12",
+      "name": "湿地破坏的主要原因"
+    },
+    {
+      "ref": "KP-DEMO-C-126",
+      "chapter_ref": "CH-DEMO-C-13",
+      "name": "资源的综合利用"
+    },
+    {
+      "ref": "KP-DEMO-C-127",
+      "chapter_ref": "CH-DEMO-C-13",
+      "name": "保障资源领域国家安全"
+    },
+    {
+      "ref": "KP-DEMO-C-128",
+      "chapter_ref": "CH-DEMO-C-13",
+      "name": "生态脆弱区的地理特征"
+    },
+    {
+      "ref": "KP-DEMO-C-129",
+      "chapter_ref": "CH-DEMO-C-13",
+      "name": "资源开发的区位条件"
+    },
+    {
+      "ref": "KP-DEMO-C-130",
+      "chapter_ref": "CH-DEMO-C-13",
+      "name": "洋流对地理环境的影响"
+    },
+    {
+      "ref": "KP-DEMO-C-131",
+      "chapter_ref": "CH-DEMO-C-13",
+      "name": "我国西北地区的自然环境"
+    },
+    {
+      "ref": "KP-DEMO-D-21",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "大洲和大洋"
+    },
+    {
+      "ref": "KP-DEMO-D-22",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "区域发展阶段及特征"
+    },
+    {
+      "ref": "KP-DEMO-D-23",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "区域关联性与区域发展"
+    },
+    {
+      "ref": "KP-DEMO-D-24",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "描述位置特征"
+    },
+    {
+      "ref": "KP-DEMO-D-25",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "区域发展差异的表现"
+    },
+    {
+      "ref": "KP-DEMO-D-26",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "东北三省的自然地理环境"
+    },
+    {
+      "ref": "KP-DEMO-D-27",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "长江三角洲地区的自然地理环境"
+    },
+    {
+      "ref": "KP-DEMO-D-28",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "区域的类型"
+    },
+    {
+      "ref": "KP-DEMO-D-29",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "区域发展差异与因地制宜"
+    },
+    {
+      "ref": "KP-DEMO-D-30",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "我国北方地区的自然地理环境"
+    },
+    {
+      "ref": "KP-DEMO-D-31",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "我国南方地区的自然地理环境"
+    },
+    {
+      "ref": "KP-DEMO-D-32",
+      "chapter_ref": "CH-DEMO-D-1",
+      "name": "要素之间的影响"
+    },
+    {
+      "ref": "KP-DEMO-D-33",
+      "chapter_ref": "CH-DEMO-D-2",
+      "name": "区域发展的区位条件"
+    },
+    {
+      "ref": "KP-DEMO-D-34",
+      "chapter_ref": "CH-DEMO-D-3",
+      "name": "资源基地建设"
+    },
+    {
+      "ref": "KP-DEMO-D-35",
+      "chapter_ref": "CH-DEMO-D-3",
+      "name": "自然资源的分类"
+    },
+    {
+      "ref": "KP-DEMO-D-36",
+      "chapter_ref": "CH-DEMO-D-3",
+      "name": "农业区位因素的概念及其分类"
+    },
+    {
+      "ref": "KP-DEMO-D-37",
+      "chapter_ref": "CH-DEMO-D-3",
+      "name": "湿地及其功能"
+    },
+    {
+      "ref": "KP-DEMO-D-38",
+      "chapter_ref": "CH-DEMO-D-3",
+      "name": "荒漠化的含义"
+    },
+    {
+      "ref": "KP-DEMO-D-39",
+      "chapter_ref": "CH-DEMO-D-3",
+      "name": "类型与分布"
+    },
+    {
+      "ref": "KP-DEMO-D-40",
+      "chapter_ref": "CH-DEMO-D-3",
+      "name": "荒漠化的原因"
+    },
+    {
+      "ref": "KP-DEMO-D-41",
+      "chapter_ref": "CH-DEMO-D-3",
+      "name": "荒漠化防治的对策和措施"
+    },
+    {
+      "ref": "KP-DEMO-D-42",
+      "chapter_ref": "CH-DEMO-D-4",
+      "name": "水土流失的原因"
+    },
+    {
+      "ref": "KP-DEMO-D-43",
+      "chapter_ref": "CH-DEMO-D-4",
+      "name": "水土流失的治理措施"
+    },
+    {
+      "ref": "KP-DEMO-D-44",
+      "chapter_ref": "CH-DEMO-D-4",
+      "name": "资源枯竭型地区振兴的措施"
+    },
+    {
+      "ref": "KP-DEMO-D-45",
+      "chapter_ref": "CH-DEMO-D-4",
+      "name": "资源枯竭型地区兴起的条件"
+    },
+    {
+      "ref": "KP-DEMO-D-46",
+      "chapter_ref": "CH-DEMO-D-5",
+      "name": "资源枯竭型地区衰落的原因"
+    },
+    {
+      "ref": "KP-DEMO-D-47",
+      "chapter_ref": "CH-DEMO-D-5",
+      "name": "资源开发的区位条件"
+    },
+    {
+      "ref": "KP-DEMO-D-48",
+      "chapter_ref": "CH-DEMO-D-5",
+      "name": "工业的主要区位因素"
+    },
+    {
+      "ref": "KP-DEMO-D-49",
+      "chapter_ref": "CH-DEMO-D-5",
+      "name": "大城市对周边地区的辐射作用"
+    },
+    {
+      "ref": "KP-DEMO-D-50",
+      "chapter_ref": "CH-DEMO-D-5",
+      "name": "大城市对周边城市的辐射作用"
+    },
+    {
+      "ref": "KP-DEMO-D-51",
+      "chapter_ref": "CH-DEMO-D-6",
+      "name": "城市土地利用类型与城市功能区的形成"
+    },
+    {
+      "ref": "KP-DEMO-D-52",
+      "chapter_ref": "CH-DEMO-D-6",
+      "name": "城市规划的一般原则"
+    },
+    {
+      "ref": "KP-DEMO-D-53",
+      "chapter_ref": "CH-DEMO-D-6",
+      "name": "城市中各功能区的分布和特征"
+    },
+    {
+      "ref": "KP-DEMO-D-54",
+      "chapter_ref": "CH-DEMO-D-6",
+      "name": "城市的辐射功能"
+    },
+    {
+      "ref": "KP-DEMO-D-55",
+      "chapter_ref": "CH-DEMO-D-6",
+      "name": "城镇化概念及意义"
+    },
+    {
+      "ref": "KP-DEMO-D-56",
+      "chapter_ref": "CH-DEMO-D-6",
+      "name": "地区产业结构优化的规律"
+    },
+    {
+      "ref": "KP-DEMO-D-57",
+      "chapter_ref": "CH-DEMO-D-6",
+      "name": "产业转型的原因"
+    },
+    {
+      "ref": "KP-DEMO-D-58",
+      "chapter_ref": "CH-DEMO-D-6",
+      "name": "地区产业结构差异"
+    },
+    {
+      "ref": "KP-DEMO-D-59",
+      "chapter_ref": "CH-DEMO-D-6",
+      "name": "区域产业结构优化"
+    },
+    {
+      "ref": "KP-DEMO-D-60",
+      "chapter_ref": "CH-DEMO-D-7",
+      "name": "产业转型的含义"
+    },
+    {
+      "ref": "KP-DEMO-D-61",
+      "chapter_ref": "CH-DEMO-D-7",
+      "name": "中国的河流和湖泊"
+    },
+    {
+      "ref": "KP-DEMO-D-62",
+      "chapter_ref": "CH-DEMO-D-7",
+      "name": "河流水能开发"
+    },
+    {
+      "ref": "KP-DEMO-D-63",
+      "chapter_ref": "CH-DEMO-D-7",
+      "name": "某要素对整体的影响"
+    },
+    {
+      "ref": "KP-DEMO-D-64",
+      "chapter_ref": "CH-DEMO-D-7",
+      "name": "田纳西河的概况"
+    },
+    {
+      "ref": "KP-DEMO-D-65",
+      "chapter_ref": "CH-DEMO-D-7",
+      "name": "河流水运开发"
+    },
+    {
+      "ref": "KP-DEMO-D-66",
+      "chapter_ref": "CH-DEMO-D-8",
+      "name": "流域的协作开发"
+    },
+    {
+      "ref": "KP-DEMO-D-67",
+      "chapter_ref": "CH-DEMO-D-8",
+      "name": "流域的问题"
+    },
+    {
+      "ref": "KP-DEMO-D-68",
+      "chapter_ref": "CH-DEMO-D-8",
+      "name": "调水淤沙"
+    },
+    {
+      "ref": "KP-DEMO-D-69",
+      "chapter_ref": "CH-DEMO-D-8",
+      "name": "能源跨区域调配对区域发展的影响"
+    },
+    {
+      "ref": "KP-DEMO-D-70",
+      "chapter_ref": "CH-DEMO-D-9",
+      "name": "人类活动对水循环的影响"
+    },
+    {
+      "ref": "KP-DEMO-D-71",
+      "chapter_ref": "CH-DEMO-D-9",
+      "name": "我国南水北调工程"
+    },
+    {
+      "ref": "KP-DEMO-D-72",
+      "chapter_ref": "CH-DEMO-D-9",
+      "name": "西气东输工程"
+    },
+    {
+      "ref": "KP-DEMO-D-73",
+      "chapter_ref": "CH-DEMO-D-9",
+      "name": "西电东送工程"
+    },
+    {
+      "ref": "KP-DEMO-D-74",
+      "chapter_ref": "CH-DEMO-D-9",
+      "name": "能源跨区域调配的原因"
+    },
+    {
+      "ref": "KP-DEMO-D-75",
+      "chapter_ref": "CH-DEMO-D-9",
+      "name": "水资源跨区域调配对区域发展的影响"
+    },
+    {
+      "ref": "KP-DEMO-D-76",
+      "chapter_ref": "CH-DEMO-D-9",
+      "name": "产业转移对区域发展的影响"
+    },
+    {
+      "ref": "KP-DEMO-D-77",
+      "chapter_ref": "CH-DEMO-D-9",
+      "name": "工业区位因素的变化现状"
+    },
+    {
+      "ref": "KP-DEMO-D-78",
+      "chapter_ref": "CH-DEMO-D-9",
+      "name": "影响产业转移的因素"
+    },
+    {
+      "ref": "KP-DEMO-D-79",
+      "chapter_ref": "CH-DEMO-D-10",
+      "name": "产业转移及其类型"
+    },
+    {
+      "ref": "KP-DEMO-D-80",
+      "chapter_ref": "CH-DEMO-D-10",
+      "name": "我国的国际贸易"
+    },
+    {
+      "ref": "KP-DEMO-D-81",
+      "chapter_ref": "CH-DEMO-D-10",
+      "name": "经济全球化的表现"
+    },
+    {
+      "ref": "KP-DEMO-D-82",
+      "chapter_ref": "CH-DEMO-D-10",
+      "name": "经济全球化的意义"
+    },
+    {
+      "ref": "KP-DEMO-D-83",
+      "chapter_ref": "CH-DEMO-D-10",
+      "name": "国际合作的必要性和途径"
+    },
+    {
+      "ref": "KP-DEMO-D-84",
+      "chapter_ref": "CH-DEMO-D-10",
+      "name": "“一带一路”倡议合作领域"
+    },
+    {
+      "ref": "KP-DEMO-D-85",
+      "chapter_ref": "CH-DEMO-D-11",
+      "name": "“一带一路”倡议对国际合作"
+    },
+    {
+      "ref": "KP-DEMO-D-86",
+      "chapter_ref": "CH-DEMO-D-11",
+      "name": "区域发展的意义"
+    },
+    {
+      "ref": "KP-DEMO-D-87",
+      "chapter_ref": "CH-DEMO-D-11",
+      "name": "主要国际合作组织"
+    },
+    {
+      "ref": "KP-DEMO-D-88",
+      "chapter_ref": "CH-DEMO-D-11",
+      "name": "“一带一路”倡议由来和背景"
     }
   ],
   "questions": [
