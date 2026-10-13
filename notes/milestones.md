@@ -1108,7 +1108,7 @@ M2-S3 收口审核（审核员转载曜 2026-10-13 09:14 A3 反馈）。
 
 #### §治理.15.4 当前状态
 - 拍板时点 = 2026-10-13 10:36（星云 拍 (a) 路径 = 父会话 P1+P2 落字 + 派 subagent）
-- 后续状态（11:38 父会话接管 C2 + subagent 第 N+1 次试 C3-C6 全部落地 + 收工 8 步完成）= **见 `memory/2026-10-13.md` §治理.16/17/18/19 + master = `8a8c6f8`（22 commit 668fddd..master）**
+- 后续状态（11:38 父会话接管 C2 + subagent 第 N+1 次试 C3-C6 全部落地 + 收工 8 步完成）= **见 `memory/2026-10-13.md` §治理.16/19/20 + `notes/milestones.md` §治理.17/18 + master = `d8f6d18`（30 commit 668fddd..master, 口径: 含本笔收工 commit; 5 段治理 = 16/19/20 在 memory + 17/18 在 milestones 长期载体）**
 - P1 落字 = ce410eb（已落） + P2 落字 = ea0cbfe（已落） + subagent 第 N+1 次试 C3-C6 = bd6504d, 8323ec1, 32ca2d4, 1c4905e, a8d38d1, ea50649（6 commit 已落）+ 收工 commit 8 = 6eb5f7e + 8a8c6f8（2 commit 已落）= **7 组分明 22 笔 = 668fddd..master = 8a8c6f8** ✓
 - 拍板保留 = 本节 §治理.15 = 三决策边界 + 撞名修正 = 持久化价值（防下个会话误读 S0-5 token）---
 
@@ -1260,3 +1260,49 @@ subagent silent failure 锁定）。
 > **来源**：本笔 commit C5 + 父会话报回 0 tables 真值 + subagent 11:11 入场
 > 核 DB 19/7/0011 head（docker compose exec 真值）+ 取数时刻 2026-10-13
 > 11:25 +0800（按 D-75 §2）
+
+### §治理.18 M2-A.1 dev 库 subagent 派工期间 drop incident 落字（修正规则 #1 第 N+2 次试；2026-10-13 11:35）
+
+**承接 §治理.17**（alembic_version=0010 + 0 表 incident #1-#2, 11:25）：父会话修后 subagent 派工期间 dev 库又被 drop = 11:35 父会话核源 = 0 tables + 0 enums + alembic_version=0011（字面绿口头红 trap 又撞 = 修正规则 #1 第 N+2 次试）。
+
+#### §治理.18.1 触发
+
+11:35 §治理.17 后续：parent 核源 = 0 tables（subagent 派工期间 dev 库被 drop #1）。
+
+#### §治理.18.2 失实真值
+
+- M2-A.1-brief §7.5「危险」段已预警：`conftest` teardown `drop_all` + `test_academic_models.py:646` `drop_all+stamp base` + 容器 `DATABASE_URL` 指向 dev 库 = pytest 跑会 drop dev 库
+- 11:35 父会话核源 = 0 tables + 0 enums + alembic_version=0011（字面绿口头红 trap 又撞）
+- 11:35 父会话修 #3 = `alembic upgrade head` 单跑 = **没动** = alembic 看 version=0011 = 已 up-to-date
+- 11:36 父会话重建 #3 = `alembic upgrade head` + 幂等 3 轮 OK + user_tables 19 + enums 7
+
+#### §治理.18.3 决策（强制 ENFORCE + 派工前核源）
+
+**派工 brief 必加「禁 drop dev 库」**：
+- 任何 subagent 派工 = 必加「**禁止 `alembic downgrade base` / `drop_all` / `stamp base` / 任何 drop dev 库操作**」
+- 容器 PG pytest 必用 `mock_db_session` 模式（不改 DB）= 仿 `test_assignment_review.py` fixture
+- **派工前父会话核源**：`docker compose exec backend alembic current + python -m pytest 7/7 + user_tables ≥ 19 + enums ≥ 7` = 四验 baseline 记录（commit message 必含 baseline）
+- **派工后父会话核源**：同上四验 + 任何一项不符 = §治理.18 incident #N+1 = 派工 = silent failure → 修正规则 #1 第 N+2 次试
+- ledger_check §11/11 强制检 = 11:35 检出（ledger check = 有效 detector）
+
+#### §治理.18.4 当前状态
+
+- 修法：父会话 11:36 `alembic upgrade head` 重建 #3 + 幂等 3 轮 OK + user_tables 19 + enums 7
+- ledger_check §11/11 强制检 = 11:35 检出（ledger check = 有效 detector）
+- 修正规则 #1 跑通 = §治理.15-§治理.19 5 段叠加（不立 D-XX per D-83 不立原则 = 派工环境风险 + 失实 trap = 元规则通胀防御）
+- 长期载体：本节在 `notes/milestones.md`（不随 memory 压缩而丢；B4 复核建议）
+- 后续：派工 = 父会话派工前四验 baseline + 派工后四验 + 必「stamp base + upgrade head」二步修复 = 失实 trap 防反弹
+
+---
+
+> **【2026-10-13 14:42 变更说明 · notes/milestones.md】**
+>
+> **修订范围**: 1 项 §治理.18 落字 (从 f620f70:memory/2026-10-13.md §十一 迁长期载体)
+> 1. **§治理.18 M2-A.1 dev 库 subagent 派工期间 drop incident 落字**新增（本笔）
+> 2. **§18.3 强制 ENFORCE + 派工前核源** = D-04 例外举证 2 次假阳性 + D-43-X §5 修正规则 #1 派生
+> 3. **长期载体** = 落 `notes/milestones.md`（不随 memory 压缩而丢；星轨 14:42 收工复核 §四 B4 + A3 建议）
+> 4. **不立 D-XX 编号**（per D-83 不立原则 = 元规则通胀防御；D-43-X 家族已覆盖「决策室不修代码逻辑 + 连续 2 次假阳性退 subagent」）
+>
+> **法源依据**: 星轨 14:42 收工复核 §三 A3 + D-43-X §5 修正规则 #1 派生 + 星云 11:28 拍 "carry on" + f620f70:memory/2026-10-13.md §十一 原文
+>
+> **来源**: 本笔 commit + f620f70:memory/2026-10-13.md §十一 + 11:35 incident #3 实证 + 取数时刻 2026-10-13 14:42 +0800 per D-75 §2
