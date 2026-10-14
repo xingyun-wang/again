@@ -443,7 +443,7 @@ def test_render_assignment_pdf_unit(client, mock_db_session, chapter_with_questi
    - **理由**：deps + 1 行 脚本 = 1 笔（都属 infra 层，不动业务逻辑）
 
 2. **`feat(S4 assets + service): Noto Sans SC 嵌入 + PDF 渲染 service`**
-   - `backend/app/assets/fonts/NotoSansSC-Regular.ttf`（新增；8 184 B / 35 码点 Google Fonts text= dynamic subset；见 §二 矛盾说明 + §六 B4-5）
+   - **字体资产已于 `a63d2c2` 预置** (3 文件: NotoSansSC-Regular.ttf 8 184 B + OFL.txt 4 010 B + README.md 3 192 B = 15 386 B total); 本 commit 仅 service
    - `backend/app/assets/fonts/OFL.txt`（新增；OFL 1.1）
    - `backend/app/assets/fonts/README.md`（新增；来源 + 许可 + subset 字符集说明）
    - `backend/app/services/assignment_export.py`（新增；完整代码 per §七）
@@ -515,10 +515,10 @@ bash scripts/init-test-db.sh
 
 **S4 范围 (字体窄集 = 已知缺口，移 S4.5)** — subagent 必看：
 
-- 字体为窄集 (35 码点 dynamic subset, Google Fonts `text=` API) ⇒ 作业单 PDF 对**真实内容不可用**（任意 chapter title 撞缺字 = PDF 空白/方框）
+- 字体为窄集 (35 码点; **缺 ASCII 标点 `:` `-` `(` `)` + 数字 4-9 + 大多数 CJK; 缺字映射 U+0000 NUL**) ⇒ **S4 产出物自身即缺字**（抬头 `章节: … | 老师 ID: … | 出题: 2026-10-14T…` 里的 `:` `-` 全 NUL; §0 档位表的题数只要含 4-9 就缺）⇒ 真实内容不可用（不只是生产撞）
 - 扩字体 (≥3000 码点) = **S4.5 后续工单**（见 §十三 S4.5 范围）；本工单 (S4) **不**做 tripwire（A11 path 2 撤除硬红断言）
 - **test 1/2/3/4/5 = 5 passed, 0 failed, 0 skipped**（per §八 5 case 必全过 + §十/§十三 多处一致）
-- [ ] commit 2（feat assets+service）落字：NotoSansSC-Regular.ttf + OFL.txt + README.md + app/services/assignment_export.py（含字体注册）
+- [ ] commit 2 (feat service) 落字: **仅** `app/services/assignment_export.py` (含 lazy `_ensure_font()` + §七 PDF 渲染); 字体资产 (3 文件) 已于 `a63d2c2` 预置 (不在本 commit 范围)
 - [ ] commit 3（feat router+tests）落字：routers/assignments.py:334-382 改流式直返 + test_pdf_export.py 5 case 全过 + 窗口期风险声明
 - [ ] `bash scripts/init-test-db.sh` 派工前 = 派工后 = 0011/19/7
 - [ ] `pytest tests/api/v1/test_pdf_export.py -v` = **5 passed, 0 failed, 0 skipped**
@@ -539,7 +539,7 @@ bash scripts/init-test-db.sh
 **S4.5 范围**（**本工单未覆盖**，S4.5 实施，**前置 M2-S5 端到端验收**）：
 
 - [ ] （S4.5 工单号待派）字体扩集（≥3000 码点 Noto Sans SC subset ~2-3 MB；或全量 ~9 MB）
-- [ ] （S4.5）覆盖度判据：chapter title 常用字（如 `第一章有理数下列计算教师备注目难度进阶挑战扩展` 等 ≥30 字）抽到 glyph ⇒ PDF 提取含这些字
+- [ ] （S4.5）覆盖度判据: **`assert "\x00" not in text`** (NUL 检出 = 任何缺字; 含 CJK + ASCII + 标点; 不需要预先挑字; 字体够时 NUL 必然消失) ⇒ **主判据**; 辅判据 = 抽样含特定字（如 `第一章` 整段）
 - [ ] （S4.5）字体文件来源候选：google/fonts `ofl/notosanssc/NotoSansSC[wght].ttf`（TTF / `glyf` 表 / OFL 1.1）—— 须验 `TTFont()` 加载 + 渲染探针
 - [ ] （S4.5）`backend/app/assets/fonts/NotoSansSC-Regular.ttf` 替换为新字体
 - [ ] （S4.5）init-test-db.sh / commit message / README / brief 同步更新（撤"窄集"措辞）
@@ -553,6 +553,7 @@ files: <list>
 +lines / -lines
 pytest_local: <"N passed, M failed, K skipped" string>
 ledger_check: <"11/11 PASS" string>
+reportlab_ver: <pip freeze | grep reportlab 输出; 防镜像 4.x vs 5.x 环境差>
 [origin-push]: yes
 ```
 
@@ -564,6 +565,7 @@ ledger_check: <"11/11 PASS" string>
 4. `git show --stat HEAD` 输出
 5. 偏离 brief 项（如有；无则"无偏离"）
 6. 风险/盲区（如有；无则"无风险"）
+7. `pip freeze | grep reportlab` 输出（per 审计员 v5 B3；防镜像 4.x vs 5.x 环境差）
 
 ## 十五、修订追记
 
@@ -663,13 +665,35 @@ ledger_check: <"11/11 PASS" string>
   - 1 处 S4.5 范围建立: 字体扩集 3000 码点 + 覆盖度判据 + 字体来源候选 + 同步更新
   - 1 处诚实表达: 删"test 4 设计为红"tripwire 改"5 passed"实然 + §十三 S4.5 范围显式未覆盖 (vs 自我欺骗的恒假 DoD)
 
+- **2026-10-14 21:55** 第五次订正（载曜，per 复核员 v5 实跑证据 + 2 建议 + 3 B级）
+  - **复核员 v5 实跑证据** (新信息): 独立 venv (reportlab 5.0.1 + pdfplumber) 渲染真 PDF, 5 条断言全 PASS (test 4 派工会绿); 反证缺字映射 U+0000 NUL; 字体 ASCII 缺 `:` `-` `(` `)` + 数字 4-9 + 大多数 CJK
+  - **建议 1** (§十三 S4 范围措辞): "字体窄集"段 升级描述 — 不只是"生产撞", **S4 产出物自身即缺字** (抬头/日期/§0 题数表 demo 阶段即残缺)
+  - **建议 2** (§十三 S4.5 覆盖度判据): 改 `assert "\x00" not in text` (NUL 检出) 为主判据; 不需要预先挑字; 字体够时 NUL 必然消失
+  - **B 级 1** (§十五历史「已废弃」标记): 21:25 两条 (「§八 test 4 加 A10 R2 覆盖度判据」+「§十三 DoD 加 A10 R2 显式未覆盖段」) 加 "该条已被 21:35 条撤销，非生效指令" ⇒ subagent 读 §十五不被历史误导
+  - **B 级 2** (§九 + §十三 commit 2 交付物清单): 字体资产 3 文件已于 `a63d2c2` 预置; commit 2 **仅** `app/services/assignment_export.py` (改 "feat assets+service" → "feat service")
+  - **B 级 3** (§十四 报回格式 + 6-line handshake): 加 `reportlab_ver` 一行 (per commit 报回) + 6-line handshake 第 7 项 `pip freeze | grep reportlab` (防镜像 4.x vs 5.x 环境差)
+  - **未做**: R1' (扩字体 via git SSH 443); path 1 仍 = 4-7h 估时; path 2 已落地
+  - **未做**: path 3 (xfail strict=True); 仍需星云豁免 §三/§十二 严禁 xfail/skip
+
+- **第五次实证基线**:
+  - HEAD = `a1e016f` (brief v5 后; 本笔 v6 后 = 53 笔 = 668fddd..HEAD)
+  - 复核员 v5 实测 = 5 条断言全 PASS (脚本 `_probe_s4_pdf_render.py` 可复跑); 缺字映射 NUL (U+0000)
+  - 字体 ASCII 缺 11 字符 (`: - ( )` + 数字 4-9); 16 非 ASCII 字符 = §位作分单基审布态数档状础阅题
+
+- **第五次关键决策**:
+  - 1 处 S4 范围措辞升级 (per 实测): "S4 产出物自身即缺字" ⇒ 不掩盖 demo 阶段残缺
+  - 1 处 S4.5 覆盖度判据换 NUL 检出 (per 实测): 1 行覆盖所有缺字 vs 原"预先挑字"漏检
+  - 1 处历史条目加 "已废弃" 标记 (B1): 防 subagent 读 §十五被 21:25 字面"加"误导
+  - 1 处 commit 2 交付物清单 (B2): 字体预置与本 commit 边界明确, 避免 commit 重复落字
+  - 1 处报回格式加 reportlab_ver (B3): 防镜像 4.x vs 5.x 环境差致 silent fail
+
 - **2026-10-14 21:25** 第三次订正（载曜，per 复核员 A10 + B15/B16 复核回执）
   - **A10 · 同源循环** (per 复核员 (c) 选 **R2** 路径；R1 = 全量/VF Noto Sans SC, 8-10 MB 二进制, 网络/许可/仓容 限制 ⇒ 留 S4.5/S5):
     - 独立核源: fontTools cmap = 35 码点; 16 非 ASCII = `§业位作分单基审布态数档状础阅题`; 复核员 37 字探针 = 22 缺失 (`第一章有理下列计算教师备注目难度进阶挑战扩展` 全不在) ⇒ 同源循环确认
     - **§二:52** 撤误规格「3500 常用 CJK ~2-3 MB」, 改实际 35 码点 dynamic subset + 缺口说明
     - **§九:448** 撤误规格「subset ~2-3 MB」, 改实际 8 184 B / 35 码点
-    - **§八 test 4 加 A10 R2 覆盖度判据**: chapter title 改用常用字「第一章 有理数 下列计算 教师备课」(subset 外) + 断言 `第一章` in text ⇒ **窄集下必红** ⇒ 暴露字体窄集风险
-    - **§十三 DoD 加 A10 R2 显式未覆盖段**: test 1/2/3/5 = 4 passed (结构标记); test 4 = **设计红** (A10 R2 覆盖度判据); 若绿 = 字体已扩集 (R1 完成)
+    - **§八 test 4 加 A10 R2 覆盖度判据**（**该条已被 21:35 条撤销，非生效指令**; 留作 A10/A11 决策历史）: chapter title 改用常用字「第一章 有理数 下列计算 教师备课」(subset 外) + 断言 `第一章` in text ⇒ **窄集下必红** ⇒ 暴露字体窄集风险
+    - **§十三 DoD 加 A10 R2 显式未覆盖段**（**该条已被 21:35 条撤销，非生效指令**; 留作 A10/A11 决策历史）: test 1/2/3/5 = 4 passed (结构标记); test 4 = **设计红** (A10 R2 覆盖度判据); 若绿 = 字体已扩集 (R1 完成)
   - **B15**: 新增 `backend/tests/api/__init__.py` (1 行空文件; per 复核员 1 行零风险补双导入隐患)
   - **B16**: 「51 字符」改「51 字符（去重 35 码点）= 35/35」措辞 (避免误读为 51 码点); README + §十五 同步
   - **网络可达性 (复核员 v2 未知项)**: WSL 可达 `fonts.googleapis.com` + `gstatic.com`; legacy UA 试 R1 = CSS API 改版返 dynamic subset = 拿不到 CJK-only TTF ⇒ R1 走不通 (R2 选)
