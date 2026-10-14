@@ -380,3 +380,15 @@ pytest 必 drop_all → 重建 → pytest → drop_all 循环 = 不稳定。**8/
 >
 > **修订 v1 (2026-10-14 10:38 +0800, 派工 #1 试 commit `110cd46`)**:
 > 新建工单（M2-#113 派工 #1 试 产出；9 失败根因诊断 + 5 分类 + 2 独立根因；commit 110cd46）
+
+---
+
+> **修订 v6 (2026-10-14 13:35, 修法 scripts/init-test-db.sh 3 处 scheme + 30秒验修法通过 + 拿基线 6+ 次 cut-off 留明日起点, working tree 待 commit)**:
+> 1. **A1 修法**: scripts/init-test-db.sh :8/:12/:26 3 处 scheme `postgresql://` → `postgresql+psycopg://`（与全仓 docker-compose.yml:44 + .github/workflows/ci.yml:53 + backend/app/core/config.py:37 三处权威定义一致）。**commit `90393f7`** (1 file / 3+/-) + 推双 remote
+> 2. **30 秒验 scheme (修法前)**: `dialect: postgresql` = 裸 scheme 实际可解析, **不抛 NoSuchModuleError**（旁证冲突解决：审查员 A1 评估 NoSuchModuleError 不成立; SA 2 实际解析到 psycopg3 镜像）; **但 +psycopg 与全仓约定一致 = 仍 修（修法是 good practice, 不是 强制必要）**
+> 3. **30 秒验 修法生效 (修后 run init-test-db.sh)**: 4 验 baseline = alembic `0011_question_images (head)` / user_tables=**19** / enums=**7** ✓ — 修法生效, 干净基线
+> 4. **A2 报告命令畸形 = 之前 cut-off 真因**: 我给用户的命令 `postgresql://postgres:***@//postgres/:5432/...` 多了 `//` + 密码被掩码 → 照抄必失败 = 之前 6+ 次 cut-off 真因（不是命令本身 cut-off, 是命令畸形 cut-off）= 修后正确命令（密码=`postgres` + `+psycopg`）现在在 work order 留证
+> 5. **拿基线 6+ 次 cut-off 留明日起点** (per审查员 7 follow-up #2 = 拿基线是其余分派的前置, 但 6+ 次 cut-off chain = per用户 12:41 指示 "不重试" = 留明日起点 follow-up #6, 用户在 host shell 跑 修后正确命令拿 `/tmp/pytest_114_baseline.log` 后再决定)
+> 6. **不立新 D-XX**（per D-83 不立原则）
+> 7. **self-stop 累计 = 5+4+1+1+1+1 = 13**（per A5 修法 (a) 数字固定滞后 1 笔口径；本 v6 = 修法 1 处 30秒验 = 落地成功 = 不算 NEW 失实 = 累计不变）
+>
