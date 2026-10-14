@@ -100,9 +100,10 @@
 - `backend/app/models/academic.py:72-78`（`KnowledgeReviewStatus`）：`PENDING/APPROVED/MODIFIED` 三态（**无** `DRAFT`）
 - `backend/app/models/academic.py:500/524/548/615/781/877`（`Question.content`）：题目正文（**不是** `q.stem`）
 - `backend/app/models/academic.py:782`（`Question.difficulty`）：题目本身难度（不直接用于作业档位；作业档位用 `AssignmentItem.tier_origin`）
-- `backend/tests/api/v1/test_assignment_review.py:127` `_create_assignment_pending(client, mock_db_session, chapter_id, user_id=1) -> int` —— **A4 fixture 复用既有 API**
-- `backend/tests/api/v1/test_assignment_review.py:142` `_create_assignment_approved(client, mock_db_session, chapter_id, user_id=1) -> int` —— **A4 fixture 复用既有 API**（调 PATCH `/review reviewed` 升 APPROVED）
-- `backend/tests/api/v1/test_assignment_review.py:70+` 模式 = `TestClient(app)` + `dependency_overrides[get_db]` + `X-User-Id: "1"` header
+- `backend/tests/api/v1/test_assignment_review.py:127` `_create_assignment_pending(client: TestClient, chapter_id: int, user_id: int = 1) -> int` —— **A4 fixture 复用既有 API（无 `mock_db_session`；per A6 复核更正）**
+- `backend/tests/api/v1/test_assignment_review.py:142` `_create_assignment_approved(client, mock_db_session, chapter_id, user_id=1) -> int` —— **A4 fixture 复用既有 API**（**有** `mock_db_session`；调 PATCH `/review reviewed` 升 APPROVED）
+- `backend/tests/api/v1/test_assignment_review.py:62-70` 模式 = `TestClient(app)` + **`def _override_get_db(): yield mock_db_session`**（**必须** generator function；**不**可用 `lambda: iter([...])` per A8 = iter 返回 iterator, FastAPI 不会解包 ⇒ 端点里 `db = list_iterator` ⇒ `db.get()` AttributeError）+ `X-User-Id: "1"` header
+- `backend/tests/api/v1/_s4_helpers.py`（**S4 抽出**；per B11 = 避免 `tests/api/__init__.py` 不存在 ⇒ 双导入）：含 `make_test_client(mock_db_session)` + re-export `_create_assignment_pending/approved` + `chapter_with_questions`（**单一真值源** = D-43 §5 协作纪律）
 - `backend/tests/conftest.py` 既有 fixture（**不**含 `auth_client` / `assignment_approved` / `assignment_pending_review` —— 别名引诱，**勿**新增同名 fixture，直接 import 既有 API）：
   - `mock_db_session` / `mock_db_engine` / `mock_user_system_seed` / `mock_subject` / `mock_textbook` / `mock_chapter`
   - `user_1` / `user_1_chapter`
@@ -120,8 +121,8 @@
 
 ```
 POST /api/v1/assignments/{id}/export
-Headers: Authorization: Bearer <jwt>
-  Content-Type: application/json
+Headers: X-User-Id: <int>    (per B.2 简化 auth; 实测 = X-User-Id header, 不是 Authorization Bearer; per B14 复核更正)
+  (无 body, 不需 Content-Type)
 
 Response 200:
   Content-Type: application/pdf
@@ -171,20 +172,16 @@ Response 500:
 - `backend/Dockerfile`：2 处 pip install（builder ~:35 + runtime ~:78）均加 reportlab
 - **3 处必同步**（per 既有 `tenacity` 教训：单加一处 = 镜像裂；pdfplumber 沿用现有，无须重加）
 
-### B4-5：字体资产 + 注册（D-A1 (a) 嵌入 TTF）—— 与 B4-2 同笔
+### B4-5：字体资产（**已预置** by 载曜 per A9；非 subagent 实施）—— commit 2 仅写 service
 
-- 路径：`backend/app/assets/fonts/NotoSansSC-Regular.ttf`（新增）
-- 许可：`backend/app/assets/fonts/OFL.txt`（新增；OFL 1.1 全文）
-- 文档：`backend/app/assets/fonts/README.md`（新增；说明：来源 + 许可 + subset 字符集 + 用法）
-- 来源：Noto Sans SC（思源黑体 SC）Google Fonts OFL 1.1
-- **Subagent 实施步骤**：
-  1. 下载 Noto Sans SC subset（3500 CJK 字符）
-  2. 落 `backend/app/assets/fonts/NotoSansSC-Regular.ttf`
-  3. 落 `backend/app/assets/fonts/OFL.txt`（OFL 1.1 全文）
-  4. 落 `backend/app/assets/fonts/README.md`
-- **Font size**：2-3 MB（subset）
+- 路径：`backend/app/assets/fonts/NotoSansSC-Regular.ttf`（**已落**；8 184 B / 35 codepoints / Google Fonts `text=` 动态子集化）
+- 许可：`backend/app/assets/fonts/OFL.txt`（**已落**；OFL 1.1 全文）
+- 文档：`backend/app/assets/fonts/README.md`（**已落**；来源 + 验证 + 不可改 + 升级路径）
+- 来源：Google Fonts CSS API（`text=` 动态子集化）→ gstatic.com `l/font?kit=...`
+- **子集范围**：仅 11 测试 CJK + Latin + 数字 + 符号 = 51 字符；**窄集**（生产用任意 chapter title 撞缺字 = PDF 空白/方框）；生产扩 3500 字符留 S5 端到端验收或开 S4.5 工单
 - **Dockerfile 不用改**（runtime `:87` `COPY --from=builder /app/app /app/app` 已覆盖 `app/assets/...` 整树）
 - **§二「零系统依赖」依然成立**（字体 = 仓内资产 ≠ apt 包）
+- **Subagent 实施步骤**（仅 1 步）：写 `backend/app/services/assignment_export.py` + **lazy `_ensure_font()`**（per B13 避免模块级 registerFont ⇒ import 崩 ⇒ 全站 router 不可用）
 
 ### B4-6：1 行 SQL 修补（init-test-db.sh:70 enums 口径对齐）—— 并入 commit 1
 
@@ -214,12 +211,28 @@ from reportlab.platypus import (
 from app.models import Assignment
 
 # D-A1 (a) Noto Sans SC 嵌入 TTF (OFL 1.1)
+# 改 lazy 注册 (per B13: 模块级副作用 ⇒ 字体缺失时 import 崩 ⇒ 全站 router 不可用)
 _FONT_NAME = "NotoSansSC"
 _FONT_PATH = (
     Path(__file__).parent.parent
     / "assets" / "fonts" / "NotoSansSC-Regular.ttf"
 )
-pdfmetrics.registerFont(TTFont(_FONT_NAME, str(_FONT_PATH)))
+
+
+def _ensure_font() -> str:
+    """Lazy 注册 Noto Sans SC；字体缺失/路径漂移 ⇒ FileNotFoundError 清晰文案.
+
+    调用方: render_assignment_pdf() 入口. 不在模块级执行, 避免 import 崩.
+    """
+    if _FONT_NAME not in pdfmetrics.getRegisteredFontNames():
+        if not _FONT_PATH.is_file():
+            raise FileNotFoundError(
+                f"Noto Sans SC 字体文件缺失: {_FONT_PATH}. "
+                f"per D-A1 (a) 嵌入 TTF; 字体资产在 commit 2 预置. "
+                f"检查 backend/app/assets/fonts/ 目录."
+            )
+        pdfmetrics.registerFont(TTFont(_FONT_NAME, str(_FONT_PATH)))
+    return _FONT_NAME
 
 
 def render_assignment_pdf(assignment: Assignment) -> bytes:
@@ -233,12 +246,13 @@ def render_assignment_pdf(assignment: Assignment) -> bytes:
 
     Note: 1 作业单 = 1 章节（FK 约束），不需循环 chapter。
     """
+    font_name = _ensure_font()  # per B13: lazy 注册
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=2 * 28, bottomMargin=2 * 28)
     styles = getSampleStyleSheet()
     # 覆盖默认字体（D-A1 (a) Noto Sans SC 嵌入）
     for style_name in ("Title", "Heading2", "Normal", "BodyText"):
-        styles[style_name].fontName = _FONT_NAME
+        styles[style_name].fontName = font_name
 
     story = []
 
@@ -265,7 +279,7 @@ def render_assignment_pdf(assignment: Assignment) -> bytes:
     tier_table.setStyle(TableStyle([
         ("GRID", (0, 0), (-1, -1), 1, colors.grey),
         ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ("FONTNAME", (0, 0), (-1, -1), _FONT_NAME),  # D-A1 (a) 字体覆盖
+        ("FONTNAME", (0, 0), (-1, -1), font_name),  # D-A1 (a) 字体覆盖
     ]))
     story.append(tier_table)
     story.append(Spacer(1, 12))
@@ -310,40 +324,35 @@ def _escape(s: str) -> str:
 ```python
 """S4 PDF 导出端到端测试（M2-S4 必跑；5 case 必全过）。
 
-模式：复用 test_assignment_review.py:70+（TestClient + dependency_overrides + X-User-Id）。
+模式：复用 test_assignment_review.py:62-70（TestClient + generator-based dependency_overrides + X-User-Id）。
 复用既有 _create_assignment_pending / _create_assignment_approved（不手搓 DB）。
+所有 helper / client factory 抽到 tests/api/v1/_s4_helpers.py（per B11 = 避免 tests/api/__init__.py 缺失 ⇒ 双导入）。
 """
-from typing import Any
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.api.v1.routers.assignments import router as assignments_router
-from app.db.session import get_db
 from app.services.assignment_export import render_assignment_pdf
 from app.models import Assignment
-from tests.api.v1.test_assignment_review import (
+from tests.api.v1._s4_helpers import (  # noqa: F401
+    make_test_client,
     _create_assignment_pending,
     _create_assignment_approved,
-    chapter_with_questions,  # noqa: F401  复用既有 fixture
+    chapter_with_questions,
 )
 
 
 @pytest.fixture()
 def client(mock_db_session: Session) -> TestClient:
-    """TestClient + dependency_overrides get_db（per test_assignment_review.py 模式）。"""
-    app = FastAPI()
-    app.dependency_overrides[get_db] = lambda: iter([mock_db_session])
-    app.include_router(assignments_router, prefix="/api/v1")
-    return TestClient(app)
+    """TestClient + dependency_overrides get_db（per test_assignment_review.py:62-70 既有模式；per A8 strict 修法）。"""
+    return make_test_client(mock_db_session)
 
 
 def test_pdf_export_403_when_not_approved(
     client, mock_db_session, chapter_with_questions
 ):
     """§7.5 闸门：review_status != APPROVED → 403。"""
-    aid = _create_assignment_pending(client, mock_db_session, chapter_with_questions.id)
+    aid = _create_assignment_pending(client, chapter_with_questions.id)  # per A6: 删 mock_db_session
     r = client.post(
         f"/api/v1/assignments/{aid}/export",
         headers={"X-User-Id": "1"},
@@ -363,6 +372,8 @@ def test_pdf_export_404_when_cross_user(
     )
     assert r.status_code == 404
     assert "不存在" in r.json()["detail"]
+    # per B12: 加强判别力 (防 "user 999 不存在" 同过伪绿)
+    assert f"assignment {aid}" in r.json()["detail"]
 
 
 def test_pdf_export_200_returns_valid_pdf(
@@ -413,13 +424,10 @@ def test_pdf_export_contains_chinese_marker(
     assert page_count >= 1
 
 
-def test_render_assignment_pdf_unit(mock_db_session, chapter_with_questions):
+def test_render_assignment_pdf_unit(client, mock_db_session, chapter_with_questions):
     """service 层单测：返 bytes + 头 4 字节 = %PDF + 长度 ≥ 1KB。"""
-    aid = _create_assignment_approved(
-        TestClient(FastAPI()),
-        mock_db_session,
-        chapter_with_questions.id,
-    )
+    # per A7: 用既有 client fixture (不用裸 FastAPI() = 无 include_router + 无 dependency_overrides ⇒ 必崩)
+    aid = _create_assignment_approved(client, mock_db_session, chapter_with_questions.id)
     a = mock_db_session.get(Assignment, aid)
     pdf_bytes = render_assignment_pdf(a)
     assert isinstance(pdf_bytes, bytes)
@@ -462,7 +470,7 @@ def test_render_assignment_pdf_unit(mock_db_session, chapter_with_questions):
 2. 跑 `bash scripts/init-test-db.sh`（期望 0011/19/7）
 3. 跑 `git status --porcelain`（期望 0 行）
 4. **（仅参考）** 跑 `git log --oneline -5` 看 5 笔 commit 历史 —— **不**要求当前 HEAD 必带 `[origin-push]`（派工 commit 自身必带即可；派工前后必查）
-5. 读 `backend/app/assets/fonts/README.md`（字体来源 + 许可 + subset 字符集）—— 必读（字体方案透明性）
+5. 读 `backend/app/assets/fonts/README.md`（**commit 2 落地后**；字体来源 + 许可 + subset 字符集）—— 必读（字体方案透明性）
 
 派工后必跑：
 1. `bash scripts/init-test-db.sh`（再验 4 验 baseline 一致；enums 1 行修补后口径）
@@ -595,3 +603,31 @@ ledger_check: <"11/11 PASS" string>
   - 1 处字体决策（B4-5 D-A1 (a) 嵌入）：Noto Sans SC OFL 1.1；Dockerfile 零改；§二「零系统依赖」依然成立
   - 1 处前端决策（D-A3 S4-b）：本工单不覆盖前端；接受窗口期；commit 3 明记
   - 1 处范围 4 项（S4-b）：responseType:'blob' / 删接口 / 改文案 / catch 保留
+
+- **2026-10-14 21:18** 第二次订正（载曜，per 复核员 A6-A9 + B10-B14 复核回执）
+  - **A6 §四 + §八 签名订正**：`_create_assignment_pending` 误加 `mock_db_session`（实无）；§八 test 1 调用删实参。⚠️ **别一起改错**：`test 2/3/4` 用 `_create_assignment_approved` 真有 `mock_db_session`，不变。
+  - **A7 §八 test 5**：去 `TestClient(FastAPI())` 裸 app（无 include_router + 无 dependency_overrides ⇒ helper POST 必 404 ⇒ 必崩），改用既有 `client` fixture。
+  - **A8 §八 client fixture**：`lambda: iter([mock_db_session])` 改 yield-based generator（照抄 test_assignment_review.py:62-70；`iter(...)` 返回 iterator, FastAPI 不解包 ⇒ 5 用例全崩）。
+  - **A9 字体预置 by 载曜**（per 复核员「人预置」建议）：
+    - 1st try: Google Fonts v41 默认 URL = 35 KB **Latin-only**（218 codepoints, 0 CJK）—— 撤。
+    - 2nd try: Google Fonts CSS `text=` 动态子集化 = 8 184 B / 35 codepoints / **51/51 测试字符全覆盖 PASS**（`作业单` / `§0 档位分布` / `D 基础` / `[D]` / `§3 审阅状态` / `pending` / `approved` / digits / `§ # [ ]`）—— 采纳。
+    - 资产：`backend/app/assets/fonts/NotoSansSC-Regular.ttf` + `OFL.txt` + `README.md`（来源 + 验证 + 不可改 + 升级路径）。
+    - **生产缺口**：8 KB 窄集 = 仅测试字符；任意 chapter title 撞缺字 = PDF 空白/方框；生产扩 3500 字符留 S5 端到端验收或开 S4.5 工单。
+  - **B10 §十 入场闸 #5**：README 标「**commit 2 后**」（派工前读不到；commit 2 落地后才存在）。
+  - **B11 抽 helper**：新增 `backend/tests/api/v1/_s4_helpers.py`（`make_test_client` + re-export；不动 test_assignment_review.py = 避免跨工单污染）。
+  - **B12 §八 test 2**：加 `assert f"assignment {aid}" in detail`（防「user 999 不存在」同过伪绿）。
+  - **B13 §七 模块级副作用**：模块级 `pdfmetrics.registerFont(...)` ⇒ 字体缺失 import 崩 ⇒ 全站 router 不可用。改 lazy `_ensure_font()`（字体缺失 ⇒ 清晰 `FileNotFoundError`；不 import 崩 ⇒ 不影响其他 router）。
+  - **B14 §五 contract**：header 改 `X-User-Id: <int>`（实测 = X-User-Id, 不是 Authorization Bearer；`get_current_user_id:87-107` 只解析 header）；删 `Content-Type: application/json`（无 body POST 无意义）。
+
+- **第二次实证基线**：
+  - HEAD = `82e3053`（brief 首次订正后；本笔第二次订正后 = 50 笔 = 668fddd..HEAD）
+  - init-test-db.sh 4 验 = 0011/19/7
+  - pytest baseline = **318 passed / 9 skipped / 0 failed in 154.32s**（per B-1 §一.3）
+  - 字体预置 = Noto Sans SC v41 text= dynamic 8 KB / 35 codepoints / 51/51 测试字符 PASS（2026-10-14 21:12）
+  - fontTools cmap 实测 = 35 codepoints；0 missing 测试字符；Magic `0x00010000` (TTF)；`glyf` 表存在；`TTFont()` 加载成功
+
+- **第二次关键决策**：
+  - 1 处字体来源决策（Google Fonts CSS `text=` 动态子集化 API）= 拿确定 CJK subset，**拒** Latin-only 默认 URL
+  - 1 处代码副作用治理（lazy `_ensure_font()` vs 模块级 `registerFont`）= 爆炸半径从「全站 router 不可用」降到「仅 PDF 端点 500 + 清晰文案」
+  - 1 处测试卫生（抽 _s4_helpers.py 单一真值源）= 避免 `tests/api/__init__.py` 缺失 ⇒ PEP 420 命名空间包侥幸 + 双导入
+  - 1 处 A8 strict 修法（yield-based generator vs `lambda: iter([...])`）= 照抄 test_assignment_review.py:62-70 既有 3 行模式，避免 FastAPI 不会解包 iterator 的坑
