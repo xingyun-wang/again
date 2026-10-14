@@ -222,11 +222,11 @@ def test_real_llm_review_flow_lesson_plan_pending_to_reviewed(
     review_resp = client.patch(
         f"/api/v1/academic/lesson-plans/{lp_id}/review",
         json={"status": "reviewed", "notes": "真值 OK"},
-        headers={"X-User-Id": "2"},
+        headers={"X-User-Id": "1"},
     )
     assert review_resp.status_code == 200
     assert review_resp.json()["review"]["review_status"] == "reviewed"
-    assert review_resp.json()["review"]["reviewed_by"] == 2
+    assert review_resp.json()["review"]["reviewed_by"] == 1
     assert review_resp.json()["review"]["reviewed_at"] is not None
 
     # GET 确认持久化
@@ -235,4 +235,4 @@ def test_real_llm_review_flow_lesson_plan_pending_to_reviewed(
         headers={"X-User-Id": "1"},
     )
     assert get_resp.json()["review"]["review_status"] == "reviewed"
-    assert get_resp.json()["review"]["reviewed_by"] == 2
+    assert get_resp.json()["review"]["reviewed_by"] == 1

@@ -909,7 +909,7 @@ def review_lesson_plan(
     if lp is None:
         raise HTTPException(status_code=404, detail=f"lesson_plan {lesson_plan_id} 不存在")
 
-    # M1-B retro 工单 B（D-29 B 项）：JOIN chapter 检查归属（双重门）。
+    # M1-B retro 工单 B（D-29 B 项）：JOIN chapter 检查归属（单门 JOIN chapter — per A2 订正, source academic.py:815-819 明写 LessonPlan 无 owner_user_id 字段, 归属 = JOIN chapter 单门; D-29 反 ID 泄漏门保留）。
     chapter = db.get(Chapter, lp.chapter_id)
     if chapter is None:
         raise HTTPException(status_code=500, detail="lesson_plan 关联 chapter 不存在（数据异常）")
