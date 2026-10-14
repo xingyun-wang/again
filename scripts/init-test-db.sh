@@ -5,11 +5,11 @@
 # 背景: notes/work-orders/113-9-pre-existing-test-failures.md §修复后验证清单 [1]
 # 仿: .github/workflows/ci.yml:53 先例 (DATABASE_URL=...tiered_homework_test)
 #
-# 目的: 容器 pytest 必带 `-e DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tiered_homework_test`
+# 目的: 容器 pytest 必带 `-e DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/tiered_homework_test`
 #       dev 库 0 接触 (per §治理.19 字面绿口头红 trap 防御)
 #
 # 必带使用 (B2 修法 §治理.19 升级为结构性防):
-#   docker compose exec -T -e DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tiered_homework_test \
+#   docker compose exec -T -e DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/tiered_homework_test \
 #     backend python -m pytest -q
 #
 # Idempotent: 每次跑都 DROP + CREATE + alembic upgrade head (保证 schema 已知干净状态)
@@ -23,7 +23,7 @@ POSTGRES_SERVICE="${POSTGRES_SERVICE:-postgres}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-backend}"
 DB_USER="${DB_USER:-postgres}"
 DB_PASSWORD="${DB_PASSWORD:-postgres}"
-TEST_DB_URL="postgresql://${DB_USER}:${DB_PASSWORD}@${POSTGRES_SERVICE}:5432/${TEST_DB_NAME}"
+TEST_DB_URL="postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@${POSTGRES_SERVICE}:5432/${TEST_DB_NAME}"
 
 echo "[B2 修法] test 库 setup: ${TEST_DB_NAME}"
 echo ""
