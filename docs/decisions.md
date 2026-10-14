@@ -635,6 +635,7 @@ open-questions.md §9 三个问题全部 ✅：
    - 决策室不可在主会话直接 push 任何包含代码逻辑改动的 commit
    - 即使 < 5 行 / diff < 20 行 / “不需要 pytest/mypy/ruff/build” —— 只要需要 push + CI 跑 build 验证，决策室必派 subagent
    - **例外收紧到决策记账类**：CHARTER / decisions.md / memory / STATE.md / AGENTS.md 的 append 或 timestamp 更新，不动代码逻辑、不动配置（除非配合 commit）
+   - **2026-10-14 19:55 口径补**（按 D-83 不立新 D-XX 原则；附 2026-10-14 核源回执 §五 1 拍板）：≥20 行 或 涉逻辑/契约 或 新增文件 = 必派 subagent；**纯字面替换 ≤5 处 = 父会话 + 留痕**（不动逻辑 / 不动契约 / 不新增文件；事后在 memory/YYYY-MM-DD.md 标注"决策室 + 留痕"）
 
 2. **第 6 条：决策室验证环路**
    - 事实已闭环后，决策室不可反复 exec 验证同一事实
