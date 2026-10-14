@@ -394,14 +394,13 @@ def test_pdf_export_200_returns_valid_pdf(
 def test_pdf_export_contains_chinese_marker(
     client, mock_db_session, chapter_with_questions, tmp_path
 ):
-    """D-A1 (a) 字体嵌入 + 中文检出器 + A10 R2 覆盖度判据。
+    """D-A1 (a) 字体嵌入 + 中文检出器。
 
     注 1（per B5）：整串中文标题做 in 断言易撞 PDF 断行假红；改用结构标记（短串 + 标点）。
-    注 2（per A10 R2 覆盖度判据）：**chapter title 改用「常用字 (subset 外)」** ⇒ 窄集 (35 码点) 下 reportlab 抽不到 glyph ⇒ **断言必红** ⇒ 暴露字体窄集风险 ⇒ 触发 S4.5 / S5 前置扩集。
+    注 2（per A11 path 2）：A10 R2 覆盖度判据**撤除**（per 复核员 v4 评：硬红让 DoD 恒假 + CI 永久红 + 红与真红不可分）。
+    字体扩集（3500 码点）= **S4.5 后续工单**（见 §十三 S4.5 范围）；本工单 (S4) 不做 tripwire。
     """
     aid = _create_assignment_approved(client, mock_db_session, chapter_with_questions.id)
-    # per A10 R2: 改 chapter title 为常用字 (subset 外) — 故意撞窄集
-    chapter_with_questions.title = "第一章 有理数 下列计算 教师备课"
     r = client.post(
         f"/api/v1/assignments/{aid}/export",
         headers={"X-User-Id": "1"},
@@ -414,23 +413,13 @@ def test_pdf_export_contains_chinese_marker(
         text = "".join(p.extract_text() or "" for p in pdf.pages)
         page_count = len(pdf.pages)
 
-    # 结构标记断言（brief 字符集内，应 PASS）
+    # 结构标记断言（brief 字符集内）
     assert "作业单" in text, "结构标记 '作业单' 缺失"
     assert "§0 档位分布" in text, "结构标记 '§0 档位分布' 缺失"
     assert "D 基础" in text, "结构标记 'D 基础' 缺失"
     assert "[D]" in text, "结构标记 '[D]' 缺失"
     assert "§3 审阅状态" in text, "结构标记 '§3 审阅状态' 缺失"
     assert page_count >= 1, "至少 1 页"
-
-    # A10 R2 覆盖度判据: 断言 subset 外的常用字「第一章」
-    # 窄集 (35 码点, 见 §二) 下 reportlab 抽不到 glyph ⇒ 此断言必红
-    # 若此断言 PASS = 字体已扩集 (R1 完成) ⇒ §二/§九 误规格已修正
-    assert "第一章" in text, (
-        "A10 R2 覆盖度判据命中: 字体为窄集 (35 码点, 见 §二/§六 B4-5/§九 commit 2), "
-        "chapter title 常用字 '第一章' 不在字体中 ⇒ PDF 抽不到此字. "
-        "解决: 扩字体 (R1) ⇒ S4.5 / S5 前置; 或开 §十 A10 工单. "
-        "(本断言**故意**必红, 暴露窄集风险, 是 R2 设计的核心)"
-    )
 
 
 def test_render_assignment_pdf_unit(client, mock_db_session, chapter_with_questions):
@@ -524,13 +513,11 @@ bash scripts/init-test-db.sh
 
 - [ ] commit 1（chore deps+infra）落字：reportlab 3 处同步 + pdfplumber 沿用 + init-test-db.sh:70 enums 1 行修补
 
-**S4 范围 (A10 R2 显式未覆盖)** — subagent 必看：
+**S4 范围 (字体窄集 = 已知缺口，移 S4.5)** — subagent 必看：
 
-- **字体为窄集 (35 码点 dynamic subset)** ⇒ 作业单 PDF 对**真实内容不可用**（任意 chapter title 撞缺字 = PDF 空白/方框）
-- 扩字体 (R1, ≥3000 码点) = **S4.5 / M2-S5 前置**；本工单 (S4) 派工前**不**做
-- **test 4 设计为红**（per A10 R2 覆盖度判据 = 断言 `第一章` in text）⇒ 窄集下必红 ⇒ 暴露字体窄集风险 ⇒ 触发后续工单
-- **期望**: test 1/2/3/5 = 4 passed（结构标记断言 PASS）；test 4 = **设计红**（A10 R2 设计意图）
-- **若 test 4 绿** = 字体已扩集 (R1 完成) ⇒ **额外**: §二/§九 误规格已修正; 报告时显式标「test 4 意外绿, 已扩集」
+- 字体为窄集 (35 码点 dynamic subset, Google Fonts `text=` API) ⇒ 作业单 PDF 对**真实内容不可用**（任意 chapter title 撞缺字 = PDF 空白/方框）
+- 扩字体 (≥3000 码点) = **S4.5 后续工单**（见 §十三 S4.5 范围）；本工单 (S4) **不**做 tripwire（A11 path 2 撤除硬红断言）
+- **test 1/2/3/4/5 = 5 passed, 0 failed, 0 skipped**（per §八 5 case 必全过 + §十/§十三 多处一致）
 - [ ] commit 2（feat assets+service）落字：NotoSansSC-Regular.ttf + OFL.txt + README.md + app/services/assignment_export.py（含字体注册）
 - [ ] commit 3（feat router+tests）落字：routers/assignments.py:334-382 改流式直返 + test_pdf_export.py 5 case 全过 + 窗口期风险声明
 - [ ] `bash scripts/init-test-db.sh` 派工前 = 派工后 = 0011/19/7
@@ -548,6 +535,14 @@ bash scripts/init-test-db.sh
 - [ ] （S4-b）删 `ExportResponse` 接口（`:67-72`）
 - [ ] （S4-b）改文案（不再"导出已入队（export_id=…）"）
 - [ ] （S4-b）403/404 catch 路径保留
+
+**S4.5 范围**（**本工单未覆盖**，S4.5 实施，**前置 M2-S5 端到端验收**）：
+
+- [ ] （S4.5 工单号待派）字体扩集（≥3000 码点 Noto Sans SC subset ~2-3 MB；或全量 ~9 MB）
+- [ ] （S4.5）覆盖度判据：chapter title 常用字（如 `第一章有理数下列计算教师备注目难度进阶挑战扩展` 等 ≥30 字）抽到 glyph ⇒ PDF 提取含这些字
+- [ ] （S4.5）字体文件来源候选：google/fonts `ofl/notosanssc/NotoSansSC[wght].ttf`（TTF / `glyf` 表 / OFL 1.1）—— 须验 `TTFont()` 加载 + 渲染探针
+- [ ] （S4.5）`backend/app/assets/fonts/NotoSansSC-Regular.ttf` 替换为新字体
+- [ ] （S4.5）init-test-db.sh / commit message / README / brief 同步更新（撤"窄集"措辞）
 
 ## 十四、报回格式（每 commit 必带 + 6-line handshake）
 
@@ -648,6 +643,25 @@ ledger_check: <"11/11 PASS" string>
   - 1 处代码副作用治理（lazy `_ensure_font()` vs 模块级 `registerFont`）= 爆炸半径从「全站 router 不可用」降到「仅 PDF 端点 500 + 清晰文案」
   - 1 处测试卫生（抽 _s4_helpers.py 单一真值源）= 避免 `tests/api/__init__.py` 缺失 ⇒ PEP 420 命名空间包侥幸 + 双导入
   - 1 处 A8 strict 修法（yield-based generator vs `lambda: iter([...])`）= 照抄 test_assignment_review.py:62-70 既有 3 行模式，避免 FastAPI 不会解包 iterator 的坑
+
+- **2026-10-14 21:35** 第四次订正（载曜，per 复核员 A11 v4 复核回执）
+  - **A11 · DoD 恒假** (per 复核员 (c) 选 **path 2** 撤硬红断言 + 移 S4.5；path 1 R1' 试不通 = SSH 443 不达 + jsdelivr 阻 + GitHub raw 阻 + PyPI 无字体包 = 复审员 4-7h 估时过高):
+    - **核源 A11 矛盾** (per 复核员 v4): §十三:531-538 + §十:487 + §八:322/325/398 + §三:78 + §十二:518 全有 "5 passed / 0 failed / 5 case 必全过 / 5 case 必真跑" 约束, 但 §十三:531-532 加 "test 4 设计为红" ⇒ **DoD 互斥恒假** (D-28 ② 家族) + CI 永久红 + 红与真红不可分 (普通 assert 无 tripwire 语义)
+    - **撤 §八 test 4 A10 R2 覆盖度判据**: 删 `chapter_with_questions.title = "第一章 有理数 ..."` + 删 `assert "第一章" in text, (...)` + 改 docstring (注 2 改 path 2 撤除说明) ⇒ 5 case 恢复「必全过」= 5 passed
+    - **撤 §十三 DoD A10 R2 显式未覆盖段**: 删 "test 4 设计为红" + 改 test 1/2/3/4/5 = 5 passed + 加 "字体窄集 = 已知缺口，移 S4.5" 措辞
+    - **加 §十三 S4.5 范围 (后续, 非本工单)**: 字体扩集 (≥3000 码点) + 覆盖度判据 + 字体来源 (google/fonts `ofl/notosanssc/`) + 替换 `NotoSansSC-Regular.ttf` + 同步更新 README/brief/init-test-db
+  - **未做**: path 1 (R1' 扩字体 via git SSH 443 + sparse checkout) — 试 SSH 443 / HTTPS 22 / gitee 镜像 / aliyun code = 5 通道均不通或卡; 估时 4-7h, 优先级低于 path 2 (确定性, 30 min)
+  - **未做**: path 3 (xfail strict=True) — 需星云豁免 §三/§十二 严禁 xfail/skip; 改写纪律建议 = "严禁**无工单号**的 xfail/skip" (本意防假绿, strict=True 不造成假绿); 暂不申请豁免
+  - **路径选择理由**: path 2 = 确定性 + 快速 + 审计认 ✅; path 1 = 不确定时延; path 3 = 需纪律改写
+
+- **第四次实证基线**:
+  - HEAD = `8b2cf53` (brief v4 后; 本笔 v5 后 = 52 笔 = 668fddd..HEAD)
+  - conftest.py:130 `expire_on_commit=False` 确认 (复核员发现) ⇒ test 4 内存改 title 路径**成立**; A11 path 2 撤此 tripwire 不破测试集
+
+- **第四次关键决策**:
+  - 1 处 DoD 互斥修复 (path 2): 撤硬红断言 = DoD 恢复 5 passed + CI 不永久红; S4.5 接手覆盖度判据
+  - 1 处 S4.5 范围建立: 字体扩集 3000 码点 + 覆盖度判据 + 字体来源候选 + 同步更新
+  - 1 处诚实表达: 删"test 4 设计为红"tripwire 改"5 passed"实然 + §十三 S4.5 范围显式未覆盖 (vs 自我欺骗的恒假 DoD)
 
 - **2026-10-14 21:25** 第三次订正（载曜，per 复核员 A10 + B15/B16 复核回执）
   - **A10 · 同源循环** (per 复核员 (c) 选 **R2** 路径；R1 = 全量/VF Noto Sans SC, 8-10 MB 二进制, 网络/许可/仓容 限制 ⇒ 留 S4.5/S5):
