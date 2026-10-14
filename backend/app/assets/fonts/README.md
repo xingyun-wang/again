@@ -58,5 +58,5 @@ table.setStyle(TableStyle([
 - 2026-10-14 20:19 D-S4-1 拍 = reportlab (per 星轨 v2 + 用户拍)
 - 2026-10-14 20:56 D-A1 拍 = (a) 嵌入 TTF (per 用户拍; 拒绝 (b) Dockerfile fonts-noto-cjk 改镜像 / 拒绝 (c) CID STSong-Light 不嵌入)
 - 2026-10-14 21:09 第一次试抓（v41 默认 URL）= 35 KB Latin-only，**撤**
-- 2026-10-14 21:12 第二次试抓（CSS API `text=` 动态子集化）= 8 KB CJK subset，**采纳**（cmap 验 51/51 测试字符 PASS）
+- 2026-10-14 21:12 第二次试抓（CSS API `text=` 动态子集化）= 8 KB CJK subset，**采纳**（cmap 验 51 字符（去重 35 码点）= 35/35 PASS）
 - 2026-10-14 21:12 字体预置 by 载曜 (per 复核员建议; 留痕 = 决策室 资产 ≠ 代码逻辑)

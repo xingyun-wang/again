@@ -49,7 +49,7 @@
 - **字体**：**Noto Sans SC**（思源黑体 SC）—— **拒绝** SimSun / MS YaHei（专有许可）
 - **许可**：OFL 1.1（附 `backend/app/assets/fonts/OFL.txt` 全文）
 - **路径**：`backend/app/assets/fonts/NotoSansSC-Regular.ttf`
-- **Subset**：3500 常用 CJK 字符（含标点 + 数字 + 拉丁 + 拼音）~2-3 MB
+- **Subset**：**35 码点 dynamic subset** (Google Fonts `text=` API 动态子集化); 覆盖 brief §八 test 4 字符 (`作业单` / `§0 档位分布` / `D 基础` / `[D]` / `§3 审阅状态` / `pending` / `approved` 等 51 字符 → 去重 35 码点); 常用 37 字 (如 `第一章有理数下列计算教师备注目难度进阶挑战扩展`) 中 22 字 **不在字体中** (D-28 家族同源循环); **生产用任意 chapter title 撞缺字** ⇒ PDF 空白/方框; 扩集 = S4.5 / M2-S5 前置 (per A10 + 复核员 (c) R2 选)
 - **产品链**（核源 `产品定义-v0.5.md:152/175`）：§3.6 流程节点 4 = **教务处打印 → 下发学生**（PDF 终消费者是打印机，不是浏览器）⇒ **必须嵌入**（CID 字体 by name ⇒ 换机器/打印驱动 = 空白或替换字体）
 - **测试链**（核源 `产品定义-v0.5.md`）：pdfplumber ToUnicode 提取中文需要 font 嵌入，否则**主动关掉唯一字体检出器** = D-28 家族阈值退化（本仓 `#73/#74/#84/#97` 同族）
 - **Dockerfile 不用改**（runtime `:87` `COPY --from=builder /app/app /app/app` 已覆盖 `app/assets/...` 整树）—— §二「零系统依赖」**依然成立**（字体 = 仓内资产 ≠ apt 包）
@@ -178,7 +178,7 @@ Response 500:
 - 许可：`backend/app/assets/fonts/OFL.txt`（**已落**；OFL 1.1 全文）
 - 文档：`backend/app/assets/fonts/README.md`（**已落**；来源 + 验证 + 不可改 + 升级路径）
 - 来源：Google Fonts CSS API（`text=` 动态子集化）→ gstatic.com `l/font?kit=...`
-- **子集范围**：仅 11 测试 CJK + Latin + 数字 + 符号 = 51 字符；**窄集**（生产用任意 chapter title 撞缺字 = PDF 空白/方框）；生产扩 3500 字符留 S5 端到端验收或开 S4.5 工单
+- **子集范围**：仅 11 测试 CJK + Latin + 数字 + 符号 = 51 字符（去重 35 码点）；**窄集**（生产用任意 chapter title 撞缺字 = PDF 空白/方框）；生产扩 3500 字符留 S5 端到端验收或开 S4.5 工单
 - **Dockerfile 不用改**（runtime `:87` `COPY --from=builder /app/app /app/app` 已覆盖 `app/assets/...` 整树）
 - **§二「零系统依赖」依然成立**（字体 = 仓内资产 ≠ apt 包）
 - **Subagent 实施步骤**（仅 1 步）：写 `backend/app/services/assignment_export.py` + **lazy `_ensure_font()`**（per B13 避免模块级 registerFont ⇒ import 崩 ⇒ 全站 router 不可用）
@@ -394,11 +394,14 @@ def test_pdf_export_200_returns_valid_pdf(
 def test_pdf_export_contains_chinese_marker(
     client, mock_db_session, chapter_with_questions, tmp_path
 ):
-    """D-A1 (a) 字体嵌入 + 中文检出器：PDF 字节含结构标记（抬头 + 档位表 + 题号 + 审阅）。
+    """D-A1 (a) 字体嵌入 + 中文检出器 + A10 R2 覆盖度判据。
 
-    注（per B5）：整串中文标题做 in 断言易撞 PDF 断行假红；改用结构标记（短串 + 标点）。
+    注 1（per B5）：整串中文标题做 in 断言易撞 PDF 断行假红；改用结构标记（短串 + 标点）。
+    注 2（per A10 R2 覆盖度判据）：**chapter title 改用「常用字 (subset 外)」** ⇒ 窄集 (35 码点) 下 reportlab 抽不到 glyph ⇒ **断言必红** ⇒ 暴露字体窄集风险 ⇒ 触发 S4.5 / S5 前置扩集。
     """
     aid = _create_assignment_approved(client, mock_db_session, chapter_with_questions.id)
+    # per A10 R2: 改 chapter title 为常用字 (subset 外) — 故意撞窄集
+    chapter_with_questions.title = "第一章 有理数 下列计算 教师备课"
     r = client.post(
         f"/api/v1/assignments/{aid}/export",
         headers={"X-User-Id": "1"},
@@ -411,17 +414,23 @@ def test_pdf_export_contains_chinese_marker(
         text = "".join(p.extract_text() or "" for p in pdf.pages)
         page_count = len(pdf.pages)
 
-    # 抬头结构标记（D-A1 字体嵌入后中文可提取）
-    assert "作业单" in text
-    # 档位分布结构标记（§0）
-    assert "§0 档位分布" in text
-    assert "D 基础" in text
-    # 题目列表结构标记（§2，至少 1 档）
-    assert "[D]" in text
-    # 审阅状态结构标记（§3）
-    assert "§3 审阅状态" in text
-    # 至少 1 页
-    assert page_count >= 1
+    # 结构标记断言（brief 字符集内，应 PASS）
+    assert "作业单" in text, "结构标记 '作业单' 缺失"
+    assert "§0 档位分布" in text, "结构标记 '§0 档位分布' 缺失"
+    assert "D 基础" in text, "结构标记 'D 基础' 缺失"
+    assert "[D]" in text, "结构标记 '[D]' 缺失"
+    assert "§3 审阅状态" in text, "结构标记 '§3 审阅状态' 缺失"
+    assert page_count >= 1, "至少 1 页"
+
+    # A10 R2 覆盖度判据: 断言 subset 外的常用字「第一章」
+    # 窄集 (35 码点, 见 §二) 下 reportlab 抽不到 glyph ⇒ 此断言必红
+    # 若此断言 PASS = 字体已扩集 (R1 完成) ⇒ §二/§九 误规格已修正
+    assert "第一章" in text, (
+        "A10 R2 覆盖度判据命中: 字体为窄集 (35 码点, 见 §二/§六 B4-5/§九 commit 2), "
+        "chapter title 常用字 '第一章' 不在字体中 ⇒ PDF 抽不到此字. "
+        "解决: 扩字体 (R1) ⇒ S4.5 / S5 前置; 或开 §十 A10 工单. "
+        "(本断言**故意**必红, 暴露窄集风险, 是 R2 设计的核心)"
+    )
 
 
 def test_render_assignment_pdf_unit(client, mock_db_session, chapter_with_questions):
@@ -445,7 +454,7 @@ def test_render_assignment_pdf_unit(client, mock_db_session, chapter_with_questi
    - **理由**：deps + 1 行 脚本 = 1 笔（都属 infra 层，不动业务逻辑）
 
 2. **`feat(S4 assets + service): Noto Sans SC 嵌入 + PDF 渲染 service`**
-   - `backend/app/assets/fonts/NotoSansSC-Regular.ttf`（新增；subset ~2-3 MB）
+   - `backend/app/assets/fonts/NotoSansSC-Regular.ttf`（新增；8 184 B / 35 码点 Google Fonts text= dynamic subset；见 §二 矛盾说明 + §六 B4-5）
    - `backend/app/assets/fonts/OFL.txt`（新增；OFL 1.1）
    - `backend/app/assets/fonts/README.md`（新增；来源 + 许可 + subset 字符集说明）
    - `backend/app/services/assignment_export.py`（新增；完整代码 per §七）
@@ -514,6 +523,14 @@ bash scripts/init-test-db.sh
 **S4 范围**（本工单必完成）：
 
 - [ ] commit 1（chore deps+infra）落字：reportlab 3 处同步 + pdfplumber 沿用 + init-test-db.sh:70 enums 1 行修补
+
+**S4 范围 (A10 R2 显式未覆盖)** — subagent 必看：
+
+- **字体为窄集 (35 码点 dynamic subset)** ⇒ 作业单 PDF 对**真实内容不可用**（任意 chapter title 撞缺字 = PDF 空白/方框）
+- 扩字体 (R1, ≥3000 码点) = **S4.5 / M2-S5 前置**；本工单 (S4) 派工前**不**做
+- **test 4 设计为红**（per A10 R2 覆盖度判据 = 断言 `第一章` in text）⇒ 窄集下必红 ⇒ 暴露字体窄集风险 ⇒ 触发后续工单
+- **期望**: test 1/2/3/5 = 4 passed（结构标记断言 PASS）；test 4 = **设计红**（A10 R2 设计意图）
+- **若 test 4 绿** = 字体已扩集 (R1 完成) ⇒ **额外**: §二/§九 误规格已修正; 报告时显式标「test 4 意外绿, 已扩集」
 - [ ] commit 2（feat assets+service）落字：NotoSansSC-Regular.ttf + OFL.txt + README.md + app/services/assignment_export.py（含字体注册）
 - [ ] commit 3（feat router+tests）落字：routers/assignments.py:334-382 改流式直返 + test_pdf_export.py 5 case 全过 + 窗口期风险声明
 - [ ] `bash scripts/init-test-db.sh` 派工前 = 派工后 = 0011/19/7
@@ -610,7 +627,7 @@ ledger_check: <"11/11 PASS" string>
   - **A8 §八 client fixture**：`lambda: iter([mock_db_session])` 改 yield-based generator（照抄 test_assignment_review.py:62-70；`iter(...)` 返回 iterator, FastAPI 不解包 ⇒ 5 用例全崩）。
   - **A9 字体预置 by 载曜**（per 复核员「人预置」建议）：
     - 1st try: Google Fonts v41 默认 URL = 35 KB **Latin-only**（218 codepoints, 0 CJK）—— 撤。
-    - 2nd try: Google Fonts CSS `text=` 动态子集化 = 8 184 B / 35 codepoints / **51/51 测试字符全覆盖 PASS**（`作业单` / `§0 档位分布` / `D 基础` / `[D]` / `§3 审阅状态` / `pending` / `approved` / digits / `§ # [ ]`）—— 采纳。
+    - 2nd try: Google Fonts CSS `text=` 动态子集化 = 8 184 B / 35 codepoints / **51 字符（去重 35 码点）= 35/35 全覆盖 PASS**（`作业单` / `§0 档位分布` / `D 基础` / `[D]` / `§3 审阅状态` / `pending` / `approved` / digits / `§ # [ ]`）—— 采纳。
     - 资产：`backend/app/assets/fonts/NotoSansSC-Regular.ttf` + `OFL.txt` + `README.md`（来源 + 验证 + 不可改 + 升级路径）。
     - **生产缺口**：8 KB 窄集 = 仅测试字符；任意 chapter title 撞缺字 = PDF 空白/方框；生产扩 3500 字符留 S5 端到端验收或开 S4.5 工单。
   - **B10 §十 入场闸 #5**：README 标「**commit 2 后**」（派工前读不到；commit 2 落地后才存在）。
@@ -623,11 +640,33 @@ ledger_check: <"11/11 PASS" string>
   - HEAD = `82e3053`（brief 首次订正后；本笔第二次订正后 = 50 笔 = 668fddd..HEAD）
   - init-test-db.sh 4 验 = 0011/19/7
   - pytest baseline = **318 passed / 9 skipped / 0 failed in 154.32s**（per B-1 §一.3）
-  - 字体预置 = Noto Sans SC v41 text= dynamic 8 KB / 35 codepoints / 51/51 测试字符 PASS（2026-10-14 21:12）
-  - fontTools cmap 实测 = 35 codepoints；0 missing 测试字符；Magic `0x00010000` (TTF)；`glyf` 表存在；`TTFont()` 加载成功
+  - 字体预置 = Noto Sans SC v41 text= dynamic 8 KB / 35 codepoints / 51 字符（去重 35 码点）= 35/35 PASS（2026-10-14 21:12）
+  - fontTools cmap 实测 = 35 codepoints；51 字符（去重 35 码点）= 35/35 PASS（0 missing 测试字符）；Magic `0x00010000` (TTF)；`glyf` 表存在；`TTFont()` 加载成功
 
 - **第二次关键决策**：
   - 1 处字体来源决策（Google Fonts CSS `text=` 动态子集化 API）= 拿确定 CJK subset，**拒** Latin-only 默认 URL
   - 1 处代码副作用治理（lazy `_ensure_font()` vs 模块级 `registerFont`）= 爆炸半径从「全站 router 不可用」降到「仅 PDF 端点 500 + 清晰文案」
   - 1 处测试卫生（抽 _s4_helpers.py 单一真值源）= 避免 `tests/api/__init__.py` 缺失 ⇒ PEP 420 命名空间包侥幸 + 双导入
   - 1 处 A8 strict 修法（yield-based generator vs `lambda: iter([...])`）= 照抄 test_assignment_review.py:62-70 既有 3 行模式，避免 FastAPI 不会解包 iterator 的坑
+
+- **2026-10-14 21:25** 第三次订正（载曜，per 复核员 A10 + B15/B16 复核回执）
+  - **A10 · 同源循环** (per 复核员 (c) 选 **R2** 路径；R1 = 全量/VF Noto Sans SC, 8-10 MB 二进制, 网络/许可/仓容 限制 ⇒ 留 S4.5/S5):
+    - 独立核源: fontTools cmap = 35 码点; 16 非 ASCII = `§业位作分单基审布态数档状础阅题`; 复核员 37 字探针 = 22 缺失 (`第一章有理下列计算教师备注目难度进阶挑战扩展` 全不在) ⇒ 同源循环确认
+    - **§二:52** 撤误规格「3500 常用 CJK ~2-3 MB」, 改实际 35 码点 dynamic subset + 缺口说明
+    - **§九:448** 撤误规格「subset ~2-3 MB」, 改实际 8 184 B / 35 码点
+    - **§八 test 4 加 A10 R2 覆盖度判据**: chapter title 改用常用字「第一章 有理数 下列计算 教师备课」(subset 外) + 断言 `第一章` in text ⇒ **窄集下必红** ⇒ 暴露字体窄集风险
+    - **§十三 DoD 加 A10 R2 显式未覆盖段**: test 1/2/3/5 = 4 passed (结构标记); test 4 = **设计红** (A10 R2 覆盖度判据); 若绿 = 字体已扩集 (R1 完成)
+  - **B15**: 新增 `backend/tests/api/__init__.py` (1 行空文件; per 复核员 1 行零风险补双导入隐患)
+  - **B16**: 「51 字符」改「51 字符（去重 35 码点）= 35/35」措辞 (避免误读为 51 码点); README + §十五 同步
+  - **网络可达性 (复核员 v2 未知项)**: WSL 可达 `fonts.googleapis.com` + `gstatic.com`; legacy UA 试 R1 = CSS API 改版返 dynamic subset = 拿不到 CJK-only TTF ⇒ R1 走不通 (R2 选)
+  - **第三次决策**: R1 不可行 (无 accessible 全量 TTF 源) ⇒ R2 选; 期望 subagent 派工后 test 4 报告红, 触发 S4.5/S5 前置扩集
+
+- **第三次实证基线**:
+  - HEAD = `a63d2c2` (brief v3 后; 本笔 v4 后 = 51 笔 = 668fddd..HEAD)
+  - fontTools cmap 实测 = 35 codepoints; 16 非 ASCII; Magic `0x00010000` (TTF); `glyf` ✓; `TTFont()` ✓; **同源循环确认** = test 4 断言集 ∈ 字体子集 (因为字体由 test 字符动态生成) ⇒ test 4 永不会因字体缺字而红
+  - 复核员 37 字探针 = 12 命中 / 22 缺失 (常用字 `第一章` 等 不在 35 码点中)
+
+- **第三次关键决策**:
+  - 1 处 A10 R2 设计核心: 故意 test 4 红, 暴露窄集风险 (vs 假装绿, 走过 D-28 同源循环陷阱)
+  - 1 处规格诚实: §二/§九 撤误规格「3500 ~2-3 MB」, 改实际 35 码点 + 缺口说明 (vs 自我欺骗)
+  - 1 处隐性双导入堵漏: B15 加 `backend/tests/api/__init__.py` (1 行, 零风险) 替代 `_s4_helpers.py` 的 `from tests.api.v1.test_assignment_review import ...` (单引用 = 1 引用, 但仍靠 PEP 420 命名空间包侥幸)
