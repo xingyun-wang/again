@@ -143,7 +143,7 @@ export default function Assignments() {
       } else if (code === 403) {
         setCreateAlert({ kind: 'error', message: '无权限', description: detail })
       } else if (code === 404) {
-        setCreateAlert({ kind: 'error', message: 'chapter 不存在', description: detail })
+        setCreateAlert({ kind: 'error', message: detail ?? 'Not Found', description: detail })
       } else if (code === 422) {
         setCreateAlert({ kind: 'warning', message: '字段非法 / 题库不足', description: detail })
       } else {

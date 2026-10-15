@@ -10,6 +10,9 @@ ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
 COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 
+ARG VITE_API_PREFIX
+RUN test -n "$VITE_API_PREFIX" || (echo "VITE_API_PREFIX 未注入" >&2; exit 1)
+
 # 复制源码并 build
 COPY tsconfig*.json vite.config.ts index.html ./
 COPY src ./src

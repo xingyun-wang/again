@@ -90,7 +90,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # 构建阶段可选：跳过默认值（前端不需要 LLM key）
+        # API 前缀 (build arg 必传, fail-fast)
         VITE_API_PREFIX: /api/v1
     container_name: thp-frontend
     depends_on:
