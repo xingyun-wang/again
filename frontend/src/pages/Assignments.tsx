@@ -123,11 +123,25 @@ export default function Assignments() {
         description: `review_status=${resp.data.review.review_status}（需通过审阅才能导出）`,
       })
     } catch (err) {
-      const e = err as { response?: { status: number; data?: { detail?: string } } }
+      const e = err as { response?: { status: number; data?: unknown } }
       const code = e?.response?.status
-      const detail = e?.response?.data?.detail ?? '未知错误'
+      // 兼容双 schema: 优先 message (errors.py ErrorResponse 包装), 兜底 detail (FastAPI HTTPException)
+      // 也兜底 Blob 形态（理论 create endpoint 应返 JSON, 但同型安全网沿用 export catch 修法）
+      const data = e?.response?.data
+      let detail = '未知错误'
+      if (data instanceof Blob) {
+        try {
+          const parsed = JSON.parse(await data.text()) as { detail?: string; message?: string }
+          detail = parsed.message ?? parsed.detail ?? '未知错误'
+        } catch { /* 保持默认 '未知错误' */ }
+      } else if (data && typeof data === 'object') {
+        const obj = data as { detail?: string; message?: string }
+        detail = obj.message ?? obj.detail ?? '未知错误'
+      }
       if (code === 401) {
         setCreateAlert({ kind: 'error', message: 'X-User-Id 缺失', description: detail })
+      } else if (code === 403) {
+        setCreateAlert({ kind: 'error', message: '无权限', description: detail })
       } else if (code === 404) {
         setCreateAlert({ kind: 'error', message: 'chapter 不存在', description: detail })
       } else if (code === 422) {
