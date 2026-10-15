@@ -8,7 +8,6 @@
 抽到这里 = 单一真值源 (D-43 决策室 决策);
 s4 工单不动 test_assignment_review.py (避免跨工单污染)。
 """
-from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -16,8 +15,8 @@ from sqlalchemy.orm import Session
 from app.api.v1.routers.assignments import router as assignments_router
 from app.db.session import get_db
 from tests.api.v1.test_assignment_review import (  # noqa: F401  复用既有
-    _create_assignment_pending,
     _create_assignment_approved,
+    _create_assignment_pending,
     chapter_with_questions,
 )
 
