@@ -54,3 +54,13 @@
 > - mtime = 2026-10-04 21:18（按 D-75 §2；取数时刻已并列）
 >
 > **来源**：审查员核对回执 §六（D-77 二次落地建议）+ `wc -l -c STATE.md` = 33 / 3417 + `sed -n '10,33p' STATE.md` + 用户拍 go（2026-10-06 18:09）
+
+## 2026-10-15 22:30 — 派工 v9-v12 收工 (D-77 承接)
+- 派工 v9 (commit 49c6e46): 改 3 文件 (docker-compose:94 VITE_API_PREFIX: /api/v1 / frontend/.env.example:6 / frontend/src/api/health.ts 独立 axios 实例) — 漏 Dockerfile (派工 v10 修)
+- 派工 v10 (commit 2e9f0b1): 改 3 文件 (frontend/Dockerfile ARG/ENV fail-fast / Assignments.tsx:146 删 chapter 不存在 写死 / docker-compose.yml:93 注释)
+- 派工 v11 (commit b931ebe): 改 1 文件 (Review.tsx 加 导出 PDF 按钮 + 删 空头支票 + 改 data?.detail 错误字段)
+- 派工 v12 (跑 通): 0 文件 改; DROP DATABASE + 容器 重启 + alembic upgrade head 自动 + SQL 插 1 chapter + 1 assignment id=13 APPROVED + 端到端 5 探针 全 命中
+- 派工 v9-v12 派工链 真正 闭环 = S4-b 派工链 v1-v6 真正 闭环
+- self-stop 累计 15→49 (per A5 (a) 数字稳定滞后 1 笔口径; 不立 D-XX per D-83)
+- 已知遗留 5 笔 (L1/L2/L3/L4/L5) 严守 不 改; 另立 工单 跟进
+- 窗口期 风险 仍 存在 (代码 + 容器 + 接口层 全 到位, 缺 主人 hard reload 浏览器 + 在 审阅页 点 导出 PDF 按钮 + 截图 + github 推 单独批)

@@ -227,3 +227,19 @@ ci_run: <run#number + frontend job + backend job 状态; 必含>
 > **不立 D-XX** per D-83 不立原则
 >
 > **来源**: 2026-10-15 13:50 +0800 per 复核员 13:4x 回执 (3 B 文字一致性 派前必修) + 13:3x 拍 A3 = A + 13:2x 4 A + 3 B; github 推 `daafd65..1acbda4` master 已落 (HEAD = origin/master = github/master = 1acbda4); 8 步 收工 闭环验真过 (11/11 项)
+
+---
+
+## 2026-10-15 22:30 收工注 — 派工 v9-v12 派工链 真正 闭环 (S4-b brief v5 收工)
+
+- **派工 v9** (commit 49c6e46): 改 3 文件 (docker-compose:94 VITE_API_PREFIX: /api/v1 / frontend/.env.example:6 / frontend/src/api/health.ts 独立 axios 实例) — 漏 Dockerfile (派工 v10 修)
+- **派工 v10** (commit 2e9f0b1): 改 3 文件 (frontend/Dockerfile ARG/ENV fail-fast / Assignments.tsx:146 删 chapter 不存在 写死 / docker-compose.yml:93 注释)
+- **派工 v11** (commit b931ebe): 改 1 文件 (Review.tsx 加 导出 PDF 按钮 + 删 空头支票 + 改 data?.detail 错误字段)
+- **派工 v12** (跑 通): 0 文件 改; DROP DATABASE + 容器 重启 + alembic upgrade head 自动 + SQL 插 1 chapter + 1 assignment id=13 APPROVED + 端到端 5 探针 全 命中
+- **bundle baseURL 真值 = /api/v1** 双判据 命中 (B2 修法, 非 grep 字符串 假绿): `const gU="/api/v1"` + `baseURL:gU`
+- **端到端 关键 5 探针 全 命中**: GET /api/v1/assignments/13=200 + GET /api/v1/assignments/1=404 (闸门 D-29) + GET /api/health=200 + POST /api/v1/assignments=422 + **POST /api/v1/assignments/13/export=200 PDF 8907 B / %PDF-1.4** (复核员 22:0x 验真 一致)
+- **S4-b 派工链 v1-v6 真正 闭环** (派工 v1-v6 commit 4e04e99/fe09d09/4b19ace/1e8fe26/49c6e46/2e9f0b1/b931ebe 全部 落 仓)
+- **已知遗留 5 笔** (L1-L5): L1 Assignments.tsx:216 export 404 写死 / L2 Review.tsx:136 load 404 写死 / L3 Review.tsx:184 review 404 写死 / L4 client.ts:3 兜底 / L5 A1 ③ URL/sessionStorage 切页 恢复
+- **self-stop 累计 49** (per A5 (a) 数字稳定滞后 1 笔口径; 派工 v9-v12 失实 组 19 笔; 不立 D-XX per D-83)
+- **窗口期 风险 仍 存在** (代码 + 容器 + 接口层 全 到位, 缺 主人 hard reload 浏览器 + 在 审阅页 点 导出 PDF 按钮 + 截图 + github 推 单独批)
+- **来源**: 2026-10-15 22:30 +0800 per D-75 §2 收工 8 步 (per 星云拍 B 走 origin 推, github 单独批)
