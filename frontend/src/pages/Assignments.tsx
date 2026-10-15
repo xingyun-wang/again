@@ -64,13 +64,6 @@ interface AssignmentRead {
   review: ReviewBlock
 }
 
-interface ExportResponse {
-  assignment_id: number
-  export_id: string
-  status: 'queued' | 'processing' | 'done' | 'failed'
-  note: string
-}
-
 // ──────────────── 表单值类型 ────────────────
 
 interface CreateFormValues {
@@ -148,21 +141,38 @@ export default function Assignments() {
     }
   }
 
-  // 导出：POST /api/v1/assignments/{id}/export
+  // 导出：POST /api/v1/assignments/{id}/export（M2-S4-b：S4 后端已流式直返 application/pdf）
   const onExport = async () => {
     if (!assignment) return
     setExporting(true)
     setExportAlert(null)
     try {
-      const resp = await apiClient.post<ExportResponse>(
+      // responseType: 'blob' → S4 后端直返 application/pdf bytes, 前端取 Blob 即可
+      const resp = await apiClient.post<Blob>(
         `/assignments/${assignment.id}/export`,
         {},
-        { headers: { 'X-User-Id': '1' } },
+        {
+          headers: { 'X-User-Id': '1' },
+          responseType: 'blob',
+        },
       )
+      // 文件名从 Content-Disposition 解析 (per §一.2; 后端已返 assignment_{id}_{ts}.pdf)
+      const dispo = resp.headers['content-disposition'] ?? ''
+      const filenameMatch = /filename="([^"]+)"/.exec(dispo)
+      const filename = filenameMatch ? filenameMatch[1] : `assignment_${assignment.id}.pdf`
+      // 触发浏览器下载 (per §一.2; URL.createObjectURL + <a> click)
+      const blobUrl = URL.createObjectURL(resp.data)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
       setExportAlert({
         kind: 'success',
-        message: `导出已入队（export_id=${resp.data.export_id}）`,
-        description: `status=${resp.data.status}；${resp.data.note}`,
+        message: `已生成作业单 (${filename}), 正在下载...`,
+        description: 'PDF 已保存到浏览器下载目录',
       })
     } catch (err) {
       const e = err as { response?: { status: number; data?: { detail?: string } } }
