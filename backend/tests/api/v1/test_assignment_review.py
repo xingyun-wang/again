@@ -319,7 +319,7 @@ def test_F1_full_review_export_flow_200(
     assert review_data["review"]["reviewed_by"] == 1
     assert review_data["review"]["review_notes"] == notes_value
 
-    # 2. POST /export
+    # 2. POST /export (M2-S4: 流式直返 PDF; 取代 S3 stub JSON)
     export_resp = client.post(
         f"/api/v1/assignments/{aid}/export",
         headers={"X-User-Id": "1"},
@@ -327,11 +327,10 @@ def test_F1_full_review_export_flow_200(
     assert export_resp.status_code == 200, (
         f"APPROVED 后 POST /export 应 200，实际 {export_resp.status_code}：{export_resp.text}"
     )
-    export_data = export_resp.json()
-    assert export_data["assignment_id"] == aid
-    assert export_data["export_id"] == f"stub-{aid}"
-    assert export_data["status"] == "queued"
-    assert "S4" in export_data["note"]  # stub note 应提及 S4
+    # M2-S4 改流式直返: 不再返 JSON; 验 PDF 头 + content-type + disposition
+    assert export_resp.headers["content-type"] == "application/pdf"
+    assert export_resp.content[:4] == b"%PDF"
+    assert "attachment" in export_resp.headers.get("content-disposition", "")
 
     # 3. DB 直查：review_status / reviewed_by / review_notes
     row = mock_db_session.get(Assignment, aid)

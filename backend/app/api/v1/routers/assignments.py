@@ -26,13 +26,13 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import _enforce_owner_or_404
 from app.api.v1.schemas.academic import TeacherReviewStatus
 from app.api.v1.schemas.assignments import (
     AssignmentCreate,
-    AssignmentExportResponse,
     AssignmentItemRead,
     AssignmentRead,
     AssignmentReviewRequest,
@@ -45,6 +45,7 @@ from app.models import (
     KnowledgeReviewStatus,
     User,
 )
+from app.services.assignment_export import render_assignment_pdf
 from app.services.question_generator import (
     generate_assignment_for_chapter,
 )
@@ -333,20 +334,21 @@ def review_assignment(
 
 @router.post(
     "/assignments/{assignment_id}/export",
-    response_model=AssignmentExportResponse,
-    summary="作业单 PDF 导出闸门（S3 stub；S4 接真 PDF）",
+    summary="作业单 PDF 导出闸门 + 真 PDF 流式直返（M2-S4）",
 )
 def export_assignment(
     assignment_id: int,
     db: Annotated[Session, Depends(get_db)],
     user_id: Annotated[int, Depends(get_current_user_id)],
-) -> AssignmentExportResponse:
-    """§7.5 闸门：review_status == APPROVED 才放行；S3 仅 stub。
+) -> Response:
+    """§7.5 闸门：review_status == APPROVED 才放行；M2-S4 真 PDF 流式直返。
 
-    Brief §5.3：
+    Brief §5：
     - 404：assignment 不存在 / 不属于当前 user（D-29 不暴露存在性）
     - 403：review_status != APPROVED（DB 侧判 ORM enum）
-    - 200：返 stub response（不实际生成 PDF）
+    - 200：application/pdf + Content-Disposition: attachment（流式直返 per D-S4-3 ①）
+
+    Note（B4-1）：移除 response_model=AssignmentExportResponse（流式直返不返此 schema）。
     """
     from app.models import Assignment
 
@@ -373,10 +375,11 @@ def export_assignment(
             ),
         )
 
-    # 闸门通过 → 返 stub response（S3 不实际生成 PDF；S4 接真 PDF）
-    return AssignmentExportResponse(
-        assignment_id=assignment.id,
-        export_id=f"stub-{assignment.id}",
-        status="queued",
-        note="S3 stub; S4 接真 PDF 生成",
+    # §7.5 闸门通过 → 真 PDF 流式直返（M2-S4 D-S4-3 ①; per B4-3）
+    pdf_bytes = render_assignment_pdf(assignment)
+    filename = f"assignment_{assignment.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
