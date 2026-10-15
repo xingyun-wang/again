@@ -91,7 +91,7 @@ services:
       dockerfile: Dockerfile
       args:
         # 构建阶段可选：跳过默认值（前端不需要 LLM key）
-        VITE_API_PREFIX: /api
+        VITE_API_PREFIX: /api/v1
     container_name: thp-frontend
     depends_on:
       backend:
