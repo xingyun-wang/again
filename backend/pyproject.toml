@@ -11,6 +11,8 @@ dependencies = [
     "alembic>=1.14.0",
     "pymupdf>=1.24.0",
     "pdfplumber>=0.11.0",
+    # M2-S4 D-S4-1: PDF 库（pure python，零系统依赖；DOCKERFILE 零改）
+    "reportlab>=4.0,<5.0",
     "httpx>=0.27.0",
     "tenacity>=9.0.0",
     "pydantic>=2.9.0",
@@ -45,7 +47,21 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
-module = ["fitz", "pdfplumber", "pymupdf", "tenacity"]
+module = [
+    "fitz",
+    "pdfplumber",
+    "pymupdf",
+    "reportlab",
+    "reportlab.lib",
+    "reportlab.lib.colors",
+    "reportlab.lib.pagesizes",
+    "reportlab.lib.styles",
+    "reportlab.pdfbase",
+    "reportlab.pdfbase.pdfmetrics",
+    "reportlab.pdfbase.ttfonts",
+    "reportlab.platypus",
+    "tenacity",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

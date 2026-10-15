@@ -67,7 +67,7 @@ docker compose exec -T ${POSTGRES_SERVICE} psql -U ${DB_USER} -d ${TEST_DB_NAME}
   "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name != 'alembic_version';"
 echo -n "  enums: "
 docker compose exec -T ${POSTGRES_SERVICE} psql -U ${DB_USER} -d ${TEST_DB_NAME} -tAc \
-  "SELECT count(*) FROM pg_type WHERE typtype='e';"
+  "SELECT count(*) FROM pg_type t JOIN pg_namespace n ON t.typnamespace=n.oid WHERE t.typtype='e' AND n.nspname='public';"
 echo ""
 
 echo "✅ B2 修法 test 库 setup 完成: ${TEST_DB_NAME} @ ${TEST_DB_URL}"
