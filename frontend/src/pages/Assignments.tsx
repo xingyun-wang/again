@@ -175,9 +175,23 @@ export default function Assignments() {
         description: 'PDF 已保存到浏览器下载目录',
       })
     } catch (err) {
-      const e = err as { response?: { status: number; data?: { detail?: string } } }
+      const e = err as { response?: { status: number; data?: unknown } }
       const code = e?.response?.status
-      const detail = e?.response?.data?.detail ?? '未知错误'
+      // axios responseType:'blob' 下, 错误响应 data 也是 Blob, 需 text() + JSON.parse
+      // 修复前恒为 '未知错误' (response.data?.detail 走不到; 200 PDF path 不受影响)
+      // 提取用户可见错误文本: 优先 message (后端 errors.py ErrorResponse 包装),
+      // 退化到 detail (标准 FastAPI HTTPException 形态; 兜底兼用)
+      const data = e?.response?.data
+      let detail = '未知错误'
+      if (data instanceof Blob) {
+        try {
+          const parsed = JSON.parse(await data.text()) as { detail?: string; message?: string }
+          detail = parsed.message ?? parsed.detail ?? '未知错误'
+        } catch { /* 保持默认 '未知错误' */ }
+      } else if (data && typeof data === 'object') {
+        const obj = data as { detail?: string; message?: string }
+        detail = obj.message ?? obj.detail ?? '未知错误'
+      }
       if (code === 403) {
         setExportAlert({
           kind: 'warning',
