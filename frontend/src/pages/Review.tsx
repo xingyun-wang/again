@@ -98,6 +98,8 @@ export default function Review() {
   const [reviewForm] = Form.useForm<ReviewFormValues>()
   const [reviewing, setReviewing] = useState(false)
   const [reviewAlert, setReviewAlert] = useState<AlertState | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [exportAlert, setExportAlert] = useState<AlertState | null>(null)
 
   // 加载：GET /api/v1/assignments/{id}
   const onLoad = async () => {
@@ -129,9 +131,19 @@ export default function Review() {
         notes: resp.data.review.review_notes ?? '',
       })
     } catch (err) {
-      const e = err as { response?: { status: number; data?: { detail?: string } } }
+      const e = err as { response?: { status: number; data?: unknown } }
       const code = e?.response?.status
-      const detail = e?.response?.data?.detail ?? '未知错误'
+      const data = e?.response?.data
+      let detail = '未知错误'
+      if (data instanceof Blob) {
+        try {
+          const parsed = JSON.parse(await data.text()) as { detail?: string; message?: string }
+          detail = parsed.message ?? parsed.detail ?? '未知错误'
+        } catch { /* 保持默认 '未知错误' */ }
+      } else if (data && typeof data === 'object') {
+        const obj = data as { detail?: string; message?: string }
+        detail = obj.message ?? obj.detail ?? '未知错误'
+      }
       if (code === 404) {
         setLoadAlert({ kind: 'error', message: 'assignment 不存在', description: detail })
       } else if (code === 401) {
@@ -143,6 +155,74 @@ export default function Review() {
       setAid(null)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 导出：POST /api/v1/assignments/{id}/export（M2-S4-b：S4 后端已流式直返 application/pdf）
+  const onExport = async () => {
+    if (!assignment) return
+    setExporting(true)
+    setExportAlert(null)
+    try {
+      // responseType: 'blob' → S4 后端直返 application/pdf bytes, 前端取 Blob 即可
+      const resp = await apiClient.post<Blob>(
+        `/assignments/${assignment.id}/export`,
+        {},
+        {
+          headers: { 'X-User-Id': '1' },
+          responseType: 'blob',
+        },
+      )
+      // 文件名从 Content-Disposition 解析 (per §一.2; 后端已返 assignment_{id}_{ts}.pdf)
+      const dispo = resp.headers['content-disposition'] ?? ''
+      const filenameMatch = /filename="([^"]+)"/.exec(dispo)
+      const filename = filenameMatch ? filenameMatch[1] : `assignment_${assignment.id}.pdf`
+      // 触发浏览器下载 (per §一.2; URL.createObjectURL + <a> click)
+      const blobUrl = URL.createObjectURL(resp.data)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
+      setExportAlert({
+        kind: 'success',
+        message: `已生成作业单 (${filename}), 正在下载...`,
+        description: 'PDF 已保存到浏览器下载目录',
+      })
+    } catch (err) {
+      const e = err as { response?: { status: number; data?: unknown } }
+      const code = e?.response?.status
+      // axios responseType:'blob' 下, 错误响应 data 也是 Blob, 需 text() + JSON.parse
+      // 提取用户可见错误文本: 优先 message (后端 errors.py ErrorResponse 包装),
+      // 退化到 detail (标准 FastAPI HTTPException 形态; 兜底兼用)
+      const data = e?.response?.data
+      let detail = '未知错误'
+      if (data instanceof Blob) {
+        try {
+          const parsed = JSON.parse(await data.text()) as { detail?: string; message?: string }
+          detail = parsed.message ?? parsed.detail ?? '未知错误'
+        } catch { /* 保持默认 '未知错误' */ }
+      } else if (data && typeof data === 'object') {
+        const obj = data as { detail?: string; message?: string }
+        detail = obj.message ?? obj.detail ?? '未知错误'
+      }
+      if (code === 403) {
+        setExportAlert({
+          kind: 'warning',
+          message: '未通过教师审阅（§7.5 硬约束）',
+          description: `${detail}；请先在下方审阅表单标记 reviewed。`,
+        })
+      } else if (code === 404) {
+        setExportAlert({ kind: 'error', message: 'assignment 不存在', description: detail })
+      } else if (code === 401) {
+        setExportAlert({ kind: 'error', message: 'X-User-Id 缺失', description: detail })
+      } else {
+        setExportAlert({ kind: 'error', message: `导出失败（${code ?? '网络'}）`, description: detail })
+      }
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -167,13 +247,23 @@ export default function Review() {
         message: `审阅成功（status=${resp.data.review.review_status}）`,
         description:
           resp.data.review.review_status === 'reviewed'
-            ? '现在可以到「作业生成」页导出 PDF。'
+            ? '现在可以导出 PDF（按钮在下方）。'
             : '已标记为修改。',
       })
     } catch (err) {
-      const e = err as { response?: { status: number; data?: { detail?: string } } }
+      const e = err as { response?: { status: number; data?: unknown } }
       const code = e?.response?.status
-      const detail = e?.response?.data?.detail ?? '未知错误'
+      const data = e?.response?.data
+      let detail = '未知错误'
+      if (data instanceof Blob) {
+        try {
+          const parsed = JSON.parse(await data.text()) as { detail?: string; message?: string }
+          detail = parsed.message ?? parsed.detail ?? '未知错误'
+        } catch { /* 保持默认 '未知错误' */ }
+      } else if (data && typeof data === 'object') {
+        const obj = data as { detail?: string; message?: string }
+        detail = obj.message ?? obj.detail ?? '未知错误'
+      }
       if (code === 422) {
         setReviewAlert({
           kind: 'warning',
@@ -230,7 +320,19 @@ export default function Review() {
 
       {/* Card 2: 详情 */}
       {assignment && (
-        <Card title={`作业单 #${assignment.id} 详情`}>
+        <Card
+          title={`作业单 #${assignment.id} 详情`}
+          extra={
+            <Button
+              type="primary"
+              onClick={onExport}
+              loading={exporting}
+              disabled={assignment.review.review_status !== 'reviewed'}
+            >
+              导出 PDF
+            </Button>
+          }
+        >
           <Descriptions column={2} bordered size="small">
             <Descriptions.Item label="ID">{assignment.id}</Descriptions.Item>
             <Descriptions.Item label="owner_user_id">
@@ -283,6 +385,17 @@ export default function Review() {
             }
             showIcon
           />
+
+          {exportAlert && (
+            <Alert
+              style={{ marginTop: 16 }}
+              type={exportAlert.kind}
+              message={exportAlert.message}
+              description={exportAlert.description}
+              showIcon
+              closable
+            />
+          )}
         </Card>
       )}
 
