@@ -106,6 +106,14 @@ def render_assignment_pdf(assignment: Assignment) -> bytes:
                 f"&nbsp;&nbsp;{i.position + 1}. {_escape(stem)}",
                 styles["Normal"],
             ))
+            # 选项渲染 (per 选项渲染缺失 follow-up, 12th P0 blocker; per 星云 2026-10-16 10:18)
+            # sort by order_index (model lazy="selectin" 不保证顺序)
+            if i.question and i.question.choices:
+                for c in sorted(i.question.choices, key=lambda c: c.order_index):
+                    story.append(Paragraph(
+                        f"&nbsp;&nbsp;&nbsp;&nbsp;{_escape(c.label)}. {_escape(c.content)}",
+                        styles["Normal"],
+                    ))
         story.append(Spacer(1, 6))
 
     # §3 审阅状态
