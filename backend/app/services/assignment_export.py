@@ -103,7 +103,7 @@ def render_assignment_pdf(assignment: Assignment) -> bytes:
         for i in tier_items:
             stem = i.question.content if i.question else "(题目已删)"
             story.append(Paragraph(
-                f"&nbsp;&nbsp;{i.position}. {_escape(stem)}",
+                f"&nbsp;&nbsp;{i.position + 1}. {_escape(stem)}",
                 styles["Normal"],
             ))
         story.append(Spacer(1, 6))
