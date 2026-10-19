@@ -29,6 +29,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Table,
     Text,
@@ -797,6 +798,17 @@ class Question(Base):
         ),
         nullable=False,
     )
+    # M3-1a brief §1.1（2026-10-19 21:02 拍）：points + answer_text 两列
+    # - points: Numeric(5,1) NOT NULL server_default='2.0'（默认 2 分）
+    # - answer_text: Text NULL（仅 fill / subjective 用；choice 答案走 Choice.is_correct）
+    # 严格两列，不夹带 batch / student / barcode（属 0013 推迟）
+    points: Mapped[float] = mapped_column(
+        Numeric(5, 1),
+        nullable=False,
+        default=2.0,
+        server_default="2.0",
+    )
+    answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     knowledge_points: Mapped[list[KnowledgePoint]] = relationship(
         KnowledgePoint,
         secondary="question_knowledge_points",

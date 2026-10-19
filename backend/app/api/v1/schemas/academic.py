@@ -146,6 +146,25 @@ class TextbookUploadResponse(BaseModel):
     created_at: datetime
 
 
+class TextbookSummary(BaseModel):
+    """GET /textbooks 列表响应（M3-1a brief §1.2）。
+
+    用途：教师查看自己上传的所有教材（题库属教师个人资产 — CHARTER §3）。
+    字段：id / title / grade / subject（subject 可空，未归类教材也允许）。
+    """
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    id: int
+    title: str = Field(..., description="教材名（=Textbook.name）")
+    grade: str | None = Field(
+        default=None, description="学段（junior_high / senior_high）"
+    )
+    subject: str | None = Field(
+        default=None, description="学科名（Subject.name；subject_id 为空时 None）"
+    )
+
+
 class ChapterListResponse(BaseModel):
     """GET /textbooks/{id}/chapters 响应。"""
 
@@ -207,12 +226,28 @@ class KPDetail(BaseModel):
 class KnowledgePointDetail(BaseModel):
     """知识点 detail（与 KPDetail 结构差异：name + concept，没有 source）。"""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
 
     id: int
     name: str
     concept: str
     teaching_order: int
+
+
+class KnowledgePointCreate(BaseModel):
+    """POST /chapters/{chapter_id}/knowledge-points 请求 body（M3-1a brief §1.3）。
+
+    字段：
+    - name: 知识点名（必填）
+    - concept: 概念说明（可空）
+    - teaching_order: 教学顺序（数字，默认 0）
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=256)
+    concept: str | None = Field(default=None, max_length=4000)
+    teaching_order: int = Field(default=0, ge=0)
 
 
 class ChapterReviewDetail(BaseModel):
@@ -418,6 +453,8 @@ class QuestionBase(BaseModel):
     content：题目正文。
     difficulty：4 档位（v0.5 §3.2）。
     type：题型（v0.5 §3.4）。
+    points：分值（M3-1a brief §1.1 — Numeric(5,1) 默认 2.0）。
+    answer_text：答案正文（M3-1a brief §1.1 — Text nullable；choice 答案走 Choice.is_correct）。
     knowledge_point_ids：题目关联的知识点 id 列表（可空）。
     """
 
@@ -427,6 +464,8 @@ class QuestionBase(BaseModel):
     content: str = Field(..., min_length=1)
     difficulty: QuestionDifficulty
     type: QuestionType
+    points: float = Field(default=2.0, ge=0, le=999.9, description="分值（默认 2.0）")
+    answer_text: str | None = Field(default=None, description="答案正文（fill / subjective 用）")
     knowledge_point_ids: list[int] = Field(default_factory=list)
 
 
@@ -451,6 +490,8 @@ class QuestionUpdate(BaseModel):
     content: str | None = Field(default=None, min_length=1)
     difficulty: QuestionDifficulty | None = None
     type: QuestionType | None = None
+    points: float | None = Field(default=None, ge=0, le=999.9)
+    answer_text: str | None = None
     knowledge_point_ids: list[int] | None = None
     choices: list[ChoiceBase] | None = None
 

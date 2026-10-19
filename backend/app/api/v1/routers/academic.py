@@ -46,6 +46,7 @@ from app.api.v1.schemas.academic import (
     ChapterReviewRequest,
     ChapterReviewResponse,
     ChapterSummary,
+    KnowledgePointCreate,
     KnowledgePointDetail,
     KPDetail,
     LessonPlanGenerateRequest,
@@ -60,6 +61,7 @@ from app.api.v1.schemas.academic import (
     QuestionType,
     QuestionUpdate,
     TeacherReviewStatus,
+    TextbookSummary,
     TextbookUploadResponse,
 )
 from app.core.llm.factory import get_llm_provider
@@ -343,6 +345,42 @@ def upload_textbook(
         ],
         created_at=textbook.created_at,
     )
+
+
+# ──── 1b. GET /textbooks（M3-1a brief §1.2）──列当前用户教材 ──────────────
+
+
+@router.get(
+    "/textbooks",
+    response_model=list[TextbookSummary],
+    summary="列当前用户教材（M3-1a brief §1.2 — 题库属教师个人资产）",
+    tags=["academic"],
+)
+def list_textbooks(
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> list[TextbookSummary]:
+    """GET /api/v1/academic/textbooks — 列当前用户的教材。
+
+    显式按 owner_user_id 过滤（CHARTER §3 题库属教师个人资产；D-29 §1.4）。
+    按 id ASC 排序保证稳定输出（与 list_questions 风格一致）。
+    用 textbook.subject（lazy="selectin"）取 subject.name，不发额外查询。
+    """
+    rows = (
+        db.query(Textbook)
+        .filter(Textbook.owner_user_id == user_id)
+        .order_by(Textbook.id.asc())
+        .all()
+    )
+    return [
+        TextbookSummary(
+            id=tb.id,
+            title=tb.name,
+            grade=_grade_level_value(tb.grade_level),
+            subject=(tb.subject.name if tb.subject is not None else None),
+        )
+        for tb in rows
+    ]
 
 
 # ────────────────────── 2. GET /textbooks/{id}/chapters ─────────────────────
@@ -731,6 +769,59 @@ def review_chapter(
     )
 
 
+# ──── 5b. POST /chapters/{chapter_id}/knowledge-points（M3-1a brief §1.3） ─────────
+
+
+@router.post(
+    "/chapters/{chapter_id}/knowledge-points",
+    response_model=KnowledgePointDetail,
+    status_code=status.HTTP_201_CREATED,
+    summary="章节下创建知识点（M3-1a brief §1.3 + KP 已存在 model）",
+    tags=["academic"],
+)
+def create_knowledge_point(
+    chapter_id: int,
+    payload: KnowledgePointCreate,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> KnowledgePoint:
+    """POST /api/v1/academic/chapters/{chapter_id}/knowledge-points — 创建知识点。
+
+    KnowledgePoint model 已存在（academic.py §知识库），仅缺创建接口。
+    KP 自身无 owner_user_id，归属通过 chapter 走（D-29 §1.4 跨用户隔离）。
+
+    校验：
+    1. chapter 存在 + 归属当前 user → 404 if mismatch
+    2. name 必填；concept 可空；teaching_order ≥ 0
+
+    Returns:
+        KnowledgePointDetail: 新建 KP 详情（含 id / name / concept / teaching_order）
+    """
+    # 1. chapter 存在 + owner check（JOIN chapter 走 D-29 单门）
+    chapter = db.get(Chapter, chapter_id)
+    if chapter is None:
+        raise HTTPException(
+            status_code=404, detail=f"chapter_id {chapter_id} 不存在"
+        )
+    _enforce_owner_or_404(chapter, user_id)
+
+    # 2. 校验 name 必填（Pydantic min_length=1 已保；这里再守一手）
+    if not payload.name or not payload.name.strip():
+        raise HTTPException(status_code=422, detail="name 必填且不能为空字符串")
+
+    # 3. 创建 KP（model 已声明 chapter_id FK + name/concept/teaching_order 列）
+    kp = KnowledgePoint(
+        chapter_id=chapter_id,
+        name=payload.name,
+        concept=payload.concept or "",
+        teaching_order=payload.teaching_order,
+    )
+    db.add(kp)
+    db.commit()
+    db.refresh(kp)
+    return kp
+
+
 # ────────────────────── 6. POST /lesson-plans/generate ──────────────────────
 
 
@@ -1061,6 +1152,8 @@ def create_question(
         content=body.content,
         difficulty=ORMQuestionDifficulty(body.difficulty.value),
         type=ORMQuestionType(body.type.value),
+        points=body.points,
+        answer_text=body.answer_text,
     )
     for c in body.choices:
         q.choices.append(Choice(**c.model_dump()))
@@ -1116,14 +1209,24 @@ def list_questions(
     type: Annotated[
         QuestionType | None, Query(description="按题型过滤")
     ] = None,
+    knowledge_point_id: Annotated[
+        int | None,
+        Query(
+            description="按知识点过滤（M3-1a brief §1.4）— join Question.knowledge_points",
+        ),
+    ] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> QuestionListResponse:
     """GET /api/v1/academic/questions — 列题目。
 
     仅返回当前 user 拥有的题目（D-29 §1.4 题库个人资产）。
-    过滤：chapter_id / difficulty / type（任意组合）。
+    过滤：chapter_id / difficulty / type / knowledge_point_id（任意组合）。
     分页：limit + offset。
+
+    knowledge_point_id（M3-1a brief §1.4）：
+    - 通过 Question.knowledge_points ORM 关系 join（secondary=question_knowledge_points）
+    - 不直接 join 关联表 —— 用 ORM relationship 即可
     """
     query = db.query(Question).filter(Question.owner_user_id == user_id)
     if chapter_id is not None:
@@ -1132,6 +1235,10 @@ def list_questions(
         query = query.filter(Question.difficulty == difficulty.value)
     if type is not None:
         query = query.filter(Question.type == type.value)
+    if knowledge_point_id is not None:
+        query = query.join(Question.knowledge_points).filter(
+            KnowledgePoint.id == knowledge_point_id
+        )
     total = query.count()
     items = (
         query.order_by(Question.id.desc())
@@ -1184,6 +1291,10 @@ def update_question(
         if body.type.value != ORMQuestionType.CHOICE.value and q.choices:
             q.choices.clear()
             db.flush()  # flush 让 cascade 实际执行（避免 commit 时再批量）
+    if body.points is not None:
+        q.points = body.points
+    if body.answer_text is not None:
+        q.answer_text = body.answer_text
     if body.knowledge_point_ids is not None:
         kps = _check_knowledge_point_ownership(
             db, body.knowledge_point_ids, user_id
