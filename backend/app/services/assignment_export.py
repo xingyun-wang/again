@@ -1,13 +1,17 @@
-"""作业单 PDF 渲染 service（M2-S4 D-S4-1/2/3 + D-A1 锁定）。"""
+"""作业单 PDF 渲染 service（M2-S4 D-S4-1/2/3 + D-A1 锁定 + M3-D2-W5 嵌图）。"""
+import logging
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
+    Flowable,
+    Image,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -16,6 +20,14 @@ from reportlab.platypus import (
 )
 
 from app.models import Assignment
+from app.models.academic import QuestionImage
+
+# M3-D2-W5: PDF 嵌图失败时输出可见 fallback（per brief §3 "不静默"）
+logger = logging.getLogger(__name__)
+
+# M3-D2-W5: 题目图片渲染默认宽度 200pt（与 A4 比例匹配；高度由 reportlab
+# 按原图宽高比自动计算；brief §3 拍板）
+_IMAGE_DEFAULT_WIDTH_PT = 200
 
 # D-A1 (a) Noto Sans SC 嵌入 TTF (OFL 1.1)
 # 改 lazy 注册 (per B13: 模块级副作用 ⇒ 字体缺失时 import 崩 ⇒ 全站 router 不可用)
@@ -106,6 +118,11 @@ def render_assignment_pdf(assignment: Assignment) -> bytes:
                 f"&nbsp;&nbsp;{i.position + 1}. {_escape(stem)}",
                 styles["Normal"],
             ))
+            # M3-D2-W5: 题目图片渲染（per brief §3 "位置: stem 之后、choices 之前"）
+            # Question.images 关系已 order_by=QuestionImage.order_index (academic.py:816)
+            if i.question and i.question.images:
+                for img in i.question.images:
+                    _render_question_image(story, img, styles, font_name)
             # 选项渲染 (per 选项渲染缺失 follow-up, 12th P0 blocker; per 星云 2026-10-16 10:18)
             # sort by order_index (model lazy="selectin" 不保证顺序)
             if i.question and i.question.choices:
@@ -134,3 +151,56 @@ def _escape(s: str) -> str:
         .replace(">", "&gt;")
         .replace('"', "&quot;")
     )
+
+
+def _render_question_image(
+    story: list[Flowable],
+    img: QuestionImage,
+    styles: dict[str, ParagraphStyle],
+    _font_name: str,
+) -> None:
+    """M3-D2-W5: 渲染单张题目图片到 PDF（per brief §3 + §7 异常处理）。
+
+    异常处理（per brief §3 + 4 法核源: 不静默）：
+    - storage_path 缺失 / 文件不存在 / 读失败 / reportlab ImageReader 拒收
+      → 渲染 fallback "（图片加载失败）"（PDF 仍生成，**不**整份崩）
+
+    位置: 由 caller 决定（brief §3 = stem 之后、choices 之前）。
+
+    Args:
+        story: reportlab platypus story 列表（mutated in-place）
+        img: QuestionImage ORM 实例（需含 storage_path 字段）
+        styles: reportlab styles dict（键 = style name）
+        _font_name: 字体名（保留以备未来多语言扩展；当前 Image() 不需要字体）
+    """
+    storage_path: Any = getattr(img, "storage_path", None)
+    if not storage_path:
+        # DB 行但 storage_path 尚未回填（理论上不该发生；M2-A.1 upload 流程已保证）
+        logger.warning("QuestionImage 缺 storage_path: image_id=%s", getattr(img, "id", None))
+        story.append(Paragraph("（图片加载失败）", styles["Normal"]))
+        return
+
+    try:
+        img_bytes = Path(storage_path).read_bytes()
+    except (OSError, FileNotFoundError) as e:
+        # 文件丢失 / 权限不足 / IO 错误 — 渲染 fallback，不静默
+        logger.warning(
+            "题目图片读文件失败: image_id=%s path=%s err=%s",
+            getattr(img, "id", None),
+            storage_path,
+            e,
+        )
+        story.append(Paragraph("（图片加载失败）", styles["Normal"]))
+        return
+
+    try:
+        # reportlab.platypus.Image 接受 file-like + width；height 自动按宽高比
+        # 用 try 包裹防止 reportlab ImageReader 拒绝（损坏图片 / 未知格式）
+        story.append(Image(BytesIO(img_bytes), width=_IMAGE_DEFAULT_WIDTH_PT))
+    except Exception as e:  # noqa: BLE001 — reportlab 内部 ImageReader 抛各种异常
+        logger.warning(
+            "题目图片渲染失败: image_id=%s err=%s",
+            getattr(img, "id", None),
+            e,
+        )
+        story.append(Paragraph("（图片加载失败）", styles["Normal"]))
