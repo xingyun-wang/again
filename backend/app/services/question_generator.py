@@ -196,10 +196,14 @@ def generate_assignment_for_chapter(
     # 延迟 import:本模块测试可在无 SQLAlchemy 环境跑
     from app.models import Assignment, AssignmentItem, Question
 
-    # 1. 查题库(按 owner + chapter 过滤)
+    # 1. 查题库(按 owner + chapter 过滤,按 id ASC 排序保序)
+    #    W1 抽题可复现(B2 brief):同输入 → 同输出 → 同一学生拿同一份
+    #    ORDER BY 列 = Question.id(主键;最稳复现方式)
+    #    不用 created_at(同秒入库可能);不用 difficulty(业务字段;可改)
     questions: list[Question] = (
         db.query(Question)
         .filter(Question.owner_user_id == owner.id, Question.chapter_id == chapter.id)
+        .order_by(Question.id.asc())
         .all()
     )
 
