@@ -1242,18 +1242,39 @@ def list_questions(
             description="按知识点过滤（M3-1a brief §1.4）— join Question.knowledge_points",
         ),
     ] = None,
+    knowledge_point_ids: Annotated[
+        list[int] | None,
+        Query(description="按知识点过滤（多选，OR 语义；M3-1b brief §1 改动 2）"),
+    ] = None,
+    keyword: Annotated[
+        str | None,
+        Query(
+            min_length=1,
+            max_length=200,
+            description="题干关键词（ilike 模糊匹配；M3-1b brief §1 改动 1）",
+        ),
+    ] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> QuestionListResponse:
     """GET /api/v1/academic/questions — 列题目。
 
     仅返回当前 user 拥有的题目（D-29 §1.4 题库个人资产）。
-    过滤：chapter_id / difficulty / type / knowledge_point_id（任意组合）。
+    过滤：chapter_id / difficulty / type / knowledge_point_id /
+    knowledge_point_ids（多选，OR）/ keyword（题干模糊匹配，任意组合）。
     分页：limit + offset。
 
     knowledge_point_id（M3-1a brief §1.4）：
     - 通过 Question.knowledge_points ORM 关系 join（secondary=question_knowledge_points）
     - 不直接 join 关联表 —— 用 ORM relationship 即可
+
+    knowledge_point_ids（M3-1b brief §1 改动 2）：
+    - 多选 OR 语义：属于任一所选 KP 即命中
+    - join 产生重复行（一题多 KP）⇒ 必须 .distinct()，否则 total 重复计数
+    - 与单选 knowledge_point_id 同时给 = AND（两个条件都生效）
+
+    keyword（M3-1b brief §1 改动 1）：
+    - 用 SQLAlchemy .ilike()（跨 PG/SQLite 自动降级），不写裸 ILIKE SQL
     """
     query = db.query(Question).filter(Question.owner_user_id == user_id)
     if chapter_id is not None:
@@ -1266,6 +1287,14 @@ def list_questions(
         query = query.join(Question.knowledge_points).filter(
             KnowledgePoint.id == knowledge_point_id
         )
+    if knowledge_point_ids:
+        query = (
+            query.join(Question.knowledge_points)
+            .filter(KnowledgePoint.id.in_(knowledge_point_ids))
+            .distinct()
+        )
+    if keyword:
+        query = query.filter(Question.content.ilike(f"%{keyword}%"))
     total = query.count()
     items = (
         query.order_by(Question.id.desc())

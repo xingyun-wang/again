@@ -512,6 +512,12 @@ class QuestionRead(QuestionBase):
     id: int
     owner_user_id: int
     choices: list[ChoiceRead] = Field(default_factory=list)
+    # M3-1b brief §1 改动 3：两个只读展示字段（源 = Question 上的 property，
+    # 关系均 lazy="selectin" ⇒ 无 N+1；from_attributes 自动取值）
+    knowledge_point_names: list[str] = Field(
+        default_factory=list, description="知识点名（表格标签列）"
+    )
+    image_count: int = Field(default=0, description="题目图片数（表格列）")
     created_at: datetime
     updated_at: datetime
 

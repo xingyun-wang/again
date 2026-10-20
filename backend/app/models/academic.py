@@ -856,6 +856,24 @@ class Question(Base):
         """
         return [kp.id for kp in self.knowledge_points]
 
+    @property
+    def knowledge_point_names(self) -> list[str]:
+        """题目关联的 KP 名列表（M3-1b brief §1 改动 3 — 表格"知识点标签"列）。
+
+        同 knowledge_point_ids：knowledge_points 是 lazy="selectin"，
+        访问时批量加载，不触发 N+1。Pydantic v2 from_attributes=True
+        自动读本 property，QuestionRead 无需额外 validator。
+        """
+        return [kp.name for kp in self.knowledge_points]
+
+    @property
+    def image_count(self) -> int:
+        """题目图片数（M3-1b brief §1 改动 3 — 表格"图片数"列）。
+
+        images 同为 lazy="selectin"，无 N+1；只读 property，不加列不加迁移。
+        """
+        return len(self.images)
+
     __table_args__ = (
         Index(
             "ix_questions_owner_chapter_difficulty",
