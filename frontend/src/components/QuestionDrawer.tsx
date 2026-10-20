@@ -432,16 +432,20 @@ export default function QuestionDrawer({
 
       let targetId: number
       if (mode === 'edit' && question) {
-        await apiClient.patch(`/academic/questions/${question.id}`, {
-          headers: AUTH_HEADERS,
-          data: body,
-        })
+        // axios 签名：patch(url, data, config) —— 三参位。
+        // 曾把 {headers, data} 当第二参（data）传 ⇒ body 变成壳子且 config 位空 ⇒ header 丢失 ⇒ 400 缺少 X-User-Id。
+        await apiClient.patch(
+          `/academic/questions/${question.id}`,
+          body,
+          { headers: AUTH_HEADERS },
+        )
         targetId = question.id
       } else {
-        const resp = await apiClient.post('/academic/questions', {
-          headers: AUTH_HEADERS,
-          data: { chapter_id: chapterId, ...body },
-        })
+        const resp = await apiClient.post(
+          '/academic/questions',
+          { chapter_id: chapterId, ...body },
+          { headers: AUTH_HEADERS },
+        )
         targetId = resp.data?.id
         setCreatedQuestionId(targetId)
       }
