@@ -35,80 +35,28 @@ import {
 import type { TableColumnsType } from 'antd'
 
 import { apiClient } from '../api/client'
+import QuestionDrawer from '../components/QuestionDrawer'
+import {
+  DIFFICULTY_LABEL,
+  TYPE_LABEL,
+  TYPE_OPTIONS,
+  errorMessageOf,
+  type ChapterSummary,
+  type KnowledgePointDetail,
+  type QuestionListResponse,
+  type QuestionRead,
+  type TextbookSummary,
+} from '../api/questionTypes'
 
 const { Title, Paragraph, Text } = Typography
 
-// ──────────────── 类型定义（对齐 backend schemas/academic.py） ────────────
-
-/** GET /textbooks → TextbookSummary */
-interface TextbookSummary {
-  id: number
-  title: string
-  grade: string | null
-  subject: string | null
-}
-
-/** GET /textbooks/{id}/chapters → { textbook_id, chapters: ChapterSummary[] } */
-interface ChapterSummary {
-  id: number
-  chapter_number: number
-  title: string
-}
-
-/** GET /chapters/{id} → ChapterDetailResponse.knowledge_points */
-interface KnowledgePointDetail {
-  id: number
-  name: string
-  concept: string
-  teaching_order: number
-}
-
-/** GET /questions → QuestionRead（1b 新增 knowledge_point_names / image_count） */
-interface QuestionRead {
-  id: number
-  owner_user_id: number
-  chapter_id: number
-  content: string
-  difficulty: 'D' | 'C' | 'B' | 'A'
-  type: 'choice' | 'fill' | 'subjective'
-  points: number
-  answer_text: string | null
-  knowledge_point_ids: number[]
-  /** 可选：后端镜像不同步时可能不返（旧 QuestionRead 无此二字段） */
-  knowledge_point_names?: string[]
-  image_count?: number
-  created_at: string
-  updated_at: string
-}
-
-interface QuestionListResponse {
-  items: QuestionRead[]
-  total: number
-}
-
-// ──────────────── 显示名映射（规格：难度显示中文名不显示字母） ────────────
-
-const DIFFICULTY_LABEL: Record<QuestionRead['difficulty'], string> = {
-  D: '基础',
-  C: '进阶',
-  B: '挑战',
-  A: '扩展',
-}
-
-const TYPE_LABEL: Record<QuestionRead['type'], string> = {
-  choice: '选择题',
-  fill: '填空题',
-  subjective: '主观题',
-}
+// ──────────────── 类型与显示名映射 ────────────────
+// 类型定义 / label 映射已抽到 api/questionTypes.ts（1c-1a 抽屉组件共用，避免两份定义漂移）
+// 这里的 DIFFICULTY_OPTIONS 保留 1b 列表页口径（字母 · 中文名）
 
 const DIFFICULTY_OPTIONS = (
   Object.keys(DIFFICULTY_LABEL) as QuestionRead['difficulty'][]
 ).map((v) => ({ value: v, label: `${v} · ${DIFFICULTY_LABEL[v]}` }))
-
-const TYPE_OPTIONS = (Object.keys(TYPE_LABEL) as QuestionRead['type'][]).map((v) => ({
-  value: v,
-  label: TYPE_LABEL[v],
-}))
 
 const CONTENT_PREVIEW_LEN = 50
 
@@ -125,17 +73,6 @@ function formatTime(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
     d.getHours(),
   )}:${pad(d.getMinutes())}`
-}
-
-/** 全局 handler 把 detail 改写成 message（app/core/errors.py:107）⇒ 优先取 message。 */
-function errorMessageOf(err: unknown, fallback = '未知错误'): string {
-  const e = err as { response?: { data?: unknown }; message?: string }
-  const data = e?.response?.data
-  if (data && typeof data === 'object') {
-    const obj = data as { message?: string; detail?: string }
-    return obj.message ?? obj.detail ?? fallback
-  }
-  return e?.message ?? fallback
 }
 
 const AUTH_HEADERS = { 'X-User-Id': '1' }
@@ -161,6 +98,11 @@ export default function Questions() {
   const [filterLoading, setFilterLoading] = useState(false)
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // M3-1c-1a：新建 / 编辑抽屉
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerMode, setDrawerMode] = useState<'create' | 'edit'>('create')
+  const [editingQuestion, setEditingQuestion] = useState<QuestionRead | null>(null)
 
   // ──────────────── 题目列表 ────────────────
 
@@ -394,7 +336,11 @@ export default function Questions() {
           <Button
             size="small"
             disabled={loading || deletingId !== null}
-            onClick={() => message.info('编辑抽屉在 1c 实现')}
+            onClick={() => {
+              setDrawerMode('edit')
+              setEditingQuestion(record)
+              setDrawerOpen(true)
+            }}
           >
             编辑
           </Button>
@@ -423,13 +369,22 @@ export default function Questions() {
   ]
 
   return (
+    <>
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <Card>
         <Title level={3}>题库</Title>
         <Paragraph type="secondary">
           按教材 / 章节 / 知识点 / 难度 / 题型 / 关键词筛选自己的题目（D-29 §1.4 题库个人资产）
         </Paragraph>
-        <Button type="primary" disabled={loading} onClick={() => message.info('新建抽屉在 1c 实现')}>
+        <Button
+          type="primary"
+          disabled={loading}
+          onClick={() => {
+            setDrawerMode('create')
+            setEditingQuestion(null)
+            setDrawerOpen(true)
+          }}
+        >
           新建题目
         </Button>
       </Card>
@@ -573,5 +528,13 @@ export default function Questions() {
         />
       </Card>
     </Space>
+      <QuestionDrawer
+        open={drawerOpen}
+        mode={drawerMode}
+        question={editingQuestion}
+        onClose={() => setDrawerOpen(false)}
+        onSaved={() => void fetchQuestions()}
+      />
+    </>
   )
 }
