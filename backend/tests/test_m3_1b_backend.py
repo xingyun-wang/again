@@ -420,3 +420,74 @@ def test_keyword_and_kp_multi_with_pagination(
     ids_p1 = {it["id"] for it in body["items"]}
     ids_p2 = {it["id"] for it in body_p2["items"]}
     assert not (ids_p1 & ids_p2), f"分页重叠：{ids_p1 & ids_p2}"
+
+
+# ─────────────────── P3-1：建 KP 查重前 strip（星轨复核 66783cb） ──────────
+
+
+def test_create_knowledge_point_dedupes_after_strip(
+    mock_db_session: object,
+    mock_llm_provider: object,
+    user_1_chapter: object,
+) -> None:
+    """'  大气  ' 与 '大气' 视为同名 → 第二个 409；且落库值已 strip。"""
+    client = _build_test_client(mock_db_session, mock_llm_provider)
+    url = f"/api/v1/academic/chapters/{user_1_chapter.id}/knowledge-points"
+    headers = {"X-User-Id": "1"}
+
+    r1 = client.post(url, json={"name": "  大气  "}, headers=headers)
+    assert r1.status_code in (200, 201), r1.text
+    # 落库值必须已 strip，不能是 "  大气  "
+    assert r1.json()["name"] == "大气", r1.json()
+
+    # 仅差首尾空白 → 查重命中 → 409
+    r2 = client.post(url, json={"name": "大气"}, headers=headers)
+    assert r2.status_code == 409, r2.text
+
+
+def test_create_knowledge_point_blank_only_name_rejected(
+    mock_db_session: object,
+    mock_llm_provider: object,
+    user_1_chapter: object,
+) -> None:
+    """纯空白 name → 422（strip 后判空，不落库）。"""
+    client = _build_test_client(mock_db_session, mock_llm_provider)
+    resp = client.post(
+        f"/api/v1/academic/chapters/{user_1_chapter.id}/knowledge-points",
+        json={"name": "   "},
+        headers={"X-User-Id": "1"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+# ─────────────────── P3-2：keyword 的 LIKE 通配符转义 ───────────────────────
+
+
+def test_keyword_escapes_like_wildcards(
+    mock_db_session: object,
+    mock_llm_provider: object,
+    user_1_chapter: object,
+) -> None:
+    """keyword='%' / '_' 按字面量匹配，不得当通配符命中全部题。"""
+    client = _build_test_client(mock_db_session, mock_llm_provider)
+    headers = {"X-User-Id": "1"}
+
+    _mk_question(client, user_1_chapter.id, "读等值线图判断气压梯度")
+    _mk_question(client, user_1_chapter.id, "大气环流的形成机制")
+
+    total = client.get("/api/v1/academic/questions?limit=200", headers=headers)
+    assert total.json()["total"] == 2, total.json()
+
+    # '%' 转义后 = 字面量，库里无题干含 '%' → 0（未转义时会命中全部 2）
+    pct = client.get("/api/v1/academic/questions", params={"keyword": "%"}, headers=headers)
+    assert pct.status_code == 200, pct.text
+    assert pct.json()["total"] == 0, pct.json()
+
+    # '_' 同理
+    us = client.get("/api/v1/academic/questions", params={"keyword": "_"}, headers=headers)
+    assert us.status_code == 200, us.text
+    assert us.json()["total"] == 0, us.json()
+
+    # 转义不得破坏正常匹配
+    ok = client.get("/api/v1/academic/questions", params={"keyword": "等值线"}, headers=headers)
+    assert ok.json()["total"] == 1, ok.json()

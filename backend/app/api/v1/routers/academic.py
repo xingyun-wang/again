@@ -808,7 +808,10 @@ def create_knowledge_point(
     _enforce_owner_or_404(chapter, user_id)
 
     # 2. 校验 name 必填（Pydantic min_length=1 已保；这里再守一手）
-    if not payload.name or not payload.name.strip():
+    #    先 strip 再判空；查重与落库共用同一份 strip 后的值，
+    #    否则 " 大气 " 与 "大气" 会建成两条（P3-1，星轨复核 66783cb）。
+    name = payload.name.strip()
+    if not name:
         raise HTTPException(status_code=422, detail="name 必填且不能为空字符串")
 
     # 3. 同章重名检查（P2-2）→ 409
@@ -816,13 +819,13 @@ def create_knowledge_point(
     #    只在 (chapter_id, name) 组合内查重，不跨章。
     dup = (
         db.query(KnowledgePoint)
-        .filter(KnowledgePoint.chapter_id == chapter_id, KnowledgePoint.name == payload.name)
+        .filter(KnowledgePoint.chapter_id == chapter_id, KnowledgePoint.name == name)
         .first()
     )
     if dup is not None:
         raise HTTPException(
             status_code=409,
-            detail=f"本章已存在同名知识点「{payload.name}」（id={dup.id}）",
+            detail=f"本章已存在同名知识点「{name}」（id={dup.id}）",
         )
 
     # 4. teaching_order（P2-1）：显式传则用；未传则服务端自增 = 本章现有 max+1（首条 0）
@@ -839,7 +842,7 @@ def create_knowledge_point(
     # 5. 创建 KP（model 已声明 chapter_id FK + name/concept/teaching_order 列）
     kp = KnowledgePoint(
         chapter_id=chapter_id,
-        name=payload.name,
+        name=name,
         concept=payload.concept or "",
         teaching_order=order,
     )
@@ -1294,7 +1297,14 @@ def list_questions(
             .distinct()
         )
     if keyword:
-        query = query.filter(Question.content.ilike(f"%{keyword}%"))
+        # 转义 LIKE 通配符：用户输入的 % / _ / \ 不应被当通配符（P3-2）。
+        # 顺序要紧：先转义反斜杠自身，否则会把后面新加的反斜杠再转义一次。
+        escaped_kw = (
+            keyword.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+        )
+        query = query.filter(
+            Question.content.ilike(f"%{escaped_kw}%", escape="\\")
+        )
     total = query.count()
     items = (
         query.order_by(Question.id.desc())

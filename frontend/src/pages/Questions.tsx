@@ -216,52 +216,27 @@ export default function Questions() {
   }, [])
 
   /** 拉某章节的 KP；未选章节时汇总所选教材下所有章节的 KP（可为空数组，不报错）。 */
+  // P2（星轨复核 66783cb）：知识点只在「已选具体章节」时拉该章 1 个请求。
+  // 原实现只选教材时会对该教材所有章节 Promise.all 拉 GET /chapters/{id}（N 个请求）。
   const loadKnowledgePoints = useCallback(
-    async (nextTextbookId?: number, nextChapterId?: number) => {
+    async (nextChapterId?: number) => {
       setFilterLoading(true)
-      const load = async () => {
-        try {
-          let chapterIds: number[] = []
-          if (nextChapterId !== undefined) {
-            chapterIds = [nextChapterId]
-          } else if (nextTextbookId !== undefined) {
-            const resp = await apiClient.get<{
-              textbook_id: number
-              chapters: ChapterSummary[]
-            }>(`/academic/textbooks/${nextTextbookId}/chapters`, { headers: AUTH_HEADERS })
-            chapterIds = (resp.data.chapters ?? []).map((c) => c.id)
-          }
-          if (chapterIds.length === 0) {
-            setKnowledgePoints([])
-            return
-          }
-          const details = await Promise.all(
-            chapterIds.map((cid) =>
-              apiClient.get<{ knowledge_points: KnowledgePointDetail[] }>(
-                `/academic/chapters/${cid}`,
-                { headers: AUTH_HEADERS },
-              ),
-            ),
-          )
-          const seen = new Set<number>()
-          const merged: KnowledgePointDetail[] = []
-          details.forEach((d) => {
-            for (const kp of d.data.knowledge_points ?? []) {
-              if (!seen.has(kp.id)) {
-                seen.add(kp.id)
-                merged.push(kp)
-              }
-            }
-          })
-          setKnowledgePoints(merged)
-        } catch (err) {
+      try {
+        if (nextChapterId === undefined) {
           setKnowledgePoints([])
-          setError(errorMessageOf(err, '知识点加载失败'))
-        } finally {
-          setFilterLoading(false)
+          return
         }
+        const resp = await apiClient.get<{ knowledge_points: KnowledgePointDetail[] }>(
+          `/academic/chapters/${nextChapterId}`,
+          { headers: AUTH_HEADERS },
+        )
+        setKnowledgePoints(resp.data.knowledge_points ?? [])
+      } catch (err) {
+        setKnowledgePoints([])
+        setError(errorMessageOf(err, '知识点加载失败'))
+      } finally {
+        setFilterLoading(false)
       }
-      void load()
     },
     [],
   )
@@ -292,14 +267,14 @@ export default function Questions() {
       }
     }
     void load()
-    void loadKnowledgePoints(value, undefined)
+    setKnowledgePoints([])
   }
 
   const onChapterChange = (value: number | undefined) => {
     setChapterId(value)
     setKpIds([])
     setPage(1)
-    void loadKnowledgePoints(textbookId, value)
+    void loadKnowledgePoints(value)
   }
 
   const resetFilters = () => {
@@ -495,12 +470,14 @@ export default function Questions() {
               allowClear
               maxTagCount="responsive"
               placeholder={
-                knowledgePoints.length === 0
-                  ? '无知识点（先上传教材 / 抽知识点）'
-                  : '全部知识点'
+                chapterId === undefined
+                  ? '先选章节'
+                  : knowledgePoints.length === 0
+                    ? '本章无知识点'
+                    : '全部知识点'
               }
               loading={filterLoading}
-              disabled={loading}
+              disabled={loading || chapterId === undefined}
               value={kpIds}
               options={knowledgePoints.map((kp) => ({ value: kp.id, label: kp.name }))}
               onChange={(v: number[]) => {
