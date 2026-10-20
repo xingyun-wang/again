@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -57,6 +58,7 @@ from app.api.v1.schemas.academic import (
     QuestionCreate,
     QuestionDifficulty,
     QuestionImageRead,
+    QuestionImageSummary,
     QuestionListResponse,
     QuestionRead,
     QuestionType,
@@ -1694,6 +1696,116 @@ def get_question_image(
             status_code=404, detail=f"image_id {image_id} 不存在"
         )
     return image
+
+
+# ────────────── 3-bis. 1c-1c 裁决：图片列表 + 图片字节 ──────────────
+# 依据：星轨《1c-1c 派工单》（裁决人：星轨；批准：星云 2026-10-20 14:48，
+#       明确解除「不改后端」边界）。无迁移、不动 model、不动既有 3 个端点。
+
+
+@router.get(
+    "/questions/{question_id}/images",
+    response_model=list[QuestionImageSummary],
+    summary="列出题目图片（1c-1c 裁决）",
+)
+def list_question_images(
+    question_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> list[QuestionImageSummary]:
+    """GET /api/v1/academic/questions/{id}/images — 列出该题全部图片。
+
+    鉴权同 get_question_image：question 不存在或非本人 → 404（不暴露存在性）。
+    **空列表返回 []（不 404）** —— 题存在但没图是正常状态。
+    排序：order_index 升序，同序按 id 升序（id 兜底保证稳定序）。
+    响应只出 4 个对外字段（QuestionImageSummary），不含 storage_path 等内部字段。
+    """
+    question = db.get(Question, question_id)
+    if question is None:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+    if question.owner_user_id != user_id:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+
+    rows = (
+        db.query(QuestionImage)
+        .filter(QuestionImage.question_id == question_id)
+        .order_by(QuestionImage.order_index.asc(), QuestionImage.id.asc())
+        .all()
+    )
+    return [QuestionImageSummary.model_validate(r) for r in rows]
+
+
+# 图片字节的 Content-Type 映射（按 file_ext）
+_IMAGE_CONTENT_TYPES: dict[str, str] = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "webp": "image/webp",
+}
+
+
+@router.get(
+    "/questions/{question_id}/images/{image_id}/content",
+    summary="题目图片字节（1c-1c 裁决）",
+)
+def get_question_image_content(
+    question_id: int,
+    image_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> FileResponse:
+    """GET /api/v1/academic/questions/{id}/images/{image_id}/content — 返回图片字节。
+
+    🔴 **刻意不做 nginx 静态挂载 / 不开 /uploads location**：
+       静态直出会绕过本端点的 owner 校验（谁都能按路径取别人的图）。
+       （另：nginx.conf:25 的正则 location 优先于前缀 location，加了也会被抢。）
+
+    校验顺序（1c-1c 裁决硬要求）：
+      1. question 不存在 / 非本人 → 404（不暴露存在性）
+      2. image 不存在 / 不属该题 → 404
+      3. 磁盘文件缺失 → **500**（磁盘与 DB 不一致 = 运维事件，打日志，不是 404）
+    """
+    question = db.get(Question, question_id)
+    if question is None:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+    if question.owner_user_id != user_id:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {question_id} 不存在"
+        )
+
+    image = db.get(QuestionImage, image_id)
+    if image is None:
+        raise HTTPException(
+            status_code=404, detail=f"image_id {image_id} 不存在"
+        )
+    if image.question_id != question_id:
+        raise HTTPException(
+            status_code=404, detail=f"image_id {image_id} 不存在"
+        )
+
+    path = Path(image.storage_path)
+    if not path.is_file():
+        # 磁盘与 DB 不一致 = 运维事件（不是 404）；必须留日志线索
+        logger.error(
+            "1c-1c 图片文件缺失 question_id=%s image_id=%s storage_path=%s",
+            question_id,
+            image_id,
+            image.storage_path,
+        )
+        raise HTTPException(
+            status_code=500, detail="图片文件缺失（磁盘与数据库不一致）"
+        )
+
+    media_type = _IMAGE_CONTENT_TYPES.get(
+        image.file_ext.lower(), "application/octet-stream"
+    )
+    return FileResponse(path, media_type=media_type)
 
 
 # ────────────── 3. DELETE /questions/{id}/images/{image_id} ──────────────

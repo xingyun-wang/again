@@ -5,7 +5,7 @@
  * 表格 9 列：ID / 题干摘要 / 题型 / 难度 / 分值 / 知识点标签 / 图片数 / 更新时间 / 操作
  *
  * 操作列 3 按钮：
- * - 编辑 / 看图 → 1c 才实现 ⇒ message.info（**不画半成品抽屉**，brief §1b-2 硬约束）
+ * - 编辑 → 1c-1a 抽屉；看图 → 1c-1c 图片弹窗（blob → objectURL 渲染）
  * - 删除       → 真实现：Popconfirm → DELETE /questions/{id} → 刷新列表
  *
  * 状态：纯 useState（不引 zustand / React Query / SWR）
@@ -22,6 +22,7 @@ import {
   Card,
   Col,
   Input,
+  Modal,
   Popconfirm,
   Row,
   Select,
@@ -36,6 +37,7 @@ import type { TableColumnsType } from 'antd'
 
 import { apiClient } from '../api/client'
 import QuestionDrawer from '../components/QuestionDrawer'
+import QuestionImages from '../components/QuestionImages'
 import {
   DIFFICULTY_LABEL,
   TYPE_LABEL,
@@ -103,6 +105,8 @@ export default function Questions() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerMode, setDrawerMode] = useState<'create' | 'edit'>('create')
   const [editingQuestion, setEditingQuestion] = useState<QuestionRead | null>(null)
+  // M3-1c-1c：列表页「看图」弹窗（题 id，null=关闭）
+  const [galleryQuestionId, setGalleryQuestionId] = useState<number | null>(null)
 
   // ──────────────── 题目列表 ────────────────
 
@@ -347,18 +351,7 @@ export default function Questions() {
           <Button
             size="small"
             disabled={loading || deletingId !== null}
-            onClick={() => {
-              const n = record.image_count ?? 0
-              if (n === 0) {
-                message.info('该题暂无图片')
-                return
-              }
-              // 后端只有单张 GET/DELETE，**无图片列表接口** ⇒ 列表页拿不到 image_id，
-              // 也就无法逐张取图（且 GET 只返元数据不返字节）。如实告知，不假装能看。
-              message.info(
-                `该题有 ${n} 张图。后端暂无图片列表接口（只有单张 GET/DELETE），列表页暂无法逐张查看；可在「编辑」抽屉里管理本次新传的图。`,
-              )
-            }}
+            onClick={() => setGalleryQuestionId(record.id)}
           >
             看图
           </Button>
@@ -539,6 +532,20 @@ export default function Questions() {
         />
       </Card>
     </Space>
+      <Modal
+        open={galleryQuestionId !== null}
+        title={`题目 #${galleryQuestionId ?? ''} 的图片`}
+        footer={null}
+        onCancel={() => setGalleryQuestionId(null)}
+        width={640}
+      >
+        {galleryQuestionId !== null && (
+          <QuestionImages
+            questionId={galleryQuestionId}
+            onChanged={() => void fetchQuestions()}
+          />
+        )}
+      </Modal>
       <QuestionDrawer
         open={drawerOpen}
         mode={drawerMode}

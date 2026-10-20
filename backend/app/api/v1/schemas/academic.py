@@ -637,3 +637,21 @@ class QuestionImageRead(BaseModel):
         default=None,
         description="OSS 上传完成时间（M3 预留字段；S1/M2 = NULL）",
     )
+
+
+class QuestionImageSummary(BaseModel):
+    """GET /questions/{id}/images 列表项（1c-1c 裁决，2026-10-20 14:48）。
+
+    🔴 **刻意不复用 QuestionImageRead**：后者含 storage_path / oss_object_key /
+    desensitization_status / uploaded_by_user_id 等内部字段，对外暴露会泄露
+    存储布局与他人上传者身份。列表只出 4 个对外字段。
+
+    - id / order_index / file_ext / uploaded_at
+    """
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    id: int
+    order_index: int
+    file_ext: str
+    uploaded_at: datetime

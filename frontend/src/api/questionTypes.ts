@@ -62,6 +62,21 @@ export interface QuestionListResponse {
   total: number
 }
 
+/**
+ * GET /questions/{id}/images → QuestionImageSummary（1c-1c 裁决）。
+ * 🔴 刻意只 4 字段：后端不返 storage_path / oss_object_key /
+ * desensitization_status / uploaded_by_user_id 等内部字段。
+ */
+export interface QuestionImageSummary {
+  id: number
+  order_index: number
+  file_ext: string
+  uploaded_at: string
+}
+
+/** 鉴权 header（M1-B B.3 简化 auth；demo 阶段写死 user 1） */
+export const AUTH_HEADERS = { 'X-User-Id': '1' }
+
 // ──────────────── 显示名映射（难度显示中文名不显示字母） ────────────────
 
 export const DIFFICULTY_LABEL: Record<QuestionRead['difficulty'], string> = {

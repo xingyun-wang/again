@@ -33,6 +33,7 @@ import {
 } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
 import { apiClient } from '../api/client'
+import QuestionImages from './QuestionImages'
 import {
   DIFFICULTY_OPTIONS_CHINESE,
   TYPE_OPTIONS,
@@ -128,6 +129,8 @@ export default function QuestionDrawer({
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [createdQuestionId, setCreatedQuestionId] = useState<number | null>(null)
+  // 1c-1c：上传后强制重挂载图片列表（父组件改 key 即可，不用 reloadToken prop）
+  const [galleryKey, setGalleryKey] = useState(0)
 
   const isEdit = mode === 'edit'
   const showChoices = qtype === 'choice'
@@ -340,6 +343,7 @@ export default function QuestionDrawer({
         setImageFiles(files.slice(i + 1))
       } catch (err) {
         setImageFiles(files.slice(i))
+        setGalleryKey((k) => k + 1)
         setUploadError(
           `题目已保存，第 ${i + 1} 张图上传失败：${errorMessageOf(err, '上传失败')}`,
         )
@@ -348,6 +352,7 @@ export default function QuestionDrawer({
       }
     }
     setImageFiles([])
+    setGalleryKey((k) => k + 1)
     setUploading(false)
     return true
   }
@@ -462,6 +467,9 @@ export default function QuestionDrawer({
   }
 
   // ──────────────── 渲染 ────────────────
+
+  /** 已建题（编辑态 / 新建已保存）⇒ 图片以服务端列表为真源 */
+  const galleryId = isEdit ? question?.id : (createdQuestionId ?? undefined)
 
   const kpPlaceholder = (() => {
     if (chapterId === undefined) return '先选章节'
@@ -687,10 +695,10 @@ export default function QuestionDrawer({
             </Space>
           </div>
         )}
-        {/* ⑨ 图片（1c-1b）：上传 + 列表 + 删除。
-            ⚠️ 后端只有 POST / GET(single) / DELETE，**无图片列表接口** ⇒
-            「本次会话上传」的图前端知道 id ⇒ 可删；题上原有图拿不到 id，
-            只能显示数量（见下方说明）。 */}
+        {/* ⑨ 图片（1c-1b + 1c-1c）：上传 + 原图缩略图 + 删除。
+            1c-1c 起后端有图片列表接口 + 字节端点 ⇒ 原图缩略图真渲染
+            （axios blob → URL.createObjectURL → <img src=blob:...>）。
+            注意：禁止 <img src="/api/..."> —— <img> 发不出 X-User-Id ⇒ 401。 */}
         <div>
           <Text strong>图片</Text>
           <Space direction="vertical" size="small" style={{ width: '100%', marginTop: 4 }}>
@@ -717,30 +725,34 @@ export default function QuestionDrawer({
               </Text>
             )}
 
-            {uploadedImages.length > 0 && (
-              <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                {uploadedImages.map((img) => (
-                  <Space key={img.id} size="small">
-                    <Tag color="blue">#{img.order_index + 1}</Tag>
-                    <Text>{img.name}</Text>
-                    <Text type="secondary">{(img.size / 1024).toFixed(0)} KB</Text>
-                    <Button
-                      size="small"
-                      danger
-                      disabled={uploading}
-                      onClick={() => void removeUploadedImage(img)}
-                    >
-                      删除
-                    </Button>
-                  </Space>
-                ))}
-              </Space>
-            )}
-
-            {isEdit && (
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                该题原有 {question?.image_count ?? 0} 张图（后端暂无图片列表接口，暂只能显示本次新传的图）
-              </Text>
+            {galleryId !== undefined ? (
+              // 题已存在 ⇒ 服务端图片列表为真源（含本次新传的图）
+              <QuestionImages
+                key={`${galleryId}-${galleryKey}`}
+                questionId={galleryId}
+                onChanged={() => onSaved()}
+              />
+            ) : (
+              // 新建中、题还没建 ⇒ 只能显示本次会话已传的（尚无归属）
+              uploadedImages.length > 0 && (
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  {uploadedImages.map((img) => (
+                    <Space key={img.id} size="small">
+                      <Tag color="blue">#{img.order_index + 1}</Tag>
+                      <Text>{img.name}</Text>
+                      <Text type="secondary">{(img.size / 1024).toFixed(0)} KB</Text>
+                      <Button
+                        size="small"
+                        danger
+                        disabled={uploading}
+                        onClick={() => void removeUploadedImage(img)}
+                      >
+                        删除
+                      </Button>
+                    </Space>
+                  ))}
+                </Space>
+              )
             )}
           </Space>
         </div>
