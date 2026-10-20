@@ -541,3 +541,90 @@ def test_m3_1a_routes_registered() -> None:
     assert "knowledge_point_id" in param_names, (
         f"GET /questions 缺 knowledge_point_id 参数；当前 params: {param_names}"
     )
+
+
+# ─────────── 星轨复核 814a334 P2 修补 ───────────
+# P2-1：teaching_order 服务端自增
+# P2-2：同章重名 → 409
+
+
+def test_kp_teaching_order_auto_increments(
+    mock_db_session: object,
+    mock_llm_provider: object,
+    user_1: object,
+    user_1_chapter: object,
+) -> None:
+    """P2-1：不传 teaching_order → 服务端按本章 max+1 自增（0, 1, 2, 3）。"""
+    client = _build_test_client(mock_db_session, mock_llm_provider)
+
+    observed = []
+    for i in range(4):
+        resp = client.post(
+            f"/api/v1/academic/chapters/{user_1_chapter.id}/knowledge-points",
+            json={"name": f"自增KP-{i}"},  # 故意不传 teaching_order
+            headers={"X-User-Id": "1"},
+        )
+        assert resp.status_code == 201, resp.text
+        observed.append(resp.json()["teaching_order"])
+
+    print(f"\n[P2-1] teaching_order 自增序列 = {observed}")
+    assert observed == [0, 1, 2, 3], f"自增序列应为 [0,1,2,3]，实际 {observed}"
+
+
+def test_kp_duplicate_name_in_same_chapter_returns_409(
+    mock_db_session: object,
+    mock_llm_provider: object,
+    user_1: object,
+    user_1_chapter: object,
+) -> None:
+    """P2-2：同章同名 → 409；不同章同名 → 201（不跨章查重）。"""
+    from app.models import Chapter
+
+    client = _build_test_client(mock_db_session, mock_llm_provider)
+    name = "大气的组成"
+
+    # 另一个 chapter（同 textbook，chapter_number=2；conftest mock_chapter 是
+    # chapter_number=1，同 textbook 下会撞 uq_chapters_textbook_id_chapter_number）
+    other_chapter = Chapter(
+        textbook_id=user_1_chapter.textbook_id,
+        owner_user_id=user_1_chapter.owner_user_id,
+        chapter_number=2,
+        title="user_1 第二章",
+        content_summary="user_1 内容",
+        extraction_source="detected",
+    )
+    mock_db_session.add(other_chapter)
+    mock_db_session.commit()
+    mock_db_session.refresh(other_chapter)
+
+    # 1. 同章第一次 → 201
+    first = client.post(
+        f"/api/v1/academic/chapters/{user_1_chapter.id}/knowledge-points",
+        json={"name": name},
+        headers={"X-User-Id": "1"},
+    )
+    assert first.status_code == 201, first.text
+    first_id = first.json()["id"]
+
+    # 2. 同章同名第二次 → 409，detail 含该名字
+    dup = client.post(
+        f"/api/v1/academic/chapters/{user_1_chapter.id}/knowledge-points",
+        json={"name": name},
+        headers={"X-User-Id": "1"},
+    )
+    print(f"\n[P2-2] 同章重名 → status={dup.status_code}, body={dup.json()}")
+    assert dup.status_code == 409, f"同章重名应 409，实际 {dup.status_code}: {dup.text}"
+    # 全局 error handler（app/core/errors.py）把 detail 改写成 message/error_code
+    body = dup.json()
+    detail = body["message"]
+    assert name in detail, f"409 message 应含知识点名，实际: {detail}"
+    assert str(first_id) in detail, f"409 message 应含已存在 KP id，实际: {detail}"
+
+    # 3. 另一个 chapter 同名 → 201（不跨章查重）
+    other = client.post(
+        f"/api/v1/academic/chapters/{other_chapter.id}/knowledge-points",
+        json={"name": name},
+        headers={"X-User-Id": "1"},
+    )
+    print(f"[P2-2] 跨章同名 → status={other.status_code}")
+    assert other.status_code == 201, f"跨章同名应 201，实际 {other.status_code}: {other.text}"

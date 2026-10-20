@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import _enforce_owner_or_404  # noqa: F401  # re-export 给 conftest monkeypatch
@@ -792,7 +793,8 @@ def create_knowledge_point(
 
     校验：
     1. chapter 存在 + 归属当前 user → 404 if mismatch
-    2. name 必填；concept 可空；teaching_order ≥ 0
+    2. name 必填；concept 可空；teaching_order ≥ 0（不传则自增）
+    3. 同章重名 → 409（P2-2，星轨复核 814a334）
 
     Returns:
         KnowledgePointDetail: 新建 KP 详情（含 id / name / concept / teaching_order）
@@ -809,12 +811,37 @@ def create_knowledge_point(
     if not payload.name or not payload.name.strip():
         raise HTTPException(status_code=422, detail="name 必填且不能为空字符串")
 
-    # 3. 创建 KP（model 已声明 chapter_id FK + name/concept/teaching_order 列）
+    # 3. 同章重名检查（P2-2）→ 409
+    #    应用层检查，不建 DB 唯一约束（0012 只允许两列；单用户场景够用）。
+    #    只在 (chapter_id, name) 组合内查重，不跨章。
+    dup = (
+        db.query(KnowledgePoint)
+        .filter(KnowledgePoint.chapter_id == chapter_id, KnowledgePoint.name == payload.name)
+        .first()
+    )
+    if dup is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"本章已存在同名知识点「{payload.name}」（id={dup.id}）",
+        )
+
+    # 4. teaching_order（P2-1）：显式传则用；未传则服务端自增 = 本章现有 max+1（首条 0）
+    if payload.teaching_order is not None:
+        order = payload.teaching_order
+    else:
+        max_order = (
+            db.query(func.coalesce(func.max(KnowledgePoint.teaching_order), -1))
+            .filter(KnowledgePoint.chapter_id == chapter_id)
+            .scalar()
+        )
+        order = int(max_order) + 1
+
+    # 5. 创建 KP（model 已声明 chapter_id FK + name/concept/teaching_order 列）
     kp = KnowledgePoint(
         chapter_id=chapter_id,
         name=payload.name,
         concept=payload.concept or "",
-        teaching_order=payload.teaching_order,
+        teaching_order=order,
     )
     db.add(kp)
     db.commit()

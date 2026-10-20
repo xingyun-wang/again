@@ -240,14 +240,17 @@ class KnowledgePointCreate(BaseModel):
     字段：
     - name: 知识点名（必填）
     - concept: 概念说明（可空）
-    - teaching_order: 教学顺序（数字，默认 0）
+    - teaching_order: 教学顺序（数字；不传 = None → 服务端自增 = 本章现有 max+1，
+      首条为 0；见 routers/academic.py::create_knowledge_point）
     """
 
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., min_length=1, max_length=256)
     concept: str | None = Field(default=None, max_length=4000)
-    teaching_order: int = Field(default=0, ge=0)
+    # P2-1（星轨复核 814a334）：default 0 → None，让端点区分「显式传 0」
+    # 与「未传」两种语义；未传时服务端按本章现有 max + 1 自增。
+    teaching_order: int | None = Field(default=None, ge=0)
 
 
 class ChapterReviewDetail(BaseModel):
