@@ -347,7 +347,18 @@ export default function Questions() {
           <Button
             size="small"
             disabled={loading || deletingId !== null}
-            onClick={() => message.info('图片预览在 1c 实现')}
+            onClick={() => {
+              const n = record.image_count ?? 0
+              if (n === 0) {
+                message.info('该题暂无图片')
+                return
+              }
+              // 后端只有单张 GET/DELETE，**无图片列表接口** ⇒ 列表页拿不到 image_id，
+              // 也就无法逐张取图（且 GET 只返元数据不返字节）。如实告知，不假装能看。
+              message.info(
+                `该题有 ${n} 张图。后端暂无图片列表接口（只有单张 GET/DELETE），列表页暂无法逐张查看；可在「编辑」抽屉里管理本次新传的图。`,
+              )
+            }}
           >
             看图
           </Button>

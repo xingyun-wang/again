@@ -26,9 +26,12 @@ import {
   Radio,
   Select,
   Space,
+  Tag,
   Typography,
+  Upload,
   message,
 } from 'antd'
+import { UploadOutlined } from '@ant-design/icons'
 import { apiClient } from '../api/client'
 import {
   DIFFICULTY_OPTIONS_CHINESE,
@@ -50,6 +53,21 @@ const CHOICE_DEFAULT = 4
 
 /** label 自动生成 A/B/C…，删中间项后重排，不留洞 */
 const LETTERS = 'ABCDEFGH'.split('')
+
+// 图片限制（对齐 backend routers/academic.py: MAX_IMAGES_PER_QUESTION / _ALLOWED_FILE_EXTS）
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const MAX_IMAGES_PER_QUESTION = 10
+const ALLOWED_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp']
+
+/** 已上传图片（本次会话内上传的，前端知道 id ⇒ 可删） */
+interface UploadedImage {
+  id: number
+  order_index: number
+  file_ext: string
+  name: string
+  size: number
+}
+
 
 /** 抽屉内部选项草稿（label 由下标派生，不单独存） */
 interface ChoiceDraft {
@@ -103,6 +121,13 @@ export default function QuestionDrawer({
   const [points, setPoints] = useState<number>(2)
   const [answerText, setAnswerText] = useState('')
   const [choices, setChoices] = useState<ChoiceDraft[]>(defaultChoices())
+
+  // M3-1c-1b：图片
+  const [imageFiles, setImageFiles] = useState<File[]>([])
+  const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [createdQuestionId, setCreatedQuestionId] = useState<number | null>(null)
 
   const isEdit = mode === 'edit'
   const showChoices = qtype === 'choice'
@@ -250,6 +275,111 @@ export default function QuestionDrawer({
     })
   }
 
+  // ──────────────── 图片（1c-1b） ────────────────
+
+  /** 已有图数：编辑态取后端 image_count；新建态 = 本次会话已传数 */
+  const existingImageCount = (question?.image_count ?? 0) + uploadedImages.length
+
+  /**
+   * 前端预校验：类型 / ≤5MB / ≤10 张。
+   * 判据 8 要求「当场拦（不发请求）」⇒ 三条全在本地挡掉。
+   */
+  const onFilePicked = (file: File): boolean => {
+    const ext = (file.name.split('.').pop() ?? '').toLowerCase()
+    if (!ALLOWED_IMAGE_EXTS.includes(ext)) {
+      message.warning(`「${file.name}」类型不支持（仅 png / jpg / jpeg / webp）`)
+      return false
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      message.warning(
+        `「${file.name}」超过 5MB（${(file.size / 1024 / 1024).toFixed(1)}MB）`,
+      )
+      return false
+    }
+    const total = existingImageCount + imageFiles.length
+    if (total + 1 > MAX_IMAGES_PER_QUESTION) {
+      message.warning(`单题最多 ${MAX_IMAGES_PER_QUESTION} 张图（当前 ${total} 张）`)
+      return false
+    }
+    setImageFiles((prev) => [...prev, file])
+    return false // 阻止 antd 自动上传，交给下面的 doUpload 统一处理
+  }
+
+  /**
+   * 逐张上传（题已存在才可调）。
+   * 失败时**保留题目不回滚**（回滚会丢用户刚录的题干），
+   * 保留未传完的文件 + 给出「重试上传」入口，绝不静默丢图。
+   */
+  const doUpload = async (questionId: number): Promise<boolean> => {
+    setUploading(true)
+    setUploadError(null)
+    const files = [...imageFiles]
+    const base = (question?.image_count ?? 0) + uploadedImages.length
+    for (let i = 0; i < files.length; i += 1) {
+      const f = files[i]
+      const ext = (f.name.split('.').pop() ?? 'png').toLowerCase()
+      const form = new FormData()
+      form.append('file', f)
+      form.append('file_ext', ext)
+      form.append('order_index', String(base + i))
+      form.append('source', 'self_built')
+      try {
+        const resp = await apiClient.post(`/academic/questions/${questionId}/images`, form, {
+          headers: AUTH_HEADERS,
+        })
+        setUploadedImages((prev) => [
+          ...prev,
+          {
+            id: resp.data?.id,
+            order_index: resp.data?.order_index ?? base + i,
+            file_ext: resp.data?.file_ext ?? ext,
+            name: f.name,
+            size: f.size,
+          },
+        ])
+        setImageFiles(files.slice(i + 1))
+      } catch (err) {
+        setImageFiles(files.slice(i))
+        setUploadError(
+          `题目已保存，第 ${i + 1} 张图上传失败：${errorMessageOf(err, '上传失败')}`,
+        )
+        setUploading(false)
+        return false
+      }
+    }
+    setImageFiles([])
+    setUploading(false)
+    return true
+  }
+
+  const removeUploadedImage = async (img: UploadedImage) => {
+    const qid = createdQuestionId ?? question?.id
+    if (qid === undefined) return
+    try {
+      await apiClient.delete(`/academic/questions/${qid}/images/${img.id}`, {
+        headers: AUTH_HEADERS,
+      })
+      setUploadedImages((prev) => prev.filter((x) => x.id !== img.id))
+      message.success('图片已删除')
+    } catch (err) {
+      setError(errorMessageOf(err, '删除图片失败'))
+    }
+  }
+
+  const handleRetryUpload = async () => {
+    const qid = createdQuestionId ?? question?.id
+    if (qid === undefined) return
+    setSubmitting(true)
+    const ok = await doUpload(qid)
+    if (ok) {
+      message.success('图片已全部上传')
+      onSaved()
+      onClose()
+    } else {
+      setSubmitting(false)
+    }
+  }
+
   const choicePayload = useMemo(() => {
     return choices.map((c, i) => ({
       label: LETTERS[i] ?? String(i),
@@ -290,24 +420,37 @@ export default function QuestionDrawer({
         answer_text: answerText.trim() === '' ? null : answerText,
         knowledge_point_ids: kpIds,
       }
-      // 切到 fill/subjective 时不传 choices（后端不传 = 不动）
       const body = {
         ...common,
         ...(qtype === 'choice' ? { choices: choicePayload } : {}),
       }
 
+      let targetId: number
       if (mode === 'edit' && question) {
         await apiClient.patch(`/academic/questions/${question.id}`, {
           headers: AUTH_HEADERS,
           data: body,
         })
-        message.success('题目已保存')
+        targetId = question.id
       } else {
-        await apiClient.post('/academic/questions', {
+        const resp = await apiClient.post('/academic/questions', {
           headers: AUTH_HEADERS,
           data: { chapter_id: chapterId, ...body },
         })
-        message.success('题目已创建')
+        targetId = resp.data?.id
+        setCreatedQuestionId(targetId)
+      }
+
+      // 图片两阶段：题已建好 ⇒ 再逐张传
+      if (imageFiles.length > 0) {
+        const allOk = await doUpload(targetId)
+        onSaved() // 题已存在，先刷新列表
+        if (!allOk) {
+          // 题目已保存、图没传完 ⇒ 保留抽屉 + 「重试上传」；绝不回滚题目
+          return
+        }
+      } else {
+        message.success(isEdit ? '题目已保存' : '题目已创建')
       }
       onSaved()
       onClose()
@@ -335,6 +478,15 @@ export default function QuestionDrawer({
       destroyOnClose
       extra={
         <Space>
+          {uploadError !== null && (
+            <Button
+              type="primary"
+              loading={uploading}
+              onClick={() => void handleRetryUpload()}
+            >
+              重试上传
+            </Button>
+          )}
           <Button onClick={onClose} disabled={submitting}>
             取消
           </Button>
@@ -535,6 +687,63 @@ export default function QuestionDrawer({
             </Space>
           </div>
         )}
+        {/* ⑨ 图片（1c-1b）：上传 + 列表 + 删除。
+            ⚠️ 后端只有 POST / GET(single) / DELETE，**无图片列表接口** ⇒
+            「本次会话上传」的图前端知道 id ⇒ 可删；题上原有图拿不到 id，
+            只能显示数量（见下方说明）。 */}
+        <div>
+          <Text strong>图片</Text>
+          <Space direction="vertical" size="small" style={{ width: '100%', marginTop: 4 }}>
+            <Upload
+              beforeUpload={onFilePicked}
+              fileList={[]}
+              multiple
+              accept=".png,.jpg,.jpeg,.webp"
+              showUploadList={false}
+              disabled={uploading || submitting}
+            >
+              <Button icon={<UploadOutlined />} disabled={uploading || submitting}>
+                选择图片（png/jpg/jpeg/webp，单张 ≤ 5MB，单题 ≤ 10 张）
+              </Button>
+            </Upload>
+
+            {uploadError !== null && (
+              <Alert type="error" showIcon message={uploadError} style={{ width: '100%' }} />
+            )}
+
+            {imageFiles.length > 0 && (
+              <Text type="secondary">
+                待上传 {imageFiles.length} 张：{imageFiles.map((f) => f.name).join('、')}
+              </Text>
+            )}
+
+            {uploadedImages.length > 0 && (
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                {uploadedImages.map((img) => (
+                  <Space key={img.id} size="small">
+                    <Tag color="blue">#{img.order_index + 1}</Tag>
+                    <Text>{img.name}</Text>
+                    <Text type="secondary">{(img.size / 1024).toFixed(0)} KB</Text>
+                    <Button
+                      size="small"
+                      danger
+                      disabled={uploading}
+                      onClick={() => void removeUploadedImage(img)}
+                    >
+                      删除
+                    </Button>
+                  </Space>
+                ))}
+              </Space>
+            )}
+
+            {isEdit && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                该题原有 {question?.image_count ?? 0} 张图（后端暂无图片列表接口，暂只能显示本次新传的图）
+              </Text>
+            )}
+          </Space>
+        </div>
       </Space>
     </Drawer>
   )
