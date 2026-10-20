@@ -32,7 +32,7 @@ function Layout() {
     },
     { key: '/import', label: <Link to="/import">备课</Link> },
     { key: '/assignments', label: <Link to="/assignments">出作业</Link> },
-    { key: '/questions', label: <Link to="/questions">设置</Link> },
+    { key: '/questions', label: <Link to="/questions">题库</Link> },
   ]
 
   return (
