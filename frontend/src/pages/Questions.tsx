@@ -74,8 +74,9 @@ interface QuestionRead {
   points: number
   answer_text: string | null
   knowledge_point_ids: number[]
-  knowledge_point_names: string[]
-  image_count: number
+  /** 可选：后端镜像不同步时可能不返（旧 QuestionRead 无此二字段） */
+  knowledge_point_names?: string[]
+  image_count?: number
   created_at: string
   updated_at: string
 }
@@ -180,8 +181,8 @@ export default function Questions() {
           offset: (page - 1) * pageSize,
         },
       })
-      setItems(resp.data.items ?? [])
-      setTotal(resp.data.total ?? 0)
+      setItems(resp.data?.items ?? [])
+      setTotal(resp.data?.total ?? 0)
     } catch (err) {
       setItems([])
       setTotal(0)
@@ -352,18 +353,20 @@ export default function Questions() {
       title: '知识点标签',
       dataIndex: 'knowledge_point_names',
       key: 'knowledge_point_names',
-      render: (names: string[]) =>
-        names.length === 0 ? (
+      render: (names: string[] | undefined) => {
+        const list = names ?? []
+        return list.length === 0 ? (
           <Text type="secondary">—</Text>
         ) : (
           <Space size={[4, 4]} wrap>
-            {names.map((n) => (
+            {list.map((n) => (
               <Tag key={n} color="geekblue">
                 {n}
               </Tag>
             ))}
           </Space>
-        ),
+        )
+      },
     },
     {
       title: '图片数',
@@ -371,6 +374,9 @@ export default function Questions() {
       key: 'image_count',
       width: 90,
       align: 'right',
+      // 区分「0 张」与「字段缺失」：缺失显示 —，0 仍显示 0（不谎报）
+      render: (n: number | undefined) =>
+        n === undefined ? <Text type="secondary">—</Text> : n,
     },
     {
       title: '更新时间',

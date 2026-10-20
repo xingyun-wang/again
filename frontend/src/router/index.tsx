@@ -1,6 +1,8 @@
+import type { ReactNode } from 'react'
 import type { RouteObject } from 'react-router-dom'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import Layout from '../components/Layout'
+import ErrorBoundary from '../components/ErrorBoundary'
 import Home from '../pages/Home'
 import Questions from '../pages/Questions'
 import ImportPage from '../pages/Import'
@@ -24,18 +26,30 @@ import Review from '../pages/Review'
  * - /review          M2 组件 ⑦ 审阅硬约束 placeholder
  * - *                兜底重定向到首页
  */
+/**
+ * 页面级错误边界包装（P1 前端健壮性，星轨派工单 2026-10-20）。
+ *
+ * 逐页包而不是包 Layout：单页 render 抛错只降级该页，侧边导航（Layout 内）
+ * 与其它页面不受影响，仍可点、仍能进 —— 这是派工单验收判据 2 的硬要求。
+ * pathname 作 resetKey ⇒ 崩溃后切走再回来自动重新渲染，不必手动点「重试」。
+ */
+function Boundary({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  return <ErrorBoundary resetKey={location.pathname}>{children}</ErrorBoundary>
+}
+
 export const routes: RouteObject[] = [
   {
     element: <Layout />,
     children: [
-      { path: '/', element: <Home /> },
-      { path: '/questions', element: <Questions /> },
-      { path: '/import', element: <ImportPage /> },
-      { path: '/tiering', element: <Tiering /> },
-      { path: '/anti-matthew', element: <AntiMatthew /> },
-      { path: '/tier-override', element: <TierOverride /> },
-      { path: '/assignments', element: <Assignments /> },
-      { path: '/review', element: <Review /> },
+      { path: '/', element: <Boundary><Home /></Boundary> },
+      { path: '/questions', element: <Boundary><Questions /></Boundary> },
+      { path: '/import', element: <Boundary><ImportPage /></Boundary> },
+      { path: '/tiering', element: <Boundary><Tiering /></Boundary> },
+      { path: '/anti-matthew', element: <Boundary><AntiMatthew /></Boundary> },
+      { path: '/tier-override', element: <Boundary><TierOverride /></Boundary> },
+      { path: '/assignments', element: <Boundary><Assignments /></Boundary> },
+      { path: '/review', element: <Boundary><Review /></Boundary> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },
