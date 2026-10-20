@@ -2,7 +2,7 @@
 
 > **最后更新**：2026-10-08 22:00（§十九 配套；N2 判决后 HEAD 真值 = 0 errors）
 > **维护规则**：每次 ruff / mypy 跑前必先 grep `tech-debt` 是否过期；过期未登记 = 失实
-> **关联元规则**：D-43 §5（决策室不修代码逻辑） / D-49（narrowing cast 实证类） / D-44（mypy strict 模式要求）
+> **关联元规则**：D-43 §5（**阈值部分已于 2026-10-20 废止**，改由 `docs/PROJECT-CHARTER-protocol.md` §7.0 取代） / D-49（narrowing cast 实证类） / D-44（mypy strict 模式要求）
 
 ---
 
