@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import pytest
@@ -107,6 +108,10 @@ class TestAssignmentModel:
         mock_db_session.refresh(a)
         assert a.seed is None
 
+    @pytest.mark.skipif(
+        not os.environ.get("DATABASE_URL", "").startswith("postgresql"),
+        reason="PG enum 约束测试需要 DATABASE_URL=postgresql+psycopg://...（SQLite 无 enum）",
+    )
     def test_assignment_invalid_tier_raises(
         self, mock_db_session: Session, mock_user_system_seed, mock_textbook
     ) -> None:
