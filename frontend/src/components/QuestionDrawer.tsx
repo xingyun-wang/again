@@ -731,6 +731,11 @@ export default function QuestionDrawer({
 
             {galleryId !== undefined ? (
               // 题已存在 ⇒ 服务端图片列表为真源（含本次新传的图）
+              //
+              // 这里也是 P2 的「防御第二道」：create 态 + createdQuestionId === null
+              // ⇒ galleryId 为 undefined ⇒ 本来就走下面的空分支。
+              // 上游（Questions.tsx drawerKey）已保证每次打开都重挂载，
+              // 这里不再重复写判据（写了也只是死代码）。
               <QuestionImages
                 key={`${galleryId}-${galleryKey}`}
                 questionId={galleryId}

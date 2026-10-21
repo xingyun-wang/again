@@ -105,6 +105,21 @@ export default function Questions() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerMode, setDrawerMode] = useState<'create' | 'edit'>('create')
   const [editingQuestion, setEditingQuestion] = useState<QuestionRead | null>(null)
+  // M3-1c-1 P2（星轨派工单 2026-10-21 13:26）：每次打开抽屉 = 一个新会话。
+  //
+  // 为什么需要 key：QuestionDrawer 有 21 个 useState，其中 createdQuestionId /
+  // imageFiles / uploadedImages / uploadError 四个是「图片会话态」。
+  // create 分支（QuestionDrawer.tsx:202-216）只重置了 12 个表单 state，
+  // 唯独漏了这 4 个 ⇒ 上一次建题留下的 createdQuestionId 会活到下一次新建，
+  // galleryId（:476）拿到上一题 id ⇒ 图片区直接显示上一题的图片。
+  // 抽屉上 destroyOnClose 只销毁 children DOM，管不到组件自身的 useState。
+  //
+  // 这里用 key 让抽屉在「每次打开时整体重挂载」，21 个 state 一次性归零，
+  // 不必在 create 分支里逐个补 setState（漏一个就复现）。
+  // ⚠️ 别删这个 state，也别把递增点挪进 close：递增只发生在 openDrawer
+  //    的两个调用点，关闭时不变 ⇒ 上传失败留在抽屉里点「重试上传」
+  //    （QuestionDrawer.tsx:452-456 的提前 return）不会重挂载，会话态保留。
+  const [drawerKey, setDrawerKey] = useState(0)
   // M3-1c-1c：列表页「看图」弹窗（题 id，null=关闭）
   const [galleryQuestionId, setGalleryQuestionId] = useState<number | null>(null)
 
@@ -343,6 +358,8 @@ export default function Questions() {
             onClick={() => {
               setDrawerMode('edit')
               setEditingQuestion(record)
+              // 每次打开 = 新会话 ⇒ 重挂载（见 drawerKey 注释）
+              setDrawerKey((k) => k + 1)
               setDrawerOpen(true)
             }}
           >
@@ -386,6 +403,8 @@ export default function Questions() {
           onClick={() => {
             setDrawerMode('create')
             setEditingQuestion(null)
+            // 每次打开 = 新会话 ⇒ 重挂载（见 drawerKey 注释）
+            setDrawerKey((k) => k + 1)
             setDrawerOpen(true)
           }}
         >
@@ -547,6 +566,7 @@ export default function Questions() {
         )}
       </Modal>
       <QuestionDrawer
+        key={drawerKey}
         open={drawerOpen}
         mode={drawerMode}
         question={editingQuestion}
