@@ -15,7 +15,17 @@
  * --max-warnings 0）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Alert, Button, Empty, Space, Spin, Tag, Typography, message } from 'antd'
+import {
+  Alert,
+  Button,
+  Empty,
+  Popconfirm,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+  message,
+} from 'antd'
 import { apiClient } from '../api/client'
 import { fetchImageObjectUrl, listQuestionImages } from '../api/images'
 import {
@@ -163,15 +173,23 @@ export default function QuestionImages({ questionId, onChanged }: QuestionImages
             <Text type="secondary" style={{ fontSize: 12 }}>
               {it.summary.file_ext} · {new Date(it.summary.uploaded_at).toLocaleString('zh-CN')}
             </Text>
-            <Button
-              size="small"
-              danger
-              loading={deletingId === it.summary.id}
-              disabled={deletingId !== null}
-              onClick={() => void handleDelete(it.summary)}
+            <Popconfirm
+              title="删除这张图片？"
+              description="删除后不可恢复（磁盘文件与记录一并删除）。"
+              okText="删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void handleDelete(it.summary)}
             >
-              删除
-            </Button>
+              <Button
+                size="small"
+                danger
+                loading={deletingId === it.summary.id}
+                disabled={deletingId !== null}
+              >
+                删除
+              </Button>
+            </Popconfirm>
           </Space>
         </Space>
       ))}

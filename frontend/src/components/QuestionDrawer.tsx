@@ -23,6 +23,7 @@ import {
   Drawer,
   Input,
   InputNumber,
+  Popconfirm,
   Radio,
   Select,
   Space,
@@ -355,6 +356,22 @@ export default function QuestionDrawer({
     setGalleryKey((k) => k + 1)
     setUploading(false)
     return true
+  }
+
+  /**
+   * 移除一张「待上传」（还没发请求）的文件。
+   *
+   * 为什么要这个（星云 2026-10-21 20:59 判 B，P2）：
+   * 选错一张图就只能重录整道题 —— 之前待上传区是 join('、') 一坨纯文字，
+   * 连个删除入口都没有。这里逐张列出 + 给「移除」按钮，删的是本地
+   * imageFiles（请求都还没发），不碰服务端。
+   *
+   * ⚠️ 上传中（uploading）或保存中（submitting）时禁用 ——
+   *    doUpload 内部按 files.slice(i) 回写 imageFiles（:337/:344），
+   *    中途改数组会把已移除的文件又写回来。
+   */
+  const removePendingFile = (index: number) => {
+    setImageFiles((prev) => prev.filter((_, i) => i !== index))
   }
 
   const removeUploadedImage = async (img: UploadedImage) => {
@@ -724,9 +741,23 @@ export default function QuestionDrawer({
             )}
 
             {imageFiles.length > 0 && (
-              <Text type="secondary">
-                待上传 {imageFiles.length} 张：{imageFiles.map((f) => f.name).join('、')}
-              </Text>
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <Text type="secondary">待上传 {imageFiles.length} 张（尚未上传，可移除）：</Text>
+                {imageFiles.map((f, idx) => (
+                  <Space key={`${f.name}-${idx}`} size="small">
+                    <Text>{f.name}</Text>
+                    <Text type="secondary">{(f.size / 1024).toFixed(0)} KB</Text>
+                    <Button
+                      size="small"
+                      danger
+                      disabled={uploading || submitting}
+                      onClick={() => removePendingFile(idx)}
+                    >
+                      移除
+                    </Button>
+                  </Space>
+                ))}
+              </Space>
             )}
 
             {galleryId !== undefined ? (
@@ -750,14 +781,18 @@ export default function QuestionDrawer({
                       <Tag color="blue">#{img.order_index + 1}</Tag>
                       <Text>{img.name}</Text>
                       <Text type="secondary">{(img.size / 1024).toFixed(0)} KB</Text>
-                      <Button
-                        size="small"
-                        danger
-                        disabled={uploading}
-                        onClick={() => void removeUploadedImage(img)}
+                      <Popconfirm
+                        title="删除这张图片？"
+                        description="删除后不可恢复（磁盘文件与记录一并删除）。"
+                        okText="删除"
+                        cancelText="取消"
+                        okButtonProps={{ danger: true }}
+                        onConfirm={() => void removeUploadedImage(img)}
                       >
-                        删除
-                      </Button>
+                        <Button size="small" danger disabled={uploading}>
+                          删除
+                        </Button>
+                      </Popconfirm>
                     </Space>
                   ))}
                 </Space>
