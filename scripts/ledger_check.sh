@@ -274,28 +274,63 @@ fi
 echo "[11/11] dev 库 DB 一致性（alembic head 动态比对 + user_tables ≥ 19 + enums ≥ 7）..."
 CHECK11_FAIL=0
 
-# 1. alembic current 期望 == 仓库里唯一的 head（动态比对，不写死版本号）
+# 1. dev 库的 alembic current 必须 == **仓库工作树**的唯一 head
 #    2026-10-23 改（星云「ledger_check 第 11 项 —— 现在改」）：
 #    旧写法 grep -qF "0011_question_images" 写死了一个版本号，每加一笔迁移就红一次
 #    （0012 落地后红、0013 落地后又红）⇒ 改为跟仓库真实 head 比。
-#    核源方式：alembic heads 走的是 revision 图（down_revision 链），比按文件名排序更准。
+#
+#    2026-10-23 改（星轨审核打回，"必须改完"）：
+#    上一版用 `alembic heads` 取期望值 —— **有真缺陷**：
+#    `alembic heads` 读的是**当前 alembic 运行环境**的 versions 目录。
+#    本项目 backend 容器 /app/alembic 是**镜像里烤进去的副本**
+#    （docker-compose 只 bind mount 了 data/uploads）⇒ 在容器里跑 alembic heads
+#    读到的是**容器副本，不是仓库工作树** ⇒ 仓库加了迁移但还没重建容器时，
+#    门禁**看不见**（读到旧 head）⇒ **门禁失守**。
+#    ⇒ 改用 scripts/alembic_head.py：直接静态解析**仓库工作树**的
+#       backend/alembic/versions/*.py 的 revision / down_revision 建图求 head。
+#
+#    另补 head 唯一性判断：revision 图分叉（多个 head）时必须 ❌，
+#    不能像旧写法那样 `tail -1` 静默取一个。
 ALEMBIC_HEAD=$(docker exec thp-backend bash -c "alembic current 2>/dev/null | tail -1" 2>/dev/null)
-ALEMBIC_EXPECTED=$(docker exec thp-backend bash -c "alembic heads 2>/dev/null | tail -1" 2>/dev/null)
-# 两边都只取首个字段（版本号本身），后面的 "(head)" / "(head)" 描述性后缀不比
 ALEMBIC_HEAD_ID=$(echo "$ALEMBIC_HEAD" | awk '{print $1}')
-ALEMBIC_EXPECTED_ID=$(echo "$ALEMBIC_EXPECTED" | awk '{print $1}')
+
+# 期望值：仓库工作树的唯一 head（python3 解析器）
+ALEMBIC_EXPECTED_ID=""
+ALEMBIC_HEAD_RC=0
+if [ ! -f scripts/alembic_head.py ]; then
+  ALEMBIC_HEAD_RC=4
+else
+  ALEMBIC_EXPECTED_ID=$(python3 scripts/alembic_head.py 2>&1)
+  ALEMBIC_HEAD_RC=$?
+  if [ "$ALEMBIC_HEAD_RC" != "0" ]; then
+    ALEMBIC_EXPECTED_ID=""
+  fi
+fi
+
 if [ -z "$ALEMBIC_HEAD" ]; then
   echo "  ❌ FAIL: 容器 thp-backend 不可达 或 alembic current 返回空（dev 库未联）"
   CHECK11_FAIL=1
+elif [ "$ALEMBIC_HEAD_RC" = "3" ]; then
+  echo "  ❌ FAIL: 仓库 revision 图**分叉**（检出多个 head）—— 迁移必须线性"
+  echo "  修法: 合并分支迁移，使 backend/alembic/versions/ 只有 1 个 head"
+  CHECK11_FAIL=1
+elif [ "$ALEMBIC_HEAD_RC" = "2" ]; then
+  echo "  ❌ FAIL: 仓库工作树解析不出 head（versions 目录空 / 有环）"
+  CHECK11_FAIL=1
+elif [ "$ALEMBIC_HEAD_RC" = "4" ]; then
+  echo "  ❌ FAIL: scripts/alembic_head.py 缺失 或 解析仓库 revision 图失败"
+  echo "  修法: 检查 backend/alembic/versions/*.py 的 revision / down_revision 写法"
+  CHECK11_FAIL=1
 elif [ -z "$ALEMBIC_EXPECTED_ID" ]; then
-  echo "  ❌ FAIL: alembic heads 返回空（仓库迁移图不可读）"
+  echo "  ❌ FAIL: 仓库工作树解析不出唯一 head"
   CHECK11_FAIL=1
 elif [ "$ALEMBIC_HEAD_ID" != "$ALEMBIC_EXPECTED_ID" ]; then
-  echo "  ❌ FAIL: alembic head 不匹配（仓库 head='$ALEMBIC_EXPECTED_ID'；dev 库实际='$ALEMBIC_HEAD_ID'）"
-  echo "  修法: cd backend && alembic upgrade head （应到 $ALEMBIC_EXPECTED_ID）"
+  echo "  ❌ FAIL: alembic head 不匹配（仓库工作树 head='$ALEMBIC_EXPECTED_ID'；dev 库实际='$ALEMBIC_HEAD_ID'）"
+  echo "  修法: docker compose up -d --build backend（重建镜像，让 /app/alembic 跟上仓库）"
+  echo "        然后 cd backend && alembic upgrade head （应到 $ALEMBIC_EXPECTED_ID）"
   CHECK11_FAIL=1
 else
-  echo "  ✅ alembic head 动态比对通过（仓库 == dev 库 == $ALEMBIC_HEAD_ID）"
+  echo "  ✅ alembic head 动态比对通过（仓库工作树 == dev 库 == $ALEMBIC_HEAD_ID；仓库 head 唯一）"
 fi
 
 # 2. user tables count ≥ 19 + 3. enums count ≥ 7（仅在 alembic head 匹配后才查，避免重复报）
