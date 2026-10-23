@@ -37,6 +37,7 @@ import type { TableColumnsType } from 'antd'
 
 import { apiClient } from '../api/client'
 import QuestionDrawer from '../components/QuestionDrawer'
+import QuestionGroupDrawer from '../components/QuestionGroupDrawer'
 import QuestionImages from '../components/QuestionImages'
 import {
   DIFFICULTY_LABEL,
@@ -122,6 +123,15 @@ export default function Questions() {
   const [drawerKey, setDrawerKey] = useState(0)
   // M3-1c-1c：列表页「看图」弹窗（题 id，null=关闭）
   const [galleryQuestionId, setGalleryQuestionId] = useState<number | null>(null)
+
+  // M3-1c-2 commit 1：题组抽屉（纯前端材料层）。
+  //
+  // ⚠️ **同样的 key 重挂载纪律**（1c-1 血泪，1c-2 继续沿用）：
+  //    题组抽屉的状态更多（教材/章节/知识点/难度/材料块草稿/待删图片队列…），
+  //    靠 useEffect 清 state 一定会漏一个 ⇒ 每次打开 = 整体重挂载，
+  //    状态一次性归零。递增点只在 openGroupDrawer 里，关闭时不变。
+  const [groupDrawerOpen, setGroupDrawerOpen] = useState(false)
+  const [groupDrawerKey, setGroupDrawerKey] = useState(0)
 
   // ──────────────── 题目列表 ────────────────
 
@@ -397,19 +407,31 @@ export default function Questions() {
         <Paragraph type="secondary">
           按教材 / 章节 / 知识点 / 难度 / 题型 / 关键词筛选自己的题目（D-29 §1.4 题库个人资产）
         </Paragraph>
-        <Button
-          type="primary"
-          disabled={loading}
-          onClick={() => {
-            setDrawerMode('create')
-            setEditingQuestion(null)
-            // 每次打开 = 新会话 ⇒ 重挂载（见 drawerKey 注释）
-            setDrawerKey((k) => k + 1)
-            setDrawerOpen(true)
-          }}
-        >
-          新建题目
-        </Button>
+        <Space>
+          <Button
+            type="primary"
+            disabled={loading}
+            onClick={() => {
+              setDrawerMode('create')
+              setEditingQuestion(null)
+              // 每次打开 = 新会话 ⇒ 重挂载（见 drawerKey 注释）
+              setDrawerKey((k) => k + 1)
+              setDrawerOpen(true)
+            }}
+          >
+            新建题目
+          </Button>
+          <Button
+            disabled={loading}
+            onClick={() => {
+              // 每次打开 = 新会话 ⇒ 重挂载（见 groupDrawerKey 注释）
+              setGroupDrawerKey((k) => k + 1)
+              setGroupDrawerOpen(true)
+            }}
+          >
+            新建题组
+          </Button>
+        </Space>
       </Card>
 
       <Card title="筛选" size="small">
@@ -571,6 +593,17 @@ export default function Questions() {
         mode={drawerMode}
         question={editingQuestion}
         onClose={() => setDrawerOpen(false)}
+        onSaved={() => void fetchQuestions()}
+      />
+      {/* M3-1c-2 commit 1：题组抽屉（材料层）。
+          key 变化 = 整体重挂载 = 状态归零（见 groupDrawerKey 注释）。
+          commit 2 会在这里再挂一个编辑态入口（列表页题组行）。 */}
+      <QuestionGroupDrawer
+        key={groupDrawerKey}
+        open={groupDrawerOpen}
+        mode="create"
+        groupId={null}
+        onClose={() => setGroupDrawerOpen(false)}
         onSaved={() => void fetchQuestions()}
       />
     </>

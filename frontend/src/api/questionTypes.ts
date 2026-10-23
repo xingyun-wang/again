@@ -74,6 +74,122 @@ export interface QuestionImageSummary {
   uploaded_at: string
 }
 
+/**
+ * POST /question-groups/{id}/images 的返回体（后端 QuestionImageRead，11 字段）。
+ *
+ * 🔴 **刻意不复用 QuestionImageSummary**（4 字段）：上传返回体带
+ * storage_path / oss_object_key / desensitization_status / uploaded_by_user_id
+ * 等内部字段，后端 schema 就是这个形状 ⇒ 前端照抄，不要自己"精简"。
+ */
+export interface QuestionGroupImageRead {
+  id: number
+  order_index: number
+  file_ext: string
+  storage_path: string
+  source: 'self_built' | 'external_imported'
+  desensitization_status: string
+  desensitized_at: string | null
+  uploaded_at: string
+  uploaded_by_user_id: number
+  oss_object_key: string | null
+  oss_uploaded_at: string | null
+}
+
+// ──────────────── M3-1c-2 题组 / 材料块（对齐 backend schemas/academic.py 1a-2 段） ────────────────
+//
+// ⚠️ 字段名**照抄后端**，不自创（前端自创字段名 ⇒ axios 不报错 ⇒ 静默丢值）。
+// 核源位置：backend/app/api/v1/schemas/academic.py
+//   - ContentBlockTypeLiteral（text | image | table）
+//   - ContentBlockInput / ContentBlockRead / QuestionGroupRead / QuestionGroupDetail
+
+/** 难度字母（题组与题目共用同一套口径） */
+export type QuestionDifficulty = QuestionRead['difficulty']
+
+/** 材料块类型（后端 ContentBlockTypeLiteral 白名单） */
+export type ContentBlockType = 'text' | 'image' | 'table'
+
+/**
+ * 收窄服务端返回的 block_type。
+ *
+ * ⭐ **为什么要收窄，而不是直接当 union 用**：
+ *   后端**读取** schema（`ContentBlockRead.block_type`）是**裸 str**，
+ *   只有**写入** schema（`ContentBlockInput.block_type`）才是 Literal 白名单。
+ *   ⇒ 库里出现历史脏值（如 "formula"）时后端会**原样返回**。
+ *   直接当 union 用 ⇒ `BLOCK_TYPE_LABEL[脏值]` = undefined
+ *   ⇒ 渲染出一个**没有任何编辑器的空壳块**，用户完全看不出发生了什么；
+ *   而 PUT 的 blocks 是**整体替换** ⇒ 一存就把那块数据**悄悄抹掉**了。
+ *   ⇒ 必须收窄成「已知 / 未知」两路：未知走**显式告警 + 阻断保存**。
+ */
+export function isKnownBlockType(t: string): t is ContentBlockType {
+  return t === 'text' || t === 'image' || t === 'table'
+}
+
+/** 图片宽度档位（后端 meta.image_width：50 / 75 / 100，单位 = 百分数不是像素） */
+export type ImageWidthPercent = 50 | 75 | 100
+
+/** 宽度档位下拉/单选选项（唯一真源，编辑器与回显共用） */
+export const IMAGE_WIDTH_OPTIONS: { value: ImageWidthPercent; label: string }[] = [
+  { value: 50, label: '50%' },
+  { value: 75, label: '75%' },
+  { value: 100, label: '100%' },
+]
+
+/** 图片宽度缺省值（新建图片块 = 100%） */
+export const DEFAULT_IMAGE_WIDTH: ImageWidthPercent = 100
+
+/** GET /question-groups 列表项（也用于 POST 返回） */
+export interface QuestionGroupRead {
+  id: number
+  owner_user_id: number
+  chapter_id: number
+  difficulty: QuestionDifficulty
+  small_question_count: number
+  total_points: number
+  knowledge_point_ids: number[]
+  created_at: string
+  updated_at: string
+}
+
+/** GET /question-groups/{id} 的材料块 */
+export interface ContentBlockRead {
+  id: number
+  /**
+   * ⚠️ 如实声明为 **string**（不是 ContentBlockType）：
+   *   后端读取 schema 就是裸 str，库里可能有历史脏值。
+   *   收窄交给 isKnownBlockType()，**别在这里骗自己**。
+   */
+  block_type: string
+  order_index: number
+  text_content: string | null
+  image_id: number | null
+  table_json: Record<string, unknown> | null
+  meta: Record<string, unknown> | null
+}
+
+/** GET /question-groups/{id} 详情（= Read + blocks + questions） */
+export interface QuestionGroupDetail extends QuestionGroupRead {
+  blocks: ContentBlockRead[]
+  questions: QuestionRead[]
+}
+
+/** PUT /question-groups/{id} 的材料块写入体 */
+export interface ContentBlockInput {
+  block_type: ContentBlockType
+  text_content?: string | null
+  image_id?: number | null
+  table_json?: Record<string, unknown> | null
+  meta?: Record<string, unknown> | null
+}
+
+/**
+ * table_json 的结构约定：`header=true` 表示首行是表头。
+ * 后端只当 dict 存（dict[str, Any]），语义由前端定 ⇒ 这里定死一份。
+ */
+export interface TableJson {
+  header: boolean
+  rows: string[][]
+}
+
 /** 鉴权 header（M1-B B.3 简化 auth；demo 阶段写死 user 1） */
 export const AUTH_HEADERS = { 'X-User-Id': '1' }
 
