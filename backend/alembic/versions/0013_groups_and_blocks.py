@@ -80,8 +80,17 @@ def _json_type() -> sa.types.TypeEngine:
 
     直接写 JSONB 会让 SQLite 建表崩（本地红 / CI 绿）—— 块模型的 JSON 坑，
     brief §0.7。全仓 0 先例，本笔首次引入（判据 15 要专门验）。
+
+    🔴 none_as_null=True（**必加**，2026-10-23 B 笔实测踩到）：
+    SQLAlchemy 的 JSON 列默认 none_as_null=False ⇒ Python 的 None 被序列化成
+    JSON 字面量 `null`，**不是 SQL NULL** ⇒ 本迁移建的 CHECK 判据
+    `table_json IS NULL` / `image_id IS NULL` 之类的 IS NULL 判据对 JSON 列恒为
+    false ⇒ text / table 块写入被误拒（建表能过、写入全炸）。
+    加 none_as_null=True ⇒ None 落成真正的 SQL NULL，CHECK 判据成立。
     """
-    return sa.JSON().with_variant(postgresql.JSONB, "postgresql")
+    return sa.JSON(none_as_null=True).with_variant(
+        postgresql.JSONB(none_as_null=True), "postgresql"
+    )
 
 
 def upgrade() -> None:

@@ -1276,14 +1276,28 @@ class ContentBlock(Base):
     )
     # 块模型的 JSON 坑（brief §0.7）：直接写 JSONB 会让 SQLite 建表崩
     # （本地红 / CI 绿）⇒ 必须 with_variant。**全仓 0 先例**，本笔首次引入。
+    # 🔴 none_as_null=True（**必加**，2026-10-23 B 笔实测踩到）：
+    # SQLAlchemy 的 JSON 列默认 none_as_null=False ⇒ Python 的 None 被序列化成
+    # JSON 字面量 `null` 存进列里，**不是 SQL NULL**。
+    # 于是 CHECK 判据 `table_json IS NULL` 恒为 false ⇒ 任何 text / table 块
+    # （另一个 JSON 列为 None）都会被 CHECK 误拒 —— 建表能过，**写入全炸**。
+    # 加 none_as_null=True ⇒ None 落成真正的 SQL NULL，CHECK 判据成立。
+    # PG 侧同理（JSONB 也是 JSON 语义，`IS NULL` 对 JSON null 为 false）。
     table_json: Mapped[dict[str, Any] | None] = mapped_column(
-        JSON().with_variant(postgresql.JSONB, "postgresql"), nullable=True
+        JSON(none_as_null=True).with_variant(
+            postgresql.JSONB(none_as_null=True), "postgresql"
+        ),
+        nullable=True,
     )
     # 图片宽度 50/75/100 存这里（补遗 §乙-3 现在加，省一次迁移）；
     # table 块预留 {"col_widths": [...]}。本笔只保证列存在，不做取值校验
     # —— 宽度取值属 1c-2 编辑器的职责，且 JSON 上的 CHECK 在 SQLite 侧难验。
+    # none_as_null=True —— 同 table_json 的理由（否则 meta=None 落成 JSON null）
     meta: Mapped[dict[str, Any] | None] = mapped_column(
-        JSON().with_variant(postgresql.JSONB, "postgresql"), nullable=True
+        JSON(none_as_null=True).with_variant(
+            postgresql.JSONB(none_as_null=True), "postgresql"
+        ),
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
