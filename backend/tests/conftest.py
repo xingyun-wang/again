@@ -12,6 +12,20 @@ from pathlib import Path
 
 import pytest
 
+# 🔴 环境护栏（星云/星轨 2026-10-23 22:5x 拍板 Q2）：宿主 Python < 3.9 直接退出。
+#     宿主 py3.8 不支持 `Mapped[list[X]]` 这类 PEP 585 泛型下标 ⇒ 收集期就炸
+#     `sqlalchemy.orm.exc.MappedAnnotationError` —— 报错长得像「我的改动炸了」，
+#     其实是**环境不对**。请在容器内跑 pytest（CI 用 py3.11）。
+#     护栏比文档可靠：文档会忘，护栏不会。
+#
+#     ⚠️ 下面那行 noqa 抑制的理由（别删）：项目 `requires-python = ">=3.11"` ⇒ ruff 按
+#     py311 判定这个版本块「恒假」⇒ 报 UP036「outdated version block」。
+#     但**开发盒宿主 `python3` 真是 3.8.10**（实测），这个判断会**真的命中** ——
+#     它拦的正是「宿主 pytest 收集期炸 MappedAnnotationError、报错长得像改动炸了」。
+#     若哪天真把宿主升到 ≥3.9，这个护栏自然不再触发（可与抑制一并撤）。
+if sys.version_info < (3, 9):  # noqa: UP036
+    pytest.exit("请在容器内跑 pytest：宿主 py3.8 不支持 Mapped[list[X]] 注解")
+
 # 确保 `from app.xxx import ...` 能在 pytest 里直接工作
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(BACKEND_ROOT) not in sys.path:
