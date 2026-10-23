@@ -34,21 +34,27 @@
 
 > **本节 = 项目内收工流程唯一真值源**（D-79「流程只写一处」）
 > **链序**：落盘 → 固化 → 核 → 推
-> **当前步骤数**：8（改一次即更新本节；不要把步数写进标题）
+> **当前步骤数**：9（改一次即更新本节；不要把步数写进标题）
+> **2026-10-23 新增**：第 4 步 = 运行时证据落盘（星云 09:57「机制立」）
 
 1. **更新 memory**：`memory/YYYY-MM-DD.md`（写今天做了什么 / 下一步）
 2. **改 STATE**：`STATE.md`（如有进展）
 3. **剪枝自检（含压缩昨日日志）**：
    - `wc -c` 各文件比软上限（详见 §剪枝触发）
    - **压缩昨日日志**（按 WAKEUP.md:26「memory 单日 100 行 → 次日收工时压缩」；D-75/D-76）
-4. **commit**：本笔改动落到项目仓（commit message 写明 commit 类型 + 范围 + D-XX/D-M2-N 引用）
-5. **跑 ledger_check**：`bash scripts/ledger_check.sh`（自动核验台账；**失败即拒收**；D-76 立条 + 5 条检查项：台账增量 / 失实入家族表 / W-A-U-P.md 错拼 / notes-memory 对齐 / dirty 收口）（若失败 → 立即补 fix commit，**且不得执行第 6 步 push**）
-6. **跑 backup**：`bash ~/zaiyao-memory/backup.sh`（自动同步 + 推送 Gitee；D-14）
-7. **推 origin**（需授权）：`git push origin <branch>`
+4. **写运行时证据**（2026-10-23 立；来源：载曜 10-21 建议 → 审核员倾向同意 → 星云 09:57「机制立」）：落 `交付物/运行时证据-<短sha>.md`；未覆盖声明/更正落 `交付物/未覆盖声明-<主题>-<短sha>（<日期>）.md`
+   - **必须在 commit 之前写** —— 命令原始输出事后无法重建（L1 不可追认）
+   - **证据分级 L1–L4 必标**（原始输出 / 事后可重放 / 事后转述 / 未留存）；**L4 一律写「未留存」，绝不补写**；L3 必须标出
+   - **页面级证据永远为 0**（载曜无浏览器，任何截图都是伪造）⇒ 一律写「归星轨 Playwright + Edge」
+   - 机制全文与审查员用法：`交付物/README.md`
+5. **commit**：本笔改动落到项目仓（commit message 写明 commit 类型 + 范围 + D-XX/D-M2-N 引用）
+6. **跑 ledger_check**：`bash scripts/ledger_check.sh`（自动核验台账；**失败即拒收**；D-76 立条 + 5 条检查项：台账增量 / 失实入家族表 / W-A-U-P.md 错拼 / notes-memory 对齐 / dirty 收口）（若失败 → 立即补 fix commit，**且不得执行第 7 步 push**）
+7. **跑 backup**：`bash ~/zaiyao-memory/backup.sh`（自动同步 + 推送 Gitee；D-14）
+8. **推 origin**（需授权）：`git push origin <branch>`
    - **授权机制** = 本笔 commit message 显式含 `[origin-push]` 标记
    - **无标记** = 不推（commit message 由载曜生成时主动加；用户口头/决策室授权经载曜转写为标记）
    - **机器核验** = `git log -1 --format=%B | grep -q '\[origin-push\]'`（ledger_check 第 5 步前自检）
-8. **报告 push**：报告 backup + origin push 成功/失败
+9. **报告 push**：报告 backup + origin push 成功/失败
 
 ---
 
