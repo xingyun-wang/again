@@ -1951,6 +1951,52 @@ def _get_group_or_404(db: Session, group_id: int, user_id: int) -> QuestionGroup
     return group
 
 
+def _check_group_image_ownership(
+    db: Session,
+    group: QuestionGroup,
+    blocks: list[ContentBlockInput],
+) -> None:
+    """校验材料块引用的 image_id **属于本题组**（星轨审查 P1-1，2026-10-23）。
+
+    🔴 **写路径必须有归属校验** —— 读/删端点都做了交叉校验
+    （`image.group_id != group.id ⇒ 404`），**只有写路径漏了**：
+    `_replace_group_blocks` 原来把 `b.image_id` 原样写进 content_blocks。
+
+    漏了会怎样（不是理论，是 FK 链上的必然）：
+    1. 用户 A 在材料里填**别人的** image_id（id 自增、可猜）⇒ 块建立成功；
+    2. 渲染时走到 `/question-groups/{A}/{B的图}/content` ⇒ 404 ⇒ **材料破图**；
+    3. B 删掉那张图 ⇒ `content_blocks.image_id` FK CASCADE ⇒ **A 的材料块静默消失**。
+
+    ⚠️ 口径：**比对 `group_id == group.id`**，不看 block_type ——
+    因为 FK CASCADE 挂在 `content_blocks.image_id` 上，**任何**带 image_id 的块
+    都会被图删除连带带走 ⇒ 校验必须覆盖全部带 image_id 的块，不只是 image 块。
+    同一条 SQL 也顺手挡住了「填题图（question_id 有值、group_id 为 NULL）」——
+    题图的 group_id 是 NULL，压根不等于 group.id。
+
+    ⚠️ 口径：**不存在 与 不属于本题组 同码同文案** ⇒ 不给「这个 id 存不存在」
+    的探测信号（与读端点的 404 不泄露口径一致）。
+    """
+    image_ids = {b.image_id for b in blocks if b.image_id is not None}
+    if not image_ids:
+        return
+
+    rows = (
+        db.query(QuestionImage.id)
+        .filter(
+            QuestionImage.id.in_(image_ids),
+            QuestionImage.group_id == group.id,
+        )
+        .all()
+    )
+    owned = {row[0] for row in rows}
+    missing = sorted(image_ids - owned)
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"image_id 不属于本题组：{missing}",
+        )
+
+
 def _replace_group_blocks(
     db: Session,
     group: QuestionGroup,
@@ -1961,7 +2007,13 @@ def _replace_group_blocks(
     ⚠️ content_blocks **无 FK** ⇒ 必须显式删旧块（补遗 §乙-2）。
     image 块会被 image_id 的 CASCADE 带走，但 text/table 块没有任何 FK，
     只能靠这一步显式删 —— 否则旧块残留成孤儿。
+
+    🔴 **校验先于删除**（星轨审查 P1-1）：`_check_group_image_ownership` 在
+    删旧块**之前**跑 ⇒ 校验不过时旧块一根汗毛都不动（连 flush 都没发生）。
     """
+    # ── 校验先行（不写库）──
+    _check_group_image_ownership(db, group, blocks)
+
     db.execute(
         delete(ContentBlock).where(
             ContentBlock.owner_type == "group",
@@ -2126,16 +2178,42 @@ def update_question_group(
     """
     group = _get_group_or_404(db, group_id, user_id)
 
+    # ─────────────────────────────────────────────────────────────────────
+    # 阶段 1：**全部校验先行，一根汗毛都不写**
+    # ─────────────────────────────────────────────────────────────────────
+    # 🔴 为什么必须两阶段（星轨审查 P1-1 的延伸，2026-10-23）：
+    #   本处理器的写入顺序是 difficulty → knowledge_point_ids → blocks，
+    #   每步都 db.flush()。
+    #   若 blocks 的 image_id 归属校验放在最后一步才跑，422 抛出时
+    #   difficulty 与 KP 关联**已经被 flush 进事务**。
+    #   - 生产：get_db 的 finally → db.close() 会回滚未提交事务 ⇒ 侥幸没事；
+    #   - 测试：mock_db_session 是**共享会话**（fixture 与 API 同一个），
+    #     close 不会发生 ⇒ **半截状态会留下来污染后续断言**。
+    #   ⇒ 把所有「可能抛错」的校验提到写操作之前，422 时事务里**零写入**。
+
+    # KP 归属校验（404 不写库）—— 复用题目的同一个函数
+    kps: list[KnowledgePoint] | None = None
+    if body.knowledge_point_ids is not None:
+        kps = _check_knowledge_point_ownership(
+            db, body.knowledge_point_ids, user_id
+        )
+
+    # 材料块引用的 image_id 必须属于本题组（422 不写库）
+    # ⚠️ 这里重复调一次是**故意**的：_replace_group_blocks 内部还有一道
+    #    （那里是 content_blocks 的**唯一写入口**，必须自带守卫）。
+    #    两道都是可执行断言，不是注释。
+    if body.blocks is not None:
+        _check_group_image_ownership(db, group, body.blocks)
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 阶段 2：校验全过 ⇒ 统一应用
+    # ─────────────────────────────────────────────────────────────────────
     if body.difficulty is not None:
         group.difficulty = ORMQuestionDifficulty(body.difficulty.value)
         db.flush()
         _sync_group_difficulty(db, group)
 
-    if body.knowledge_point_ids is not None:
-        # 归属校验先行（404 不写库）—— 复用题目的同一个函数
-        kps = _check_knowledge_point_ownership(
-            db, body.knowledge_point_ids, user_id
-        )
+    if kps is not None:
         # 整体替换：先清空旧关联，再按传序重建
         # ⚠️ 走 ORM 的 relationship 赋值（不是 bulk delete）—— 这是多对多关联表
         #    的正常写法；group_knowledge_points 两列都是 FK CASCADE，无需手动删行

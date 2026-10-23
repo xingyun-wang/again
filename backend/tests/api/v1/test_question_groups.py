@@ -865,3 +865,306 @@ def test_f10_group_knowledge_points_update_and_guard(
     assert r.status_code == 200, r.text
     assert r.json()["knowledge_point_ids"] == [kp.id], "不传就不该动关联"
     assert r.json()["difficulty"] == "A"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 星轨代码审查（批 1，2026-10-23）P1-1：写块时不校验 image_id 归属
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# 🔴 原实现：_replace_group_blocks 把 b.image_id **原样写库**，从不校验它属于本题组
+#    ⇒ 用户 A 可以在材料里填**别人的** image_id（id 自增、可猜）：
+#      1. 块建立成功；
+#      2. 渲染时走 /question-groups/{A}/{B的图}/content ⇒ 404 ⇒ **材料破图**；
+#      3. B 删掉那张图 ⇒ content_blocks.image_id FK CASCADE ⇒ **A 的材料块静默消失**。
+#
+# 修复：_check_group_image_ownership（校验**先于**删除）⇒ 422 且不写库。
+
+
+def _upload_group_image(client: TestClient, group_id: int, tmp_path: Any) -> int:
+    """往题组传一张材料图，返 image_id（走真实 API）。"""
+    import os
+
+    old_root = os.environ.get("UPLOAD_ROOT")
+    os.environ["UPLOAD_ROOT"] = str(tmp_path)
+    try:
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+        r = client.post(
+            f"/api/v1/academic/question-groups/{group_id}/images",
+            files={"file": ("mat.png", png, "image/png")},
+            data={"file_ext": "png", "source": "self_built"},
+            headers={"X-User-Id": "1"},
+        )
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+    finally:
+        if old_root is None:
+            os.environ.pop("UPLOAD_ROOT", None)
+        else:
+            os.environ["UPLOAD_ROOT"] = old_root
+
+
+def test_r8_block_image_id_must_belong_to_group(
+    client: TestClient, chapter: Any, mock_db_session: Any, tmp_path: Any
+) -> None:
+    """R8：材料块引用**别组**的 image_id ⇒ 422，且**旧块一根汗毛都不动**。
+
+    ⭐ 两条断言缺一不可：
+      - 422：拒绝跨组引用；
+      - 旧块仍在：**校验先于删除** ⇒ 校验不过时连 flush 都没发生。
+        （若校验放在删除之后，旧块已被删掉再报错 —— 那是**数据破坏**。）
+    """
+    gid_a = _create_group(client, chapter.id)
+    gid_b = _create_group(client, chapter.id)
+
+    # B 组的一张图
+    image_b = _upload_group_image(client, gid_b, tmp_path)
+
+    # 先给 A 组放一个正常文本块（后面要验证它没被删）
+    r = client.put(
+        f"/api/v1/academic/question-groups/{gid_a}",
+        json={"blocks": [{"block_type": "text", "text_content": "A 组原有块"}]},
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 200, r.text
+
+    # A 组试图引用 **B 组的图** ⇒ 422
+    r = client.put(
+        f"/api/v1/academic/question-groups/{gid_a}",
+        json={
+            "blocks": [
+                {"block_type": "text", "text_content": "A 组原有块"},
+                {"block_type": "image", "image_id": image_b},
+            ]
+        },
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 422, r.text
+    assert "不属于本题组" in r.json()["message"], r.text
+
+    # ⭐ 旧块还在（校验先于删除 —— 没被删）
+    r = client.get(
+        f"/api/v1/academic/question-groups/{gid_a}", headers={"X-User-Id": "1"}
+    )
+    assert r.status_code == 200, r.text
+    blocks = r.json()["blocks"]
+    assert len(blocks) == 1, f"旧块被删了：{blocks}"
+    assert blocks[0]["text_content"] == "A 组原有块", blocks
+    assert blocks[0]["image_id"] is None, blocks
+
+    # 落库核验：content_blocks 里**没有**那条跨组引用（不靠响应自证）
+    from sqlalchemy import select
+
+    from app.models.academic import ContentBlock
+
+    rows = mock_db_session.execute(
+        select(ContentBlock.image_id).where(
+            ContentBlock.owner_type == "group", ContentBlock.owner_id == gid_a
+        )
+    ).all()
+    assert [row[0] for row in rows] == [None], f"跨组 image_id 落库了：{rows}"
+
+
+def test_r9_block_cannot_reference_question_image(
+    client: TestClient, chapter: Any, mock_db_session: Any, tmp_path: Any
+) -> None:
+    """R9：材料块引用**题图**（question_id 有值、group_id 为 NULL）⇒ 422。
+
+    同族漏洞的另一面：题图填进组材料 ⇒ 删那道题会连带删掉组材料块。
+    口径：比对 group_id == group.id ⇒ 题图的 group_id 是 NULL，压根不匹配。
+    """
+    gid = _create_group(client, chapter.id)
+    q = _make_question(mock_db_session, chapter.id)
+
+    # 往**题目**上传一张图（question_id 有值、group_id 为 NULL）
+    import os
+
+    old_root = os.environ.get("UPLOAD_ROOT")
+    os.environ["UPLOAD_ROOT"] = str(tmp_path)
+    try:
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+        r = client.post(
+            f"/api/v1/academic/questions/{q.id}/images",
+            files={"file": ("q.png", png, "image/png")},
+            data={"file_ext": "png"},
+            headers={"X-User-Id": "1"},
+        )
+        assert r.status_code == 201, r.text
+        q_image_id = r.json()["id"]
+
+        row = mock_db_session.get(QuestionImage, q_image_id)
+        assert row is not None
+        assert row.question_id == q.id
+        assert row.group_id is None, "题图 group_id 应为 NULL"
+
+        # 组材料引用题图 ⇒ 422
+        r = client.put(
+            f"/api/v1/academic/question-groups/{gid}",
+            json={"blocks": [{"block_type": "image", "image_id": q_image_id}]},
+            headers={"X-User-Id": "1"},
+        )
+        assert r.status_code == 422, r.text
+        assert "不属于本题组" in r.json()["message"], r.text
+    finally:
+        if old_root is None:
+            os.environ.pop("UPLOAD_ROOT", None)
+        else:
+            os.environ["UPLOAD_ROOT"] = old_root
+
+
+def test_r10_nonexistent_image_id_same_error_as_cross_group(
+    client: TestClient, chapter: Any
+) -> None:
+    """R10：**不存在的** image_id ⇒ 与跨组引用**同码同文案**。
+
+    ⭐ 这条是「不给 id 存在性探测信号」的口径：
+    不存在 与 不属于本题组 必须长得一模一样，否则就成了「这个 id 存不存在」的探测接口。
+    """
+    gid = _create_group(client, chapter.id)
+
+    r = client.put(
+        f"/api/v1/academic/question-groups/{gid}",
+        json={"blocks": [{"block_type": "image", "image_id": 999999}]},
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 422, r.text
+    msg_missing = r.json()["message"]
+    assert "不属于本题组" in msg_missing, r.text
+
+    # 与 R8 的跨组文案形状一致（同样的 key，值不同但结构同）
+    gid2 = _create_group(client, chapter.id)
+    r2 = client.put(
+        f"/api/v1/academic/question-groups/{gid2}",
+        json={"blocks": [{"block_type": "image", "image_id": 999998}]},
+        headers={"X-User-Id": "1"},
+    )
+    assert r2.status_code == r.status_code, (r2.status_code, r.status_code)
+    assert r2.json()["error_code"] == r.json()["error_code"]
+    assert r2.json()["message"].replace("999998", "X") == msg_missing.replace(
+        "999999", "X"
+    ), (r2.json()["message"], msg_missing)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 星轨代码审查（批 1，2026-10-23）P1-2：新增 6 个端点没有跨用户用例
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# 🔴 缺口：test_cross_user_isolation.py 只覆盖老的 13 个端点；
+#    test_r5 只测了 GET 详情 / GET 列表 / DELETE。
+#    ⇒ **没被测的**：PUT /question-groups/{id}、POST /question-groups/{id}/questions、
+#      以及 **4 个组图端点**。
+#    代码本身校验是对的，但**这条边界没有回归网** ⇒ 下次谁改错一行不会被发现。
+#
+# 口径：跨用户一律 **404**（不是 403 —— 不暴露 id 存在性，D-29 硬规则）。
+
+
+def test_r11_cross_user_put_group_is_404(
+    client: TestClient, chapter: Any, user2: Any
+) -> None:
+    """R11：user2 改 user1 的题组 ⇒ 404（且 user1 的组没被动过）。"""
+    gid = _create_group(client, chapter.id, "C")
+
+    r = client.put(
+        f"/api/v1/academic/question-groups/{gid}",
+        json={"difficulty": "A"},
+        headers={"X-User-Id": "2"},
+    )
+    assert r.status_code == 404, r.text
+
+    # user1 的组仍是原难度（user2 的写入没生效）
+    r = client.get(
+        f"/api/v1/academic/question-groups/{gid}", headers={"X-User-Id": "1"}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["difficulty"] == "C", r.text
+
+
+def test_r12_cross_user_attach_question_is_404(
+    client: TestClient, chapter: Any, user2: Any, mock_db_session: Any
+) -> None:
+    """R12：user2 往 user1 的题组挂小题 ⇒ 404（且小题没被挂上）。
+
+    ⚠️ ⭐ **必须用 user2 自己的题**（owner_id=2），不能用 user1 的题：
+    用 user1 的题时，404 是被**「题归属」守卫**（`question.owner_user_id != user_id`）
+    拦下的 —— 那时**组归属**守卫根本轮不到执行 ⇒ 这条用例**守不住它该守的边界**。
+    ⭐ 我第一版就写错了（用 user1 的题）⇒ fail-open 实测时它**照样通过** ⇒
+    等于没测。改成 user2 的题后，题归属这道关**本来就过**，
+    **只有组归属守卫**能拦下 ⇒ fail-open 时必 FAIL ⇒ 用例才可证伪。
+    """
+    gid = _create_group(client, chapter.id)
+    # user2 **自己的**题（挂在 user1 的章节下 —— 数据库不禁止，题目归属独立于章节归属）
+    q = _make_question(mock_db_session, chapter.id, owner_id=2)
+    assert q.owner_user_id == 2
+
+    r = client.post(
+        f"/api/v1/academic/question-groups/{gid}/questions",
+        json={"question_id": q.id, "group_order": 0},
+        headers={"X-User-Id": "2"},
+    )
+    assert r.status_code == 404, r.text
+
+    row = mock_db_session.get(Question, q.id)
+    assert row.group_id is None, "user2 的挂题生效了"
+
+
+def test_r13_cross_user_group_image_endpoints_all_404(
+    client: TestClient, chapter: Any, user2: Any, tmp_path: Any
+) -> None:
+    """R13：4 个组图端点对 user2 全部 404。
+
+    逐个反例（星轨点名「4 个组图端点没网」）：
+      POST   /question-groups/{id}/images
+      GET    /question-groups/{id}/images
+      GET    /question-groups/{id}/images/{image_id}/content
+      DELETE /question-groups/{id}/images/{image_id}
+    """
+    import os
+
+    gid = _create_group(client, chapter.id)
+    image_id = _upload_group_image(client, gid, tmp_path)
+
+    old_root = os.environ.get("UPLOAD_ROOT")
+    os.environ["UPLOAD_ROOT"] = str(tmp_path)
+    try:
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+        H2 = {"X-User-Id": "2"}
+
+        # ① POST 上传
+        r = client.post(
+            f"/api/v1/academic/question-groups/{gid}/images",
+            files={"file": ("x.png", png, "image/png")},
+            data={"file_ext": "png", "source": "self_built"},
+            headers=H2,
+        )
+        assert r.status_code == 404, r.text
+
+        # ② GET 列表
+        r = client.get(
+            f"/api/v1/academic/question-groups/{gid}/images", headers=H2
+        )
+        assert r.status_code == 404, r.text
+
+        # ③ GET content
+        r = client.get(
+            f"/api/v1/academic/question-groups/{gid}/images/{image_id}/content",
+            headers=H2,
+        )
+        assert r.status_code == 404, r.text
+
+        # ④ DELETE
+        r = client.delete(
+            f"/api/v1/academic/question-groups/{gid}/images/{image_id}",
+            headers=H2,
+        )
+        assert r.status_code == 404, r.text
+    finally:
+        if old_root is None:
+            os.environ.pop("UPLOAD_ROOT", None)
+        else:
+            os.environ["UPLOAD_ROOT"] = old_root
+
+    # ⭐ user2 的 4 次尝试后，user1 的图**还在**（没被删）
+    r = client.get(
+        f"/api/v1/academic/question-groups/{gid}/images", headers={"X-User-Id": "1"}
+    )
+    assert r.status_code == 200, r.text
+    assert [i["id"] for i in r.json()] == [image_id], "user1 的图被误删了"
