@@ -46,6 +46,7 @@ from fastapi.testclient import TestClient
 # 看到它们（否则 fixture setup 阶段就崩 "no such table: users"）
 from app.models import (  # noqa: F401
     Chapter,
+    KnowledgePoint,
     Question,
     QuestionDifficulty,
     QuestionType,
@@ -130,6 +131,77 @@ def user2(mock_db_session: Any) -> Any:
     mock_db_session.commit()
     mock_db_session.refresh(user)
     return user
+
+
+@pytest.fixture()
+def kp(mock_db_session: Any, chapter: Any) -> Any:
+    """知识点（挂在 chapter 下，归属走 chapter ⇒ owner = system-seed id=1）。
+
+    KP 自身**无** owner_user_id —— 归属路径 = KP → chapter → chapter.owner_user_id。
+    """
+    k = KnowledgePoint(
+        chapter_id=chapter.id,
+        name="KP-1a-2",
+        concept="1a-2 知识点概念",
+        teaching_order=1,
+    )
+    mock_db_session.add(k)
+    mock_db_session.commit()
+    mock_db_session.refresh(k)
+    return k
+
+
+@pytest.fixture()
+def kp_other(mock_db_session: Any, chapter_other: Any) -> Any:
+    """另一个章节下的知识点（**同属 user1** —— 归属是过的）。
+
+    ⚠️ 用来记录一个**已核源的事实**：brief / 补遗 / 派工单里**都没有**
+    「组与 KP 必须同章节」这条规则，且 `POST /questions` 也不校验同章节
+    （只校验归属：KP → 其 chapter → chapter.owner_user_id）。
+    ⇒ 本项目**不引入**同章节约束，别自己发明。
+    """
+    k = KnowledgePoint(
+        chapter_id=chapter_other.id,
+        name="KP-1a-2-other",
+        concept="另一章节的知识点",
+        teaching_order=1,
+    )
+    mock_db_session.add(k)
+    mock_db_session.commit()
+    mock_db_session.refresh(k)
+    return k
+
+
+@pytest.fixture()
+def chapter_user2(mock_db_session: Any, mock_textbook: Any, user2: Any) -> Any:
+    """user2 自己的章节（KP 归属守卫测试用）。"""
+    ch = Chapter(
+        textbook_id=mock_textbook.id,
+        owner_user_id=user2.id,
+        chapter_number=9,
+        title="user2 的章节",
+        content_summary="跨用户 KP 守卫用",
+        extraction_source="detected",
+    )
+    mock_db_session.add(ch)
+    mock_db_session.commit()
+    mock_db_session.refresh(ch)
+    return ch
+
+
+@pytest.fixture()
+def kp_user2(mock_db_session: Any, chapter_user2: Any) -> Any:
+    """**user2 名下**的知识点（user1 挂它 ⇒ 跨用户 ⇒ 404）。"""
+    k = KnowledgePoint(
+        chapter_id=chapter_user2.id,
+        name="KP-user2",
+        concept="user2 的知识点",
+        teaching_order=1,
+    )
+    mock_db_session.add(k)
+    mock_db_session.commit()
+    mock_db_session.refresh(k)
+    return k
 
 
 def _make_question(
@@ -645,3 +717,151 @@ def test_list_groups_filter_by_chapter(client: TestClient, chapter: Any, chapter
     )
     assert r.status_code == 200, r.text
     assert [g["id"] for g in r.json()] == [gid]
+
+
+# ────────────────────────────── F9 知识点关联：建组写入（判据 3 真正走法） ──────────────────────────────
+#
+# 🔴 这条是 2026-10-23 星轨审核打回后补的：原实现 group_knowledge_points
+# **只有读没有写** ⇒ 判据 3 在 API 上根本做不到，我原来的 PG 验证脚本是
+# **直接插库**造的 KP 关联 ⇒ 那个 PASS 不算数。
+# 现在：建组 → 关联 KP → **用 GET ?knowledge_point_id= 筛出来**，全程走 API。
+
+
+def test_f9_group_knowledge_points_written_via_api(
+    client: TestClient, chapter: Any, kp: Any, mock_db_session: Any
+) -> None:
+    """建组时传 knowledge_point_ids ⇒ 落库 + 读回 + 能筛出来。"""
+    r = client.post(
+        "/api/v1/academic/question-groups",
+        json={
+            "chapter_id": chapter.id,
+            "difficulty": "C",
+            "knowledge_point_ids": [kp.id],
+        },
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 201, r.text
+    gid = r.json()["id"]
+
+    # ① 响应就带上了（Read 字段）
+    assert r.json()["knowledge_point_ids"] == [kp.id]
+
+    # ② 真的落库了（查关联表，不靠响应自证）
+    from sqlalchemy import select
+
+    from app.models.academic import group_knowledge_points
+
+    rows = mock_db_session.execute(
+        select(group_knowledge_points.c.group_id).where(
+            group_knowledge_points.c.group_id == gid
+        )
+    ).all()
+    assert [row[0] for row in rows] == [gid], "group_knowledge_points 关联行未落库"
+
+    # ③ 列表读回
+    r = client.get("/api/v1/academic/question-groups", headers={"X-User-Id": "1"})
+    assert r.status_code == 200, r.text
+    got = [g for g in r.json() if g["id"] == gid]
+    assert len(got) == 1
+    assert got[0]["knowledge_point_ids"] == [kp.id]
+
+    # ④ ⭐ 判据 3 的真正走法：**用 API 筛出该组**（不是插库造的）
+    r = client.get(
+        f"/api/v1/academic/question-groups?knowledge_point_id={kp.id}",
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 200, r.text
+    assert [g["id"] for g in r.json()] == [gid], "按知识点筛选没筛出该组"
+
+
+# ────────────────────────────── F10 知识点关联：改组替换 + 归属守卫 ──────────────────────────────
+
+
+def test_f10_group_knowledge_points_update_and_guard(
+    client: TestClient, chapter: Any, kp: Any, kp_user2: Any, mock_db_session: Any
+) -> None:
+    """PUT 整体替换关联 + 跨用户 KP 被拒（404，不写库）。
+
+    ⚠️ **不测跨章节 KP** —— 已核源：brief / 补遗 / 派工单**都没有**「组与 KP
+    必须同章节」这条规则，且 `POST /questions` 也不校验同章节（只校验归属）。
+    ⇒ 本项目不引入该约束（不自发明规则），只测归属守卫。
+    """
+    from sqlalchemy import select
+
+    from app.models.academic import group_knowledge_points
+
+    # 建组时先挂 kp
+    r = client.post(
+        "/api/v1/academic/question-groups",
+        json={
+            "chapter_id": chapter.id,
+            "difficulty": "C",
+            "knowledge_point_ids": [kp.id],
+        },
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 201, r.text
+    gid = r.json()["id"]
+
+    # ① 换成 **user2 名下**的 KP ⇒ 归属校验不过 ⇒ 404
+    r = client.put(
+        f"/api/v1/academic/question-groups/{gid}",
+        json={"knowledge_point_ids": [kp_user2.id]},
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 404, r.text
+
+    # 失败后原关联**未被改动**（404 不写库）
+    rows = mock_db_session.execute(
+        select(group_knowledge_points.c.knowledge_point_id).where(
+            group_knowledge_points.c.group_id == gid
+        )
+    ).all()
+    assert [row[0] for row in rows] == [kp.id], "404 之后关联不该被改动"
+
+    # ①b 建组时直接传跨用户 KP ⇒ 同样 404（建组路径也要守）
+    r = client.post(
+        "/api/v1/academic/question-groups",
+        json={
+            "chapter_id": chapter.id,
+            "difficulty": "C",
+            "knowledge_point_ids": [kp_user2.id],
+        },
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 404, r.text
+
+    # ② 传空列表 ⇒ 清空关联
+    r = client.put(
+        f"/api/v1/academic/question-groups/{gid}",
+        json={"knowledge_point_ids": []},
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["knowledge_point_ids"] == []
+
+    rows = mock_db_session.execute(
+        select(group_knowledge_points.c.knowledge_point_id).where(
+            group_knowledge_points.c.group_id == gid
+        )
+    ).all()
+    assert rows == [], "传空列表应清空关联行"
+
+    # ③ 重新挂上（自己章节的 KP）⇒ 成功
+    r = client.put(
+        f"/api/v1/academic/question-groups/{gid}",
+        json={"knowledge_point_ids": [kp.id]},
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["knowledge_point_ids"] == [kp.id]
+
+    # ④ 不传 knowledge_point_ids ⇒ **不动**关联（不传 != 清空）
+    r = client.put(
+        f"/api/v1/academic/question-groups/{gid}",
+        json={"difficulty": "A"},
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["knowledge_point_ids"] == [kp.id], "不传就不该动关联"
+    assert r.json()["difficulty"] == "A"

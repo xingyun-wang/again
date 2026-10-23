@@ -684,6 +684,7 @@ class QuestionGroupCreate(BaseModel):
     字段：
     - chapter_id：题组所属章节（建组时校验归属当前 user，D-29 单门）
     - difficulty：题组难度（D2(a) 难度只存组上，小题继承）
+    - knowledge_point_ids：题组挂的知识点（**可写**，落 group_knowledge_points 关联表）
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -691,6 +692,10 @@ class QuestionGroupCreate(BaseModel):
     chapter_id: int = Field(..., description="题组所属章节 id")
     difficulty: QuestionDifficulty = Field(
         ..., description="题组难度（D2(a)：难度只存组上，小题继承）"
+    )
+    knowledge_point_ids: list[int] = Field(
+        default_factory=list,
+        description="题组关联的知识点 id 列表（落 group_knowledge_points；归属校验同题）",
     )
 
 
@@ -737,6 +742,8 @@ class QuestionGroupUpdate(BaseModel):
 
     - difficulty：改组难度 ⇒ **同事务**批量同步组内小题（乙-4）
     - blocks：材料块序列**整体替换**（brief §1：材料是序列，替换比增量安全）
+    - knowledge_point_ids：知识点关联**整体替换**（传则先清空原关联再按传序重建；
+      **不传 = 不动**，传空列表 = 清空）
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -748,6 +755,10 @@ class QuestionGroupUpdate(BaseModel):
         default=None,
         description="材料块序列（整体替换；传则先清空原块再按 order_index 重建）",
     )
+    knowledge_point_ids: list[int] | None = Field(
+        default=None,
+        description="知识点关联（整体替换；传则先清空 group_knowledge_points 再重建；不传=不动）",
+    )
 
 
 class QuestionGroupRead(BaseModel):
@@ -756,6 +767,8 @@ class QuestionGroupRead(BaseModel):
     - id / owner_user_id / chapter_id / difficulty
     - small_question_count：小题数（D3(a) 题量按小题数累加 —— 这就是计数口径）
     - total_points：题组总分 = 小题 points 之和（材料不计分）
+    - knowledge_point_ids：题组关联的知识点 id（**可写可读** —— 落
+      group_knowledge_points 关联表；没有它，GET ?knowledge_point_id= 永远筛不出组）
     """
 
     model_config = ConfigDict(extra="forbid", from_attributes=True)
@@ -766,6 +779,9 @@ class QuestionGroupRead(BaseModel):
     difficulty: QuestionDifficulty
     small_question_count: int = Field(default=0, description="小题数（D3(a) 计数口径）")
     total_points: float = Field(default=0.0, description="题组总分 = 小题之和")
+    knowledge_point_ids: list[int] = Field(
+        default_factory=list, description="题组关联的知识点 id 列表"
+    )
     created_at: datetime
     updated_at: datetime
 

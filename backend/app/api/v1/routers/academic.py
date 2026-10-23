@@ -2000,7 +2000,9 @@ def create_question_group(
 
     校验：
     1. chapter 存在 + 归属当前 user（D-29 单门）→ 404 if mismatch
-    2. 建**空组**（材料/小题后挂）—— D1(a)
+    2. knowledge_point_ids 全部归属当前 user（**复用 _check_knowledge_point_ownership**，
+       归属路径同题：KP → JOIN chapter → chapter.owner_user_id == user_id）
+    3. 建**空组**（材料/小题后挂）—— D1(a)
 
     明确不建的列（brief §1）：title / type / points / content ——
     材料统一走 content_blocks，留 content 会造成双源真相。
@@ -2012,13 +2014,20 @@ def create_question_group(
         )
     _enforce_owner_or_404(chapter, user_id)
 
+    # KP 归属校验（与 POST /questions 同一个函数，不另写一份）
+    kps = _check_knowledge_point_ownership(db, body.knowledge_point_ids, user_id)
+
     group = QuestionGroup(
         owner_user_id=user_id,
         chapter_id=body.chapter_id,
         difficulty=ORMQuestionDifficulty(body.difficulty.value),
     )
+    # 写 group_knowledge_points 关联表（多对多 secondary）
+    # ⚠️ 先 flush 拿 group.id，否则关联行拿不到 group_id（FK）
     db.add(group)
     db.flush()
+    if kps:
+        group.knowledge_points = kps
     db.commit()
     db.refresh(group)
     return group
@@ -2110,6 +2119,8 @@ def update_question_group(
 
     - difficulty：改组难度 ⇒ **同事务**批量同步组内小题（乙-4：组是唯一写入源）
     - blocks：材料块**整体替换**（传则先显式删旧块再重建 —— content_blocks 无 FK）
+    - knowledge_point_ids：知识点关联**整体替换**（传则先清空关联行再按传序重建；
+      **不传 = 不动**；传空列表 = 清空）
 
     同步逻辑抽在 _sync_group_difficulty 一处，与挂小题端点共用。
     """
@@ -2119,6 +2130,17 @@ def update_question_group(
         group.difficulty = ORMQuestionDifficulty(body.difficulty.value)
         db.flush()
         _sync_group_difficulty(db, group)
+
+    if body.knowledge_point_ids is not None:
+        # 归属校验先行（404 不写库）—— 复用题目的同一个函数
+        kps = _check_knowledge_point_ownership(
+            db, body.knowledge_point_ids, user_id
+        )
+        # 整体替换：先清空旧关联，再按传序重建
+        # ⚠️ 走 ORM 的 relationship 赋值（不是 bulk delete）—— 这是多对多关联表
+        #    的正常写法；group_knowledge_points 两列都是 FK CASCADE，无需手动删行
+        group.knowledge_points = kps
+        db.flush()
 
     if body.blocks is not None:
         _replace_group_blocks(db, group, body.blocks)
