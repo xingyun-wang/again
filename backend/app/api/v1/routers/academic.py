@@ -33,7 +33,8 @@ from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func
+from sqlalchemy import delete, func, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import _enforce_owner_or_404  # noqa: F401  # re-export 给 conftest monkeypatch
@@ -48,6 +49,8 @@ from app.api.v1.schemas.academic import (
     ChapterReviewRequest,
     ChapterReviewResponse,
     ChapterSummary,
+    ContentBlockInput,
+    ContentBlockRead,
     KnowledgePointCreate,
     KnowledgePointDetail,
     KPDetail,
@@ -57,6 +60,11 @@ from app.api.v1.schemas.academic import (
     LessonPlanReviewResponse,
     QuestionCreate,
     QuestionDifficulty,
+    QuestionGroupCreate,
+    QuestionGroupDetail,
+    QuestionGroupQuestionCreate,
+    QuestionGroupRead,
+    QuestionGroupUpdate,
     QuestionImageRead,
     QuestionImageSummary,
     QuestionListResponse,
@@ -96,6 +104,8 @@ from app.models import (
 # (QuestionImage/QuestionImageSource/DesensitizationStatus 尚未在 app.models.__init__
 #  re-export，禁动清单锁 __init__，故直导入；不影响既有 import 结构)
 from app.models.academic import (
+    ContentBlock,
+    QuestionGroup,
     QuestionImage,
 )
 from app.models.academic import (
@@ -1872,6 +1882,742 @@ def delete_question_image(
         except OSError as e:  # noqa: BLE001
             logger.warning(
                 "清理已删除 QuestionImage 的磁盘文件失败 %s: %s（孤儿文件）",
+                storage_path,
+                e,
+            )
+
+
+# ═══════════════ M3-1a-2 题组 CRUD + 组侧图片（brief §1 1a-2-2 + 补遗定稿） ═══════════════
+#
+# 依据：plans/M3-1a-2-brief.md (3c0c13e) + 审阅件 P1-1/P1-2 + 补遗与定稿(2026-10-23)
+#
+# 本段 10 个端点：
+#   题组 6 个：POST /question-groups · GET /question-groups ·
+#             GET/PUT/DELETE /question-groups/{id} ·
+#             POST /question-groups/{id}/questions
+#   组图 4 个（补遗 §乙-1，D4(a) 落地必需）：POST/GET /question-groups/{id}/images ·
+#             GET /question-groups/{id}/images/{image_id}/content ·
+#             DELETE /question-groups/{id}/images/{image_id}
+#
+# 关键行为契约：
+# - D1(a) 题组 = 材料 + 全部小题 ⇒ 详情一次返回两者
+# - D2(a) 难度只存组上 ⇒ 小题 difficulty 是**派生缓存**（_sync_group_difficulty 一处实现）
+# - D3(a) 题量按小题数累加 ⇒ small_question_count 就是计数口径
+# - D4(a) 材料图挂组、小题图挂小题 ⇒ question_images 两入口同表
+#
+# 归属校验一律走 D-29 单门（chapter → owner_user_id），跨用户 404 不泄露存在性。
+
+
+# 组侧图片上限：**另立常量不复用** MAX_IMAGES_PER_QUESTION（补遗 §乙-1 明写）
+MAX_IMAGES_PER_GROUP = 10
+
+# 组侧图片落盘路径前缀（补遗 §乙-1）：
+# {UPLOAD_ROOT}/{chapter_id}/group_{group_id}/{image_id}.{ext}
+# **必须带 group_ 前缀** —— {chapter_id}/{numeric_id}/ 与题目目录同形，
+# 会跟 question_id 撞目录（现有模板在 academic.py:1430/1599 拼的是 question_id）
+GROUP_IMAGE_PATH_PREFIX = "group_"
+
+
+def _sync_group_difficulty(db: Session, group: QuestionGroup) -> None:
+    """把题组难度同步到组内小题 difficulty（补遗 §乙-4）。
+
+    **组是唯一写入源** —— 小题的 difficulty 是题组难度的派生缓存。
+    两个调用点（挂小题时 / 改组难度时）共用这一个函数，不写两遍。
+
+    已知限制（补遗 §戊-1）：本笔不提供"移出题组"端点；将来移出后小题保留
+    最后一次同步值，需人工重设。留给 1c-2。
+    """
+    db.execute(
+        update(Question)
+        .where(Question.group_id == group.id)
+        .values(difficulty=group.difficulty)
+    )
+
+
+def _get_group_or_404(db: Session, group_id: int, user_id: int) -> QuestionGroup:
+    """取题组 + 归属校验（D-29 单门：题组自带 owner_user_id）。
+
+    跨用户返 404（不暴露存在性）—— 与 Question/Chapter 同款。
+    """
+    group = db.get(QuestionGroup, group_id)
+    if group is None:
+        raise HTTPException(
+            status_code=404, detail=f"question_group {group_id} 不存在"
+        )
+    if group.owner_user_id != user_id:
+        raise HTTPException(
+            status_code=404, detail=f"question_group {group_id} 不存在"
+        )
+    return group
+
+
+def _replace_group_blocks(
+    db: Session,
+    group: QuestionGroup,
+    blocks: list[ContentBlockInput],
+) -> None:
+    """整体替换题组材料块（brief §1：材料是序列，替换比增量安全）。
+
+    ⚠️ content_blocks **无 FK** ⇒ 必须显式删旧块（补遗 §乙-2）。
+    image 块会被 image_id 的 CASCADE 带走，但 text/table 块没有任何 FK，
+    只能靠这一步显式删 —— 否则旧块残留成孤儿。
+    """
+    db.execute(
+        delete(ContentBlock).where(
+            ContentBlock.owner_type == "group",
+            ContentBlock.owner_id == group.id,
+        )
+    )
+    db.flush()
+    for idx, b in enumerate(blocks):
+        db.add(
+            ContentBlock(
+                owner_type="group",
+                owner_id=group.id,
+                order_index=idx,
+                block_type=b.block_type,
+                text_content=b.text_content,
+                image_id=b.image_id,
+                table_json=b.table_json,
+                meta=b.meta,
+            )
+        )
+
+
+@router.post(
+    "/question-groups",
+    response_model=QuestionGroupRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="创建题组（brief §1 1a-2-2）",
+    tags=["academic"],
+)
+def create_question_group(
+    body: QuestionGroupCreate,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> QuestionGroup:
+    """POST /api/v1/academic/question-groups — 创建题组。
+
+    校验：
+    1. chapter 存在 + 归属当前 user（D-29 单门）→ 404 if mismatch
+    2. 建**空组**（材料/小题后挂）—— D1(a)
+
+    明确不建的列（brief §1）：title / type / points / content ——
+    材料统一走 content_blocks，留 content 会造成双源真相。
+    """
+    chapter = db.get(Chapter, body.chapter_id)
+    if chapter is None:
+        raise HTTPException(
+            status_code=404, detail=f"chapter_id {body.chapter_id} 不存在"
+        )
+    _enforce_owner_or_404(chapter, user_id)
+
+    group = QuestionGroup(
+        owner_user_id=user_id,
+        chapter_id=body.chapter_id,
+        difficulty=ORMQuestionDifficulty(body.difficulty.value),
+    )
+    db.add(group)
+    db.flush()
+    db.commit()
+    db.refresh(group)
+    return group
+
+
+@router.get(
+    "/question-groups",
+    response_model=list[QuestionGroupRead],
+    summary="列出题组（brief §1 1a-2-2）",
+    tags=["academic"],
+)
+def list_question_groups(
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+    chapter_id: Annotated[int | None, Query(description="按章节筛选")] = None,
+    knowledge_point_id: Annotated[
+        int | None, Query(description="按知识点筛选（组挂知识点）")
+    ] = None,
+) -> list[QuestionGroupRead]:
+    """GET /api/v1/academic/question-groups — 列出题组。
+
+    只列当前 user 的题组（D-29）。可选按 chapter_id / knowledge_point_id 筛选。
+    返回含 small_question_count（D3(a) 计数口径）与 total_points。
+    """
+    query = db.query(QuestionGroup).filter(QuestionGroup.owner_user_id == user_id)
+    if chapter_id is not None:
+        query = query.filter(QuestionGroup.chapter_id == chapter_id)
+    if knowledge_point_id is not None:
+        query = query.join(QuestionGroup.knowledge_points).filter(
+            KnowledgePoint.id == knowledge_point_id
+        )
+    groups = query.order_by(QuestionGroup.id.desc()).all()
+    return [QuestionGroupRead.model_validate(g) for g in groups]
+
+
+@router.get(
+    "/question-groups/{group_id}",
+    response_model=QuestionGroupDetail,
+    summary="题组详情（brief §1 1a-2-2 + D1(a)）",
+    tags=["academic"],
+)
+def get_question_group(
+    group_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> QuestionGroupDetail:
+    """GET /api/v1/academic/question-groups/{id} — 题组详情。
+
+    D1(a)：一次返回**材料块 + 全部小题**（blocks 按 order_index，questions 按
+    group_order）。组内小题的 difficulty 是组难度的派生缓存（乙-4）。
+    """
+    group = _get_group_or_404(db, group_id, user_id)
+
+    blocks = (
+        db.query(ContentBlock)
+        .filter(
+            ContentBlock.owner_type == "group",
+            ContentBlock.owner_id == group.id,
+        )
+        .order_by(ContentBlock.order_index.asc())
+        .all()
+    )
+    questions = (
+        db.query(Question)
+        .filter(Question.group_id == group.id)
+        .order_by(Question.group_order.asc())
+        .all()
+    )
+    return QuestionGroupDetail(
+        **QuestionGroupRead.model_validate(group).model_dump(),
+        blocks=[ContentBlockRead.model_validate(b) for b in blocks],
+        questions=[QuestionRead.model_validate(q) for q in questions],
+    )
+
+
+@router.put(
+    "/question-groups/{group_id}",
+    response_model=QuestionGroupDetail,
+    summary="更新题组（brief §1 1a-2-2 + 乙-4 难度派生）",
+    tags=["academic"],
+)
+def update_question_group(
+    group_id: int,
+    body: QuestionGroupUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> QuestionGroupDetail:
+    """PUT /api/v1/academic/question-groups/{id} — 更新题组。
+
+    - difficulty：改组难度 ⇒ **同事务**批量同步组内小题（乙-4：组是唯一写入源）
+    - blocks：材料块**整体替换**（传则先显式删旧块再重建 —— content_blocks 无 FK）
+
+    同步逻辑抽在 _sync_group_difficulty 一处，与挂小题端点共用。
+    """
+    group = _get_group_or_404(db, group_id, user_id)
+
+    if body.difficulty is not None:
+        group.difficulty = ORMQuestionDifficulty(body.difficulty.value)
+        db.flush()
+        _sync_group_difficulty(db, group)
+
+    if body.blocks is not None:
+        _replace_group_blocks(db, group, body.blocks)
+
+    db.commit()
+    db.refresh(group)
+    return get_question_group(group_id, db, user_id)
+
+
+@router.delete(
+    "/question-groups/{group_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="删除题组（brief §1 1a-2-2 + 乙-2 显式删块 + 星云拍板二次确认）",
+    tags=["academic"],
+)
+def delete_question_group(
+    group_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+    force: Annotated[
+        bool,
+        Query(
+            description=(
+                "确认删除（题组含 N 道真小题 + 材料图 + 材料块，破坏面大，"
+                "无 force 时返 409 + 计数）"
+            )
+        ),
+    ] = False,
+) -> None:
+    """DELETE /api/v1/academic/question-groups/{id} — 删除题组。
+
+    🔴 **二次确认**（星云 2026-10-23 拍板，同 10-21 缺陷 C 口径）：
+    题组含真小题 + 材料图 + 材料块，破坏面比删单图更大 ⇒ 无 `?force=true`
+    时返 **409 + 三个计数**。
+
+    🔴 **计数只写进 message**（补遗 §乙-2 硬要求）：
+    `core/errors.py:121-124` 在 dev 模式会把 `details` **整个替换**成
+    `{"status_code":...}`，生产模式直接 `None` ⇒ 业务信息只能进 detail 字符串。
+
+    🔴 **显式删块**（补遗 §乙-2）：
+    content_blocks 无 FK ⇒ DB 层不会级联。不显式删 ⇒ text/table 块留成孤儿，
+    而 image 块会被 image_id CASCADE 带走 ⇒ "3 块删 1 块留 2 块"的假级联。
+    步骤：数三个数 → 409 守卫 → 显式删块 → 删组（FK CASCADE 带走小题/组图/
+    组知识点）→ commit → best-effort unlink 磁盘文件。
+    """
+    group = _get_group_or_404(db, group_id, user_id)
+
+    # 1. 数三个数（判据 13 要求分三条 SQL 报，不许合并成一个）
+    n_q = (
+        db.query(func.count())
+        .select_from(Question)
+        .filter(Question.group_id == group.id)
+        .scalar()
+        or 0
+    )
+    n_img = (
+        db.query(func.count())
+        .select_from(QuestionImage)
+        .filter(QuestionImage.group_id == group.id)
+        .scalar()
+        or 0
+    )
+    n_blk = (
+        db.query(func.count())
+        .select_from(ContentBlock)
+        .filter(
+            ContentBlock.owner_type == "group",
+            ContentBlock.owner_id == group.id,
+        )
+        .scalar()
+        or 0
+    )
+
+    # 2. 二次确认守卫（无 force 且非空 ⇒ 409）
+    if not force and (n_q + n_img + n_blk) > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"题组含 {n_q} 道小题、{n_img} 张材料图、{n_blk} 个材料块；"
+                "确认删除请加 ?force=true"
+            ),
+        )
+
+    # 3. 记录 storage_path 供后面 unlink（DB 已 commit 后才删文件）
+    storage_paths = [
+        row.storage_path
+        for row in db.query(QuestionImage)
+        .filter(QuestionImage.group_id == group.id)
+        .all()
+        if row.storage_path
+    ]
+
+    # 4. 显式删块（无 FK，只能靠应用层）
+    db.execute(
+        delete(ContentBlock).where(
+            ContentBlock.owner_type == "group",
+            ContentBlock.owner_id == group.id,
+        )
+    )
+    db.flush()
+
+    # 5. 删组 ⇒ DB 的 ON DELETE CASCADE 带走 questions / question_images /
+    #    group_knowledge_points
+    #
+    # 🔴 这里用 **bulk delete**（db.execute(delete(...))）而不是 db.delete(group)，
+    # 也不是补遗 §乙-2 步骤 6 的原文写法 —— 因为原文写法在 ORM 层**不成立**：
+    # QuestionImage 有**两个**父关系（question / group），而 Question.images 侧是
+    # delete-orphan ⇒ 父删时 ORM 会先把子行的 group_id 置 NULL（想置空再删），
+    # 而 XOR CHECK 要求两者恰好一个非空 ⇒ UPDATE group_id=NULL 直接撞约束报错。
+    # 实测报错（SQLite + PG 同因）：
+    #   UPDATE question_images SET group_id=NULL WHERE id=?
+    #   → ck_question_images_owner_not_null 违反
+    # passive_deletes=True 在这里救不了：QuestionGroup.images 是 lazy="selectin"
+    # ⇒ 集合**已被加载** ⇒ ORM 仍会做 de-associate（置空 FK）。
+    #
+    # bulk delete 彻底绕开 ORM 级联：只删 question_groups 一行，DB 的
+    # ON DELETE CASCADE 按 FK 定义带走三张子表 ⇒ 与丙-2「删除一律交给 DB
+    # 的 ON DELETE CASCADE」的原意一致，且不会产生任何子行 UPDATE。
+    # 产物语义与 db.delete(group) 相同（组没了、子行全没了）。
+    db.execute(
+        delete(QuestionGroup).where(QuestionGroup.id == group.id)
+    )
+    db.commit()
+
+    # 6. best-effort unlink 磁盘文件（DB 已 commit；删失败只 log，不抛 500）
+    for storage_path in storage_paths:
+        try:
+            Path(storage_path).unlink(missing_ok=True)
+        except OSError as e:  # noqa: BLE001
+            logger.warning(
+                "清理已删除题组材料图的磁盘文件失败 %s: %s（孤儿文件）",
+                storage_path,
+                e,
+            )
+
+
+@router.post(
+    "/question-groups/{group_id}/questions",
+    response_model=QuestionRead,
+    summary="挂小题到题组（brief §1 1a-2-2 + 丙-3 校验顺序 + 乙-4 难度派生）",
+    tags=["academic"],
+)
+def attach_question_to_group(
+    group_id: int,
+    body: QuestionGroupQuestionCreate,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> Question:
+    """POST /api/v1/academic/question-groups/{id}/questions — 挂小题。
+
+    校验顺序（丙-3，**不得调换**）：
+    1. group → 404 / owner 404
+    2. question → 404 / owner 404
+    3. question.chapter_id != group.chapter_id ⇒ 409「不在同一章节」
+    4. question.group_id is not None ⇒ 409（已在本组也走这里，message 区分）
+    5. UNIQUE(group_id, group_order) 命中 ⇒ 409「题序已被占用」
+    6. 写入三字段（group_id / group_order / difficulty）—— difficulty 由组派生（乙-4）
+    """
+    # 1. group
+    group = _get_group_or_404(db, group_id, user_id)
+
+    # 2. question
+    question = db.get(Question, body.question_id)
+    if question is None:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {body.question_id} 不存在"
+        )
+    if question.owner_user_id != user_id:
+        raise HTTPException(
+            status_code=404, detail=f"question_id {body.question_id} 不存在"
+        )
+
+    # 3. 同章节守卫
+    if question.chapter_id != group.chapter_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"小题与题组不在同一章节"
+                f"（小题 chapter_id={question.chapter_id}，"
+                f"题组 chapter_id={group.chapter_id}）"
+            ),
+        )
+
+    # 4. 一题只能挂一组
+    if question.group_id is not None:
+        same = question.group_id == group.id
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"小题已在{'本' if same else '其他'}题组内"
+                f"（group_id={question.group_id}）"
+            ),
+        )
+
+    # 5. 题序唯一（走 DB 唯一约束，不是靠先查后插 —— 丙-3）
+    question.group_id = group.id
+    question.group_order = body.group_order
+    try:
+        db.flush()
+    except IntegrityError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=409, detail="题序已被占用（group_id + group_order 唯一）"
+        ) from e
+
+    # 6. 难度派生（组是唯一写入源）—— 与改组难度共用 _sync_group_difficulty
+    _sync_group_difficulty(db, group)
+
+    db.commit()
+    db.refresh(question)
+    return question
+
+
+# ────────────── 组侧图片 4 端点（补遗 §乙-1；D4(a) 落地必需） ──────────────
+#
+# 不加这 4 个端点 ⇒ "材料图挂组"只能靠测试插库造数据，DoD 6 会绿但产品上
+# 没人能把材料图传上去（审阅件 P1-1）。
+
+
+@router.post(
+    "/question-groups/{group_id}/images",
+    response_model=QuestionImageRead,
+    summary="上传题组材料图（补遗 §乙-1）",
+    tags=["academic"],
+)
+def upload_group_image(
+    group_id: int,
+    file: Annotated[UploadFile, File(description="材料图二进制（image/png|jpeg|webp）")],
+    file_ext: Annotated[
+        str, Form(description="文件扩展名（png/jpg/jpeg/webp；svg 不收）")
+    ],
+    order_index: Annotated[
+        int, Form(ge=0, description="排序（与 Choice.order_index 同款）")
+    ] = 0,
+    source: Annotated[
+        str, Form(description="图片来源（self_built/external_imported）")
+    ] = "self_built",
+    db: Annotated[Session, Depends(get_db)] = ...,  # type: ignore[assignment]
+    user_id: Annotated[int, Depends(get_current_user_id)] = ...,  # type: ignore[assignment]
+) -> QuestionImage:
+    """POST /api/v1/academic/question-groups/{id}/images — 上传题组材料图。
+
+    校验顺序（与 upload_question_image 同款，但 owner 走题组）：
+    1. group 存在 + 归属当前 user → 404
+    2. file_ext ∈ {png, jpg, jpeg, webp} → 422
+    3. MIME ∈ {image/png, image/jpeg, image/webp} → 422
+    4. source ∈ {self_built, external_imported} → 422
+    5. 单组 ≤ 10 张图 → 422
+    6. 文件 ≤ 5MB → 413
+
+    落盘路径（补遗 §乙-1）：
+    ``${UPLOAD_ROOT}/{chapter_id}/group_{group_id}/{image_id}.{ext}``
+    **必须带 group_ 前缀** —— {chapter_id}/{numeric_id}/ 与题目目录同形，
+    会跟 question_id 撞目录。
+
+    D4(a)：材料图**只挂组**（question_id 留 NULL，group_id 有值）——
+    question_images 的 CHECK 保证两者互斥。
+    """
+    group = _get_group_or_404(db, group_id, user_id)
+
+    file_ext_lower = file_ext.lower()
+    if file_ext_lower not in _ALLOWED_FILE_EXTS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"file_ext {file_ext!r} 不支持"
+                f"（仅 png/jpg/jpeg/webp；svg 不收）"
+            ),
+        )
+
+    if (
+        file.content_type is not None
+        and file.content_type not in _ALLOWED_CONTENT_TYPES
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"MIME {file.content_type!r} 不支持"
+                f"（仅 image/png|jpeg|webp）"
+            ),
+        )
+
+    if source not in ("self_built", "external_imported"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"source {source!r} 不支持（self_built/external_imported）",
+        )
+
+    if len(group.images) >= MAX_IMAGES_PER_GROUP:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"question_group {group_id} 已达 {MAX_IMAGES_PER_GROUP} 张图上限"
+            ),
+        )
+
+    # D4(a)：材料图 question_id 留 NULL、group_id 有值（XOR CHECK 保证互斥）
+    image = QuestionImage(
+        question_id=None,
+        group_id=group.id,
+        order_index=order_index,
+        file_ext=file_ext_lower,
+        storage_path="",
+        source=ORMQuestionImageSource(source),
+        uploaded_by_user_id=user_id,
+    )
+    db.add(image)
+    try:
+        db.flush()
+    except Exception as e:
+        db.rollback()
+        logger.exception(
+            "QuestionImage INSERT flush failed: group_id=%s", group_id
+        )
+        raise HTTPException(
+            status_code=500, detail=f"DB write failed: {e}"
+        ) from e
+
+    # 落盘路径：{UPLOAD_ROOT}/{chapter_id}/group_{group_id}/{image_id}.{ext}
+    uploads_root = os.environ.get("UPLOAD_ROOT", DEFAULT_UPLOADS_DIR)
+    storage_path = (
+        f"{uploads_root}/{group.chapter_id}/"
+        f"{GROUP_IMAGE_PATH_PREFIX}{group.id}/{image.id}.{file_ext_lower}"
+    )
+    image.storage_path = storage_path
+
+    target_path = Path(storage_path)
+    try:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"创建目录失败 {target_path.parent}: {e}"
+        ) from e
+
+    bytes_written = 0
+    try:
+        with open(target_path, "wb") as f:
+            while True:
+                chunk = file.file.read(8192)
+                if not chunk:
+                    break
+                bytes_written += len(chunk)
+                if bytes_written > MAX_QUESTION_IMAGE_BYTES:
+                    raise UploadTooLargeError(
+                        f"文件超出 {MAX_QUESTION_IMAGE_BYTES // (1024 * 1024)} MB 上限"
+                    )
+                f.write(chunk)
+    except UploadTooLargeError as e:
+        with contextlib.suppress(OSError):
+            target_path.unlink(missing_ok=True)
+        db.rollback()
+        raise HTTPException(status_code=413, detail=str(e)) from e
+    except OSError as e:
+        with contextlib.suppress(OSError):
+            target_path.unlink(missing_ok=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"文件写入失败 {target_path}: {e}"
+        ) from e
+
+    try:
+        db.commit()
+        db.refresh(image)
+    except Exception as e:
+        with contextlib.suppress(OSError):
+            target_path.unlink(missing_ok=True)
+        db.rollback()
+        logger.exception(
+            "QuestionImage commit failed: image_id=%s", image.id
+        )
+        raise HTTPException(status_code=500, detail=f"DB write failed: {e}") from e
+
+    return image
+
+
+@router.get(
+    "/question-groups/{group_id}/images",
+    response_model=list[QuestionImageSummary],
+    summary="列出题组材料图（补遗 §乙-1）",
+    tags=["academic"],
+)
+def list_group_images(
+    group_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> list[QuestionImageSummary]:
+    """GET /api/v1/academic/question-groups/{id}/images — 列出材料图。
+
+    鉴权同 _get_group_or_404。**空列表返回 []（不 404）**。
+    排序：order_index 升序，同序按 id 升序。
+    """
+    group = _get_group_or_404(db, group_id, user_id)
+    rows = (
+        db.query(QuestionImage)
+        .filter(QuestionImage.group_id == group.id)
+        .order_by(QuestionImage.order_index.asc(), QuestionImage.id.asc())
+        .all()
+    )
+    return [QuestionImageSummary.model_validate(r) for r in rows]
+
+
+@router.get(
+    "/question-groups/{group_id}/images/{image_id}/content",
+    summary="题组材料图字节（补遗 §乙-1）",
+    tags=["academic"],
+)
+def get_group_image_content(
+    group_id: int,
+    image_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> FileResponse:
+    """GET /api/v1/academic/question-groups/{id}/images/{image_id}/content — 图片字节。
+
+    校验顺序：
+    1. group 不存在 / 非本人 → 404
+    2. image 不存在 / 不属该组 → 404
+    3. 磁盘文件缺失 → **500**（磁盘与 DB 不一致 = 运维事件，打日志，不是 404）
+    """
+    group = _get_group_or_404(db, group_id, user_id)
+
+    image = db.get(QuestionImage, image_id)
+    if image is None:
+        raise HTTPException(
+            status_code=404, detail=f"image_id {image_id} 不存在"
+        )
+    if image.group_id != group.id:
+        raise HTTPException(
+            status_code=404, detail=f"image_id {image_id} 不存在"
+        )
+
+    path = Path(image.storage_path)
+    if not path.is_file():
+        logger.error(
+            "组材料图文件缺失 group_id=%s image_id=%s storage_path=%s",
+            group_id,
+            image_id,
+            image.storage_path,
+        )
+        raise HTTPException(
+            status_code=500, detail="图片文件缺失（磁盘与数据库不一致）"
+        )
+
+    media_type = _IMAGE_CONTENT_TYPES.get(
+        image.file_ext.lower(), "application/octet-stream"
+    )
+    return FileResponse(path, media_type=media_type)
+
+
+@router.delete(
+    "/question-groups/{group_id}/images/{image_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="删除题组材料图（补遗 §乙-1）",
+    tags=["academic"],
+)
+def delete_group_image(
+    group_id: int,
+    image_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> None:
+    """DELETE /api/v1/academic/question-groups/{id}/images/{image_id} — 删材料图。
+
+    删行 + unlink 磁盘文件（照 delete_question_image:1820 —— 它已经 unlink，
+    **别照 delete_question**，那个只删行不删文件）。
+
+    ⚠️ 被 image 块引用时：content_blocks.image_id FK CASCADE 会带走该块 ——
+    这是正确的（块没了图就没意义了）。
+    """
+    group = _get_group_or_404(db, group_id, user_id)
+
+    image = db.get(QuestionImage, image_id)
+    if image is None:
+        raise HTTPException(
+            status_code=404, detail=f"image_id {image_id} 不存在"
+        )
+    if image.group_id != group.id:
+        raise HTTPException(
+            status_code=404, detail=f"image_id {image_id} 不存在"
+        )
+
+    storage_path = image.storage_path
+    db.delete(image)
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.exception(
+            "QuestionImage DELETE commit failed: image_id=%s", image_id
+        )
+        raise HTTPException(status_code=500, detail=f"DB write failed: {e}") from e
+
+    if storage_path:
+        try:
+            Path(storage_path).unlink(missing_ok=True)
+        except OSError as e:  # noqa: BLE001
+            logger.warning(
+                "清理已删除组材料图的磁盘文件失败 %s: %s（孤儿文件）",
                 storage_path,
                 e,
             )

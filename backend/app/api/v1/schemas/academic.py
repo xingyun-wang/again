@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -655,3 +655,141 @@ class QuestionImageSummary(BaseModel):
     order_index: int
     file_ext: str
     uploaded_at: datetime
+
+# ─────────────────── M3-1a-2 题组模型 + 块表（brief + 补遗定稿 2026-10-23） ───────────────────
+#
+# 范围（brief §1 1a-2-2 + 补遗 §乙）：
+# - 题组 CRUD 6 端点 + 组侧图片 4 端点（补遗 §乙-1 的 4 个是 D4(a) 落地必需）
+# - schema：题组建/读/详情 + 块读写 + 挂小题请求
+#
+# 关键定稿口径：
+# - 乙-4：难度**只存组上**，小题 difficulty 是派生缓存（schema 层不额外暴露同步语义，
+#   同步逻辑在 router 的 _sync_group_difficulty 一处，两个调用点）
+# - 丙-1：block_type / owner_type 用 **String(16)** 不建 native enum；
+#   取值白名单放 Pydantic Literal 层 + models 模块常量（应用层拒绝、DB 允许脏值）
+# - 丙-3：挂小题的 group_order 与 group_id 组成唯一约束
+
+
+# 丙-1：块类型白名单。**刻意不加 formula / audio** —— 那是"以后加"的情形，
+# 不写进 Literal 才能体现"加块类型不改表"。真要用时再加 + 改 DB 无需迁移。
+ContentBlockTypeLiteral = Literal["text", "image", "table"]
+
+# 丙-1：块归属类型。'question' 预留（题干将来也能图文混排，1a-2 不做 UI/接口）
+ContentBlockOwnerTypeLiteral = Literal["group", "question"]
+
+
+class QuestionGroupCreate(BaseModel):
+    """POST /question-groups 请求 body。
+
+    字段：
+    - chapter_id：题组所属章节（建组时校验归属当前 user，D-29 单门）
+    - difficulty：题组难度（D2(a) 难度只存组上，小题继承）
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    chapter_id: int = Field(..., description="题组所属章节 id")
+    difficulty: QuestionDifficulty = Field(
+        ..., description="题组难度（D2(a)：难度只存组上，小题继承）"
+    )
+
+
+class ContentBlockInput(BaseModel):
+    """单个材料块（写入用）。
+
+    - block_type：text / image / table（丙-1 白名单，DB 侧不校验）
+    - text_content：text 块正文
+    - image_id：image 块引用的 question_images.id（只引用不存文件）
+    - table_json：table 块结构（{"header":true,"rows":[[...]]}）
+    - meta：图片宽度等扩展位（乙-3：{"image_width":50|75|100} / {"col_widths":[...]}）
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    block_type: ContentBlockTypeLiteral = Field(..., description="块类型")
+    text_content: str | None = Field(default=None, description="text 块正文")
+    image_id: int | None = Field(default=None, description="image 块引用的图片 id")
+    table_json: dict[str, Any] | None = Field(default=None, description="table 块结构")
+    meta: dict[str, Any] | None = Field(
+        default=None, description="扩展位（图片宽度 50/75/100 等）"
+    )
+
+
+class ContentBlockRead(BaseModel):
+    """材料块读取（响应）。
+
+    - id / block_type / order_index / text_content / image_id / table_json
+    """
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    id: int
+    block_type: str
+    order_index: int
+    text_content: str | None = None
+    image_id: int | None = None
+    table_json: dict[str, Any] | None = None
+    meta: dict[str, Any] | None = None
+
+
+class QuestionGroupUpdate(BaseModel):
+    """PUT /question-groups/{id} 请求 body。
+
+    - difficulty：改组难度 ⇒ **同事务**批量同步组内小题（乙-4）
+    - blocks：材料块序列**整体替换**（brief §1：材料是序列，替换比增量安全）
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    difficulty: QuestionDifficulty | None = Field(
+        default=None, description="题组难度；改动会同步组内小题 difficulty（乙-4）"
+    )
+    blocks: list[ContentBlockInput] | None = Field(
+        default=None,
+        description="材料块序列（整体替换；传则先清空原块再按 order_index 重建）",
+    )
+
+
+class QuestionGroupRead(BaseModel):
+    """GET /question-groups 列表项（也用于 POST 返回）。
+
+    - id / owner_user_id / chapter_id / difficulty
+    - small_question_count：小题数（D3(a) 题量按小题数累加 —— 这就是计数口径）
+    - total_points：题组总分 = 小题 points 之和（材料不计分）
+    """
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    id: int
+    owner_user_id: int
+    chapter_id: int
+    difficulty: QuestionDifficulty
+    small_question_count: int = Field(default=0, description="小题数（D3(a) 计数口径）")
+    total_points: float = Field(default=0.0, description="题组总分 = 小题之和")
+    created_at: datetime
+    updated_at: datetime
+
+
+class QuestionGroupDetail(QuestionGroupRead):
+    """GET /question-groups/{id} 详情。
+
+    D1(a)：详情一次返回材料 + 全部小题。
+    - blocks：材料块（按 order_index 升序）
+    - questions：组内小题（按 group_order 升序）
+    """
+
+    blocks: list[ContentBlockRead] = Field(default_factory=list)
+    questions: list[QuestionRead] = Field(default_factory=list)
+
+
+class QuestionGroupQuestionCreate(BaseModel):
+    """POST /question-groups/{id}/questions 请求 body（挂小题）。
+
+    - question_id：要挂的小题
+    - group_order：题组内题序（0 起；与 group_id 组成唯一约束，丙-3）
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: int = Field(..., description="要挂入的小题 id")
+    group_order: int = Field(..., ge=0, description="题组内题序（0 起）")
