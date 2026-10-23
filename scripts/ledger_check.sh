@@ -271,18 +271,31 @@ fi
 # 2. dev 库 user tables count ≥ 19（alembic_version 排除）
 # 3. dev 库 enums count ≥ 7（含 question_image_source + desensitization）
 # 任一不一致 = ❌ 失败即拒收工 + 触发 §治理.17 流程
-echo "[11/11] dev 库 DB 一致性（alembic head + user_tables ≥ 19 + enums ≥ 7）..."
+echo "[11/11] dev 库 DB 一致性（alembic head 动态比对 + user_tables ≥ 19 + enums ≥ 7）..."
 CHECK11_FAIL=0
 
-# 1. alembic current 期望 0011_question_images (head)
+# 1. alembic current 期望 == 仓库里唯一的 head（动态比对，不写死版本号）
+#    2026-10-23 改（星云「ledger_check 第 11 项 —— 现在改」）：
+#    旧写法 grep -qF "0011_question_images" 写死了一个版本号，每加一笔迁移就红一次
+#    （0012 落地后红、0013 落地后又红）⇒ 改为跟仓库真实 head 比。
+#    核源方式：alembic heads 走的是 revision 图（down_revision 链），比按文件名排序更准。
 ALEMBIC_HEAD=$(docker exec thp-backend bash -c "alembic current 2>/dev/null | tail -1" 2>/dev/null)
+ALEMBIC_EXPECTED=$(docker exec thp-backend bash -c "alembic heads 2>/dev/null | tail -1" 2>/dev/null)
+# 两边都只取首个字段（版本号本身），后面的 "(head)" / "(head)" 描述性后缀不比
+ALEMBIC_HEAD_ID=$(echo "$ALEMBIC_HEAD" | awk '{print $1}')
+ALEMBIC_EXPECTED_ID=$(echo "$ALEMBIC_EXPECTED" | awk '{print $1}')
 if [ -z "$ALEMBIC_HEAD" ]; then
   echo "  ❌ FAIL: 容器 thp-backend 不可达 或 alembic current 返回空（dev 库未联）"
   CHECK11_FAIL=1
-elif ! echo "$ALEMBIC_HEAD" | grep -qF "0011_question_images"; then
-  echo "  ❌ FAIL: alembic head 不匹配（期望包含 '0011_question_images'；实际 '$ALEMBIC_HEAD'）"
-  echo "  修法: cd backend && alembic upgrade head （应 0011 (head) 已 verified）"
+elif [ -z "$ALEMBIC_EXPECTED_ID" ]; then
+  echo "  ❌ FAIL: alembic heads 返回空（仓库迁移图不可读）"
   CHECK11_FAIL=1
+elif [ "$ALEMBIC_HEAD_ID" != "$ALEMBIC_EXPECTED_ID" ]; then
+  echo "  ❌ FAIL: alembic head 不匹配（仓库 head='$ALEMBIC_EXPECTED_ID'；dev 库实际='$ALEMBIC_HEAD_ID'）"
+  echo "  修法: cd backend && alembic upgrade head （应到 $ALEMBIC_EXPECTED_ID）"
+  CHECK11_FAIL=1
+else
+  echo "  ✅ alembic head 动态比对通过（仓库 == dev 库 == $ALEMBIC_HEAD_ID）"
 fi
 
 # 2. user tables count ≥ 19 + 3. enums count ≥ 7（仅在 alembic head 匹配后才查，避免重复报）
