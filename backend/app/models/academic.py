@@ -20,9 +20,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from sqlalchemy import (
+    JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -37,6 +40,7 @@ from sqlalchemy import (
 )
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy import false as SAFalse
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -809,6 +813,18 @@ class Question(Base):
         server_default="2.0",
     )
     answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # M3-1a-2（brief §1 改表 4 + 补遗 §丙-2）：
+    # - group_id FK → question_groups.id CASCADE NULL index
+    #   NULL = 单题（现有题全部保持 NULL ⇒ 行为零变化，判据 9）
+    # - group_order 题组内题序（0 起）；NULL = 不在题组内
+    # - 唯一写入源是题组：小题的 difficulty 是**组难度的派生缓存**（补遗 §乙-4），
+    #   挂小题时由 API 层同步写入，改组难度时批量更新 —— 本 model 不自动同步。
+    group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("question_groups.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    group_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
     knowledge_points: Mapped[list[KnowledgePoint]] = relationship(
         KnowledgePoint,
         secondary="question_knowledge_points",
@@ -844,6 +860,12 @@ class Question(Base):
 
     chapter: Mapped[Chapter] = relationship("Chapter", back_populates="questions")
     owner: Mapped[User] = relationship("User", lazy="selectin")
+    # M3-1a-2：反向到题组。注意**不写 delete-orphan**（补遗 §丙-2）：
+    # group_id 可空 + delete-orphan ⇒ "把小题移出题组"会被 ORM **删题**而不是置
+    # NULL。删除一律交给 DB 的 ON DELETE CASCADE + passive_deletes=True。
+    group: Mapped[QuestionGroup | None] = relationship(
+        "QuestionGroup", back_populates="questions"
+    )
 
     @property
     def knowledge_point_ids(self) -> list[int]:
@@ -880,6 +902,11 @@ class Question(Base):
             "owner_user_id",
             "chapter_id",
             "difficulty",
+        ),
+        # M3-1a-2 补遗 §丙-3：题序唯一。PG 对 NULL 不做唯一判定 ⇒
+        # 多行 group_id IS NULL 互不冲突，单题不受影响。
+        UniqueConstraint(
+            "group_id", "group_order", name="uq_questions_group_order"
         ),
     )
 
@@ -988,9 +1015,18 @@ class QuestionImage(Base):
     __tablename__ = "question_images"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    question_id: Mapped[int] = mapped_column(
+    # M3-1a-2（brief §1 改表 5 + 补遗 §乙-1）：D4(a) 两入口同一张表。
+    # - question_id 改可空：材料图挂题组时为 NULL
+    # - group_id 新增：小题图为 NULL
+    # - CHECK 防孤儿图（两者都 NULL 的行无处可挂）
+    question_id: Mapped[int | None] = mapped_column(
         ForeignKey("questions.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+    group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("question_groups.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
     )
     order_index: Mapped[int] = mapped_column(
@@ -1039,7 +1075,13 @@ class QuestionImage(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    question: Mapped[Question] = relationship("Question", back_populates="images")
+    question: Mapped[Question | None] = relationship(
+        "Question", back_populates="images"
+    )
+    # M3-1a-2：材料图的归属（挂组时 question=None）
+    group: Mapped[QuestionGroup | None] = relationship(
+        "QuestionGroup", back_populates="images"
+    )
 
     __table_args__ = (
         # 渲染按 (question_id, order_index) 排；同 Choice 模式
@@ -1047,5 +1089,236 @@ class QuestionImage(Base):
             "ix_question_images_question_order",
             "question_id",
             "order_index",
+        ),
+        # 防孤儿图（补遗 §乙-1 / brief §1 改表 5）
+        # D4(a) 要的是**互斥**不是"至少一个非空"（星轨 P2 2026-10-23）：
+        # (question_id IS NULL) <> (group_id IS NULL)
+        # - 两者都 NULL = 孤儿图，拒绝
+        # - 两者都有值 = 同一张图既算小题图又算材料图 ⇒ 渲染两次 + 删题连带删材料图，拒绝
+        # 旧写法 OR 只挡住前者。
+        CheckConstraint(
+            "(question_id IS NULL) <> (group_id IS NULL)",
+            name="ck_question_images_owner_not_null",
+        ),
+    )
+
+# ──────────────────── M3-1a-2 题组模型（brief §1 + 补遗与定稿 2026-10-23） ────────────────────
+#
+# 题组 = 材料 + 全部小题的容器（星轨 08:14 §三）。
+#
+# 为什么不用 questions 自引用（brief §0.8）：
+# 材料不是题 —— 没有题型、没有答案，不该进"题目列表 / 题量统计"。
+# 自引用会让每处查询都得记得排除"假题"，迟早漏。
+#
+# 明确不建的列（brief §1，防止实现时"顺手加"）：
+# ❌ title  —— 模型方案未列；材料在块里，列表页显示「题组（N 小题）」+ 首块摘要
+# ❌ type   —— 题组内允许混合题型，题组本身不设题型
+# ❌ points —— 分值按小题各自设，题组总分 = 小题之和，材料不计分
+# ❌ content—— 材料统一走 content_blocks 块序列，留 content 会双源真相
+
+
+# 块类型取值白名单（补遗 §丙-1：DB 用 String(16) 不建 enum 类型，
+# 取值校验放这里 + Pydantic Literal）。
+# 刻意**不建 PG native enum**：加块类型要 ALTER TYPE，而 0002 的 CREATE TYPE
+# 非幂等就是现成的坑（MEMORY §3）；且《材料结构方案》§二的立论就是
+# "以后加公式块/音频块不改表"。DB 允许脏值、应用层拒绝 —— 有意的取舍。
+OWNER_TYPE_GROUP = "group"
+OWNER_TYPE_QUESTION = "question"  # 预留：题干将来也能图文混排（1a-2 不做 UI）
+
+BLOCK_TYPE_TEXT = "text"
+BLOCK_TYPE_IMAGE = "image"
+BLOCK_TYPE_TABLE = "table"
+# 注意：BLOCK_TYPE_FORMULA / _AUDIO **不列** —— 它们是"以后加"的情形，
+# 不写进常量才能体现"加块类型不改表"。真要用时再加常量 + Pydantic Literal。
+
+# 题组-知识点多对多关联表：照抄 question_knowledge_points 结构（brief §0.5）。
+# KnowledgePoint 自身无 owner_user_id（KP 归属 = chapter.owner_user_id），
+# 关联表本身无业务归属字段。
+group_knowledge_points = Table(
+    "group_knowledge_points",
+    Base.metadata,
+    Column(
+        "group_id",
+        Integer,
+        ForeignKey("question_groups.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "knowledge_point_id",
+        Integer,
+        ForeignKey("knowledge_points.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+
+class QuestionGroup(Base):
+    """题组（材料 + 全部小题；D1(a) 详情一次返回两者）。
+
+    归属（D-29 题库属教师个人资产）：owner_user_id FK → users.id RESTRICT，
+    与 Question 同款。chapter_id FK → chapters.id CASCADE。
+
+    难度（D2(a) / 补遗 §乙-4）：**难度只存组上**。小题的 difficulty 列是
+    **组难度的派生缓存**，唯一写入源 = 本表的 difficulty。挂小题时 API 层写
+    三字段（group_id / group_order / difficulty），改组难度时同事务批量更新。
+    本 model 不自动同步 —— 同步逻辑抽在 API 层 _sync_group_difficulty 一处，
+    两个调用点，不写两遍。
+
+    已知限制（补遗 §戊-1）：本笔不提供"移出题组"端点。将来移出后小题保留
+    最后一次同步的 difficulty，需人工重设。留给 1c-2。
+    """
+
+    __tablename__ = "question_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    owner_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    chapter_id: Mapped[int] = mapped_column(
+        ForeignKey("chapters.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    difficulty: Mapped[QuestionDifficulty] = mapped_column(
+        SAEnum(
+            QuestionDifficulty,
+            name="question_difficulty_enum",
+            native_enum=True,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    # 🔴 绝不能写 cascade="delete-orphan"（补遗 §丙-2）：
+    # group_id 可空 + delete-orphan ⇒ "把小题移出题组"会被 ORM **删题**。
+    # 删除一律交给 DB 的 ON DELETE CASCADE（passive_deletes=True）。
+    questions: Mapped[list[Question]] = relationship(
+        back_populates="group",
+        cascade="save-update, merge",
+        passive_deletes=True,
+        lazy="selectin",
+        order_by="Question.group_order",
+    )
+    images: Mapped[list[QuestionImage]] = relationship(
+        back_populates="group",
+        cascade="save-update, merge",
+        passive_deletes=True,
+        lazy="selectin",
+        order_by="QuestionImage.order_index",
+    )
+    knowledge_points: Mapped[list[KnowledgePoint]] = relationship(
+        KnowledgePoint,
+        secondary="group_knowledge_points",
+        lazy="selectin",
+    )
+    chapter: Mapped[Chapter] = relationship("Chapter")
+    owner: Mapped[User] = relationship("User", lazy="selectin")
+
+    @property
+    def small_question_count(self) -> int:
+        """小题数（D3(a) 题量按小题数累加 —— 这就是计数口径）。"""
+        return len(self.questions)
+
+    @property
+    def total_points(self) -> float:
+        """题组总分 = 小题 points 之和（材料不计分）。"""
+        return float(sum(q.points or 0 for q in self.questions))
+
+    @property
+    def knowledge_point_ids(self) -> list[int]:
+        return [kp.id for kp in self.knowledge_points]
+
+
+class ContentBlock(Base):
+    """材料块序列（块模型；MVP 只用 group，question 预留）。
+
+    ⚠️ **owner_type / owner_id 是多态裸列，不建 FK**（补遗 §乙-2）。
+    这意味着 DB 层没有任何东西把块绑到题组上：
+    - questions.group_id FK CASCADE ✅ 会删小题
+    - question_images.group_id FK CASCADE ✅ 会删组图
+    - content_blocks ❌ **没人管** —— text / table 块会留下来成孤儿
+
+    更糟的是 **image 块会被 image_id 的 CASCADE 带走**（图没了）⇒ 结果是
+    "3 块里删掉 1 块、留 2 块"，只数块数或只看图会**假绿**。
+
+    ⇒ 删题组时**必须显式** delete content_blocks（API 层，commit B）。
+    ⇒ 验收时三张表**分开查**残留，不能合并成一个数（判据 13）。
+
+    block_type 用 String(16) 而非 native enum（补遗 §丙-1），理由见上方常量区。
+    取值校验放应用层（Pydantic Literal），DB 允许脏值 —— 有意的取舍。
+    """
+
+    __tablename__ = "content_blocks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    owner_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    owner_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    order_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    block_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # image 块只引用不存文件（图本体在 question_images）
+    image_id: Mapped[int | None] = mapped_column(
+        ForeignKey("question_images.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    # 块模型的 JSON 坑（brief §0.7）：直接写 JSONB 会让 SQLite 建表崩
+    # （本地红 / CI 绿）⇒ 必须 with_variant。**全仓 0 先例**，本笔首次引入。
+    table_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(postgresql.JSONB, "postgresql"), nullable=True
+    )
+    # 图片宽度 50/75/100 存这里（补遗 §乙-3 现在加，省一次迁移）；
+    # table 块预留 {"col_widths": [...]}。本笔只保证列存在，不做取值校验
+    # —— 宽度取值属 1c-2 编辑器的职责，且 JSON 上的 CHECK 在 SQLite 侧难验。
+    meta: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(postgresql.JSONB, "postgresql"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_type",
+            "owner_id",
+            "order_index",
+            name="uq_content_blocks_owner_order",
+        ),
+        Index("ix_content_blocks_owner", "owner_type", "owner_id"),
+        # 字段自洽 CHECK（按 block_type 验字段）。
+        # 注意这**不是**取值白名单 —— 取值白名单刻意不加（换扩展性），
+        # 只保证"text 块必须有正文"这类结构不变量。
+        CheckConstraint(
+            "block_type != 'text' OR (text_content IS NOT NULL "
+            "AND image_id IS NULL AND table_json IS NULL)",
+            name="ck_content_blocks_text_shape",
+        ),
+        CheckConstraint(
+            "block_type != 'image' OR (image_id IS NOT NULL "
+            "AND text_content IS NULL AND table_json IS NULL)",
+            name="ck_content_blocks_image_shape",
+        ),
+        CheckConstraint(
+            "block_type != 'table' OR (table_json IS NOT NULL "
+            "AND text_content IS NULL AND image_id IS NULL)",
+            name="ck_content_blocks_table_shape",
         ),
     )
