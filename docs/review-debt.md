@@ -70,10 +70,14 @@
   ⚠️ 注意 `core/errors.py:121-124` 会吞掉 `details` ⇒ 业务计数类信息要写进
   `detail`/`message` 字符串，别指望 `details`（这条已在 MEMORY.md 记过）。
 
-### P2-3 · 替换材料块后，无引用的图留在库里也留在磁盘
+### P2-3 · 替换材料块后，无引用的图留在库里也留在磁盘 — ✅ **已修（1c-2 commit2）**
 
-- **位置**：`backend/app/api/v1/routers/academic.py:2000`（`_replace_group_blocks`）
-- **现状**：整体替换时**只删块**（`delete(ContentBlock)`），**不删图**。
+- **位置**：`backend/app/api/v1/routers/academic.py`（`_replace_group_blocks`）
+- **修法**：替换前算出「旧块引用 ∧ 新块不引用」的 `image_id` 集合 ⇒ 确认**全库**无块引用
+  ⇒ 删 `question_images` 行；**磁盘文件在 DB commit 之后**才 unlink（先落定再动磁盘）。
+- **回归网**：`tests/api/v1/test_question_groups.py::test_p2_3_orphan_image_reclaimed_on_block_replace`
+  （断言**行没了 + 磁盘文件没了 + 计数不虚高**三件事）。
+- **旧现状（保留供追溯）**：整体替换时**只删块**（`delete(ContentBlock)`），**不删图**。
   旧块引用的图在新块里没出现 ⇒ 那张图**没人引用了**，但：
   - 行还在 `question_images`（`group_id` 仍指向本组）⇒ **计数虚高**；
   - 文件还在磁盘 ⇒ 孤儿文件。

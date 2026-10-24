@@ -33,6 +33,7 @@ import {
   Select,
   Space,
   Tag,
+  Tooltip,
   Typography,
   Upload,
   message,
@@ -42,19 +43,27 @@ import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { apiClient } from '../api/client'
 import {
   createQuestionGroup,
+  createGroupQuestion,
   deleteGroupImage,
   getQuestionGroup,
   listGroupImages,
   updateQuestionGroup,
+  uploadQuestionImage,
+  type GroupQuestionCreateBody,
   type QuestionGroupUpdateBody,
 } from '../api/questionGroups'
 import {
   AUTH_HEADERS,
   DIFFICULTY_OPTIONS_CHINESE,
+  TYPE_LABEL,
   errorMessageOf,
   type ChapterSummary,
+  type ChoiceInput,
+  type ChoiceRead,
+  type GroupQuestionRead,
   type KnowledgePointDetail,
   type QuestionDifficulty,
+  type QuestionRead,
   type TextbookSummary,
 } from '../api/questionTypes'
 import ContentBlockEditor, {
@@ -67,8 +76,67 @@ import ContentBlockEditor, {
   uploadMaterialImage,
   type BlockDraft,
 } from './ContentBlockEditor'
+import InlineQuestionForm, {
+  type InlineQuestionFormValues,
+} from './InlineQuestionForm'
 
-const { Text, Paragraph } = Typography
+const { Text } = Typography
+
+/** 题干摘要长度（列表行展示用） */
+const CONTENT_PREVIEW_LEN = 50
+
+function previewOf(content: string): string {
+  return content.length > CONTENT_PREVIEW_LEN
+    ? `${content.slice(0, CONTENT_PREVIEW_LEN)}…`
+    : content
+}
+
+/**
+ * 组内小题排序。
+ *
+ * ⚠️ 后端 GET /question-groups/{id} 已按 group_order 升序返回；
+ *    但 **QuestionRead 响应模型里没有 group_order**（brief 说有，实际没有）
+ *    ⇒ 拿不到 order 时保持服务端顺序（数组下标兜底），拿到才排。
+ */
+function sortQuestions(list: QuestionRead[]): QuestionRead[] {
+  const allHaveOrder = list.every(
+    (q) => typeof (q as GroupQuestionRead).group_order === 'number',
+  )
+  if (!allHaveOrder) return list
+  return [...list].sort(
+    (a, b) =>
+      ((a as GroupQuestionRead).group_order ?? 0) - ((b as GroupQuestionRead).group_order ?? 0),
+  )
+}
+
+/** 题序展示：**从 1 起**（库里是 0 起）；拿不到 group_order 时用数组下标兜底 */
+function questionOrderOf(q: QuestionRead, index: number): number {
+  const g = q as GroupQuestionRead
+  return (typeof g.group_order === 'number' ? g.group_order : index) + 1
+}
+
+/** 知识点 id 集合是否相同（忽略顺序） */
+function sameIdSet(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false
+  const sa = [...a].sort((x, y) => x - y)
+  const sb = [...b].sort((x, y) => x - y)
+  return sa.every((v, i) => v === sb[i])
+}
+
+/**
+ * 选项是否语义相同。
+ *
+ * ⚠️ 只比 content + is_correct + 数量：**label / order_index 由下标派生**
+ *    （删中间项后重排）⇒ 不能拿来当“有没有改”的判据。
+ */
+function sameChoices(a: ChoiceInput[], b: ChoiceRead[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((c, i) => {
+    const o = b[i]
+    return o !== undefined && o.content === c.content && o.is_correct === c.is_correct
+  })
+}
+
 
 export interface QuestionGroupDrawerProps {
   open: boolean
@@ -102,6 +170,34 @@ export default function QuestionGroupDrawer({
   const [difficulty, setDifficulty] = useState<QuestionDifficulty>('D')
 
   const [blocks, setBlocks] = useState<BlockDraft[]>([])
+  /** 组内小题（来自 GET /question-groups/{id} 的 detail.questions）；小题数 = questions.length */
+  const [questions, setQuestions] = useState<QuestionRead[]>([])
+  /**
+   * 内联小题表单的展开状态。
+   *
+   * 🔴 **不许用 useEffect 清 state**（1c-1 血泪）⇒ 每次展开内联表单都
+   *    **自增 inlineKey** ⇒ 父组件用 key 让表单整体重挂载 ⇒ 21 个 state 一次性归零。
+   *    （`inlineMode` 决定展开哪个表单，`editingQuestion` 是被编辑的那一行）
+   */
+  const [inlineMode, setInlineMode] = useState<'closed' | 'create' | 'edit'>('closed')
+  const [inlineKey, setInlineKey] = useState(0)
+  const [editingQuestion, setEditingQuestion] = useState<QuestionRead | null>(null)
+  const [creatingQuestion, setCreatingQuestion] = useState(false)
+  const [savingQuestion, setSavingQuestion] = useState(false)
+  const [deletingQuestionId, setDeletingQuestionId] = useState<number | null>(null)
+  /** 正在传图的小题 id（行内「重传图片」） */
+  const [uploadingImageQuestionId, setUploadingImageQuestionId] = useState<number | null>(null)
+  /**
+   * 「待补图」的小题 id（建题成功但图片上传失败 ⇒ 题目**保留**，等用户重传）。
+   *
+   * 🔴 这是**客户端状态**（服务端不知道「上传失败」这回事）⇒
+   *    重传成功后才清掉；重载题组也不清（用户可能还没传）。
+   */
+  const [pendingImageIds, setPendingImageIds] = useState<number[]>([])
+  /** 每个「待补图」小题的失败原因（行内展示，便于用户知道怎么修） */
+  const [pendingImageReasons, setPendingImageReasons] = useState<Record<number, string>>({})
+  /** 图片画廊 key（编辑态上传成功后自增 ⇒ QuestionImages 重挂载重载） */
+  const [questionGalleryKey, setQuestionGalleryKey] = useState(0)
   /**
    * 当前题组 id：null = 还没落库（create 模式初始）；
    * 创建成功后 = 新 id（此时章节/教材变只读：后端 QuestionGroupUpdate 没有 chapter_id）。
@@ -109,7 +205,6 @@ export default function QuestionGroupDrawer({
   const [currentGroupId, setCurrentGroupId] = useState<number | null>(
     mode === 'edit' ? groupId : null,
   )
-  const [questionCount, setQuestionCount] = useState(0)
   /** 服务端已存在的材料图数（10 张上限判定用） */
   const [serverImageCount, setServerImageCount] = useState(0)
   /** 本次会话新传的图数 */
@@ -195,7 +290,7 @@ export default function QuestionGroupDrawer({
             .sort((a, b) => a.order_index - b.order_index)
             .map(blockFromRead),
         )
-        setQuestionCount(detail.questions?.length ?? 0)
+        setQuestions(sortQuestions(detail.questions ?? []))
 
         // 反查教材 + 章节列表 + 知识点
         const chResp = await apiClient.get<{
@@ -536,7 +631,7 @@ export default function QuestionGroupDrawer({
       setBlocks(
         [...(detail.blocks ?? [])].sort((a, b) => a.order_index - b.order_index).map(blockFromRead),
       )
-      setQuestionCount(detail.questions?.length ?? 0)
+      setQuestions(sortQuestions(detail.questions ?? []))
       const imgs = await listGroupImages(detail.id)
       setServerImageCount(imgs.length)
       setSessionImageCount(0)
@@ -559,6 +654,248 @@ export default function QuestionGroupDrawer({
     }
   }
 
+  // ──────────────── 小题区（1c-2 commit 2） ────────────────
+
+  /** 只刷新小题（**不动本地材料块草稿**）⇒ 小题增删改后调用 */
+  const refreshQuestions = useCallback(async (gid: number): Promise<void> => {
+    try {
+      const detail = await getQuestionGroup(gid)
+      setQuestions(sortQuestions(detail.questions ?? []))
+    } catch (err) {
+      message.warning(`小题列表刷新失败：${errorMessageOf(err, '读取题组失败')}`)
+    }
+  }, [])
+
+  /** 展开内联表单（create / edit）：**自增 key ⇒ 整体重挂载 ⇒ state 一次性归零** */
+  const openInlineCreate = () => {
+    setInlineMode('create')
+    setEditingQuestion(null)
+    setInlineKey((k) => k + 1)
+  }
+
+  const openInlineEdit = (q: QuestionRead) => {
+    setInlineMode('edit')
+    setEditingQuestion(q)
+    setInlineKey((k) => k + 1)
+  }
+
+  const closeInline = () => {
+    setInlineMode('closed')
+    setEditingQuestion(null)
+  }
+
+  /** 标「待补图」 / 清「待补图」 */
+  const markPendingImage = (questionId: number, reason: string) => {
+    setPendingImageIds((prev) => (prev.includes(questionId) ? prev : [...prev, questionId]))
+    setPendingImageReasons((prev) => ({ ...prev, [questionId]: reason }))
+  }
+
+  const clearPendingImage = (questionId: number) => {
+    setPendingImageIds((prev) => prev.filter((id) => id !== questionId))
+    setPendingImageReasons((prev) => {
+      const next = { ...prev }
+      delete next[questionId]
+      return next
+    })
+  }
+
+  /**
+   * 逐张上传小题图。
+   *
+   * 🔴 **必须在「题已存在」之后调用**（上传端点要 question_id）——
+   *    这就是裁决 ④ 的两段式：**建题成功 → 才传图**。
+   *
+   * @param baseOrder 新图的 order_index 起点（已有图数 ⇒ 不与旧图撞序号）
+   * @returns 成功 true / 失败 false（失败时 reason 里带后端 message）
+   */
+  const uploadImagesToQuestion = async (
+    questionId: number,
+    files: File[],
+    baseOrder = 0,
+  ): Promise<{ ok: boolean; reason: string | null }> => {
+    for (let i = 0; i < files.length; i += 1) {
+      const f = files[i]
+      const ext = (f.name.split('.').pop() ?? 'png').toLowerCase()
+      try {
+        await uploadQuestionImage(questionId, f, ext, baseOrder + i)
+      } catch (err) {
+        return { ok: false, reason: errorMessageOf(err, '上传失败') }
+      }
+    }
+    return { ok: true, reason: null }
+  }
+
+  /**
+   * 新建小题（**两段式，顺序不可颠倒**，裁决 ④）。
+   *
+   * ① POST /question-groups/{id}/questions 建题
+   * ② **成功之后**才 POST /academic/questions/{id}/images 传图
+   * ③ 图失败 ⇒ **保留该题**（行留在组内 + 标「待补图」+ 给「重传图片」入口）
+   *    并弹 `小题已创建（第 N 题），仅图片上传失败`
+   * ④ **建题本身失败 ⇒ 不插入任何行**
+   */
+  const handleCreateQuestion = async (
+    values: InlineQuestionFormValues,
+    files: File[],
+  ): Promise<void> => {
+    const gid = currentGroupId
+    if (gid === null) {
+      message.warning('请先创建题组（小题必须挂在已存在的题组下）')
+      return
+    }
+    const body: GroupQuestionCreateBody = {
+      content: values.content,
+      type: values.type,
+      points: values.points,
+      // answer_text 空 ⇒ **不传该键**（后端 extra="forbid" + 默认 None）
+      ...(values.answer_text !== null ? { answer_text: values.answer_text } : {}),
+      // choices 只在 choice 题型传；非 choice **不能带**（后端 extra="forbid"）
+      ...(values.choices !== undefined ? { choices: values.choices } : {}),
+      knowledge_point_ids: values.knowledge_point_ids,
+      // ⚠️ **不传** group_order（后端 max+1 分配）/ chapter_id / difficulty（后端从组继承）
+    }
+    setCreatingQuestion(true)
+    try {
+      // ① 建题
+      let created: QuestionRead
+      try {
+        created = await createGroupQuestion(gid, body)
+      } catch (err) {
+        // ④ 建题失败 ⇒ **不插入任何行**；错误信息取后端 message（不是 detail）
+        message.error(errorMessageOf(err, '新建小题失败'))
+        return
+      }
+      // ② 建题成功 ⇒ 题目已落库（**不因图失败而回滚**）
+      const n = questions.length + 1
+      setQuestions((prev) => sortQuestions([...prev, created]))
+      closeInline()
+      // ③ 然后才传图
+      if (files.length > 0) {
+        const { ok, reason } = await uploadImagesToQuestion(created.id, files)
+        if (!ok) {
+          markPendingImage(created.id, reason ?? '上传失败')
+          message.error(`小题已创建（第 ${n} 题），仅图片上传失败`)
+        } else {
+          message.success(`小题已创建（第 ${n} 题）`)
+        }
+      } else {
+        message.success(`小题已创建（第 ${n} 题）`)
+      }
+      // 回读服务端（题序 / 图数以服务端为准）
+      await refreshQuestions(gid)
+    } finally {
+      setCreatingQuestion(false)
+    }
+  }
+
+  /** 编辑小题：PATCH /academic/questions/{id}（只传改动字段；**无 chapter_id**）⇒ 然后才传图 */
+  const handleEditQuestion = async (
+    values: InlineQuestionFormValues,
+    files: File[],
+  ): Promise<void> => {
+    const target = editingQuestion
+    if (target === null) return
+    setSavingQuestion(true)
+    try {
+      const body: Record<string, unknown> = {}
+      // ⚠️ **只传改动字段**（brief §3.2）
+      //   choices 传则**完全替换**（删旧建新 + cascade）⇒ 没改就别传。
+      if (values.content !== target.content) body.content = values.content
+      if (values.type !== target.type) body.type = values.type
+      if (values.points !== target.points) body.points = values.points
+      if ((values.answer_text ?? null) !== (target.answer_text ?? null)) {
+        body.answer_text = values.answer_text
+      }
+      if (!sameIdSet(values.knowledge_point_ids, target.knowledge_point_ids ?? [])) {
+        body.knowledge_point_ids = values.knowledge_point_ids
+      }
+      if (values.choices !== undefined && !sameChoices(values.choices, target.choices ?? [])) {
+        body.choices = values.choices
+      }
+      if (Object.keys(body).length === 0 && files.length === 0) {
+        message.info('没有改动，无需保存')
+        return
+      }
+      // 有字段改动才 PATCH（只传改动字段）；只选了图 ⇒ 跳过 PATCH，直接传图
+      if (Object.keys(body).length > 0) {
+        try {
+          await apiClient.patch(`/academic/questions/${target.id}`, body, {
+            headers: AUTH_HEADERS,
+          })
+        } catch (err) {
+          message.error(errorMessageOf(err, '保存小题失败'))
+          return
+        }
+      }
+      closeInline()
+      if (files.length > 0) {
+        const { ok, reason } = await uploadImagesToQuestion(
+          target.id,
+          files,
+          target.image_count ?? 0,
+        )
+        if (!ok) {
+          markPendingImage(target.id, reason ?? '上传失败')
+          message.error('题目已保存，仅图片上传失败')
+        } else {
+          message.success('题目已保存')
+        }
+      } else {
+        message.success('题目已保存')
+      }
+      setQuestionGalleryKey((k) => k + 1)
+      const gid = currentGroupId
+      if (gid !== null) await refreshQuestions(gid)
+    } finally {
+      setSavingQuestion(false)
+    }
+  }
+
+  /** 删除小题：DELETE /academic/questions/{id} */
+  const handleDeleteQuestion = async (questionId: number): Promise<void> => {
+    setDeletingQuestionId(questionId)
+    try {
+      await apiClient.delete(`/academic/questions/${questionId}`, {
+        headers: AUTH_HEADERS,
+      })
+      message.success('小题已删除')
+      clearPendingImage(questionId)
+      const gid = currentGroupId
+      if (gid !== null) await refreshQuestions(gid)
+    } catch (err) {
+      message.error(errorMessageOf(err, '删除小题失败'))
+    } finally {
+      setDeletingQuestionId(null)
+    }
+  }
+
+  /** 行内「重传图片」：待补图的小题重新传图（成功 ⇒ 清「待补图」标记） */
+  const handleRetryImage = async (
+    question: QuestionRead,
+    file: File,
+  ): Promise<boolean> => {
+    const ext = (file.name.split('.').pop() ?? 'png').toLowerCase()
+    if (!['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
+      message.warning(`「${file.name}」类型不支持（仅 png / jpg / jpeg / webp）`)
+      return false
+    }
+    setUploadingImageQuestionId(question.id)
+    try {
+      await uploadQuestionImage(question.id, file, ext, question.image_count ?? 0)
+      clearPendingImage(question.id)
+      message.success('图片已上传')
+      const gid = currentGroupId
+      if (gid !== null) await refreshQuestions(gid)
+    } catch (err) {
+      const reason = errorMessageOf(err, '上传失败')
+      markPendingImage(question.id, reason)
+      message.error(`图片上传失败：${reason}`)
+    } finally {
+      setUploadingImageQuestionId(null)
+    }
+    return false
+  }
+
   // ──────────────── 渲染 ────────────────
 
   const kpPlaceholder = (() => {
@@ -567,7 +904,17 @@ export default function QuestionGroupDrawer({
     return '全部知识点'
   })()
 
+  /** 内联表单标题（编辑态带题序，避免用户不知道在改哪一道） */
+  const inlineFormTitle = (() => {
+    if (inlineMode === 'create') return '新建小题'
+    if (editingQuestion === null) return '编辑小题'
+    const idx = questions.findIndex((q) => q.id === editingQuestion.id)
+    return `编辑小题（第 ${questionOrderOf(editingQuestion, idx < 0 ? 0 : idx)} 题）`
+  })()
+
   const busy = loading || saving || creating || cleaning
+  /** 小题区的忙碌态（建题/改题进行中 ⇒ 锁住行操作，避免并发） */
+  const questionBusy = creatingQuestion || savingQuestion
 
   return (
     <Drawer
@@ -788,27 +1135,162 @@ export default function QuestionGroupDrawer({
           </Space>
         </Card>
 
-        {/* ⑤ 小题区（commit 2 实现，这里只留空壳占位） */}
+        {/* ⑤ 小题区（1c-2 commit 2：内联新建 / 编辑 + 删除 + 待补图重传） */}
         <Card
           size="small"
           title={
             <Space size="small">
               <Text strong>小题</Text>
-              <Tag color="blue">{questionCount}</Tag>
+              <Tag color="blue">{questions.length}</Tag>
             </Space>
           }
+          extra={
+            <Button
+              icon={<PlusOutlined />}
+              disabled={busy || questionBusy || currentGroupId === null}
+              onClick={openInlineCreate}
+            >
+              + 新建小题
+            </Button>
+          }
         >
-          <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-            {questionCount === 0
-              ? '（空：还没有小题，点下面新建）'
-              : `组内已有 ${questionCount} 道小题（列表由 commit 2 实现）`}
-          </Paragraph>
-          <Button icon={<PlusOutlined />} disabled title="commit2 实现">
-            + 新建小题
-          </Button>
-          <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-            （commit2 实现：内联新建小题 + 列表页题组行）
-          </Text>
+          {currentGroupId === null ? (
+            <Alert
+              type="info"
+              showIcon
+              message="先创建题组，才能新建小题"
+              description="小题必须挂在已存在的题组下 ⇒ 请先点右上角「创建题组」。"
+            />
+          ) : (
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              {questions.length === 0 ? (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="还没有小题，点右上角「+ 新建小题」"
+                />
+              ) : (
+                questions.map((q, idx) => {
+                  const pending = pendingImageIds.includes(q.id)
+                  const kpNames = q.knowledge_point_names ?? []
+                  return (
+                    <div
+                      key={q.id}
+                      role="button"
+                      style={{
+                        border: '1px solid #f0f0f0',
+                        borderRadius: 6,
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                      }}
+                      // 点已有小题行 ⇒ 内联展开编辑表单（操作按钮除外）
+                      onClick={() => openInlineEdit(q)}
+                    >
+                      <Space wrap size="small">
+                        <Tag color="blue">第 {questionOrderOf(q, idx)} 题</Tag>
+                        <Tooltip title={q.content}>
+                          <Text style={{ maxWidth: 320 }} ellipsis>
+                            {previewOf(q.content)}
+                          </Text>
+                        </Tooltip>
+                        <Tag>{TYPE_LABEL[q.type] ?? q.type}</Tag>
+                        <Text type="secondary">{q.points} 分</Text>
+                        {kpNames.length > 0 ? (
+                          <Space size={[4, 4]} wrap>
+                            {kpNames.map((n) => (
+                              <Tag key={n} color="geekblue">
+                                {n}
+                              </Tag>
+                            ))}
+                          </Space>
+                        ) : (
+                          <Text type="secondary">无知识点</Text>
+                        )}
+                        <Text type="secondary">{q.image_count ?? 0} 图</Text>
+                        {pending && <Tag color="warning">待补图</Tag>}
+                        <Space size="small" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            size="small"
+                            disabled={busy || questionBusy}
+                            onClick={() => openInlineEdit(q)}
+                          >
+                            编辑
+                          </Button>
+                          <Upload
+                            beforeUpload={(file: File) => handleRetryImage(q, file)}
+                            fileList={[]}
+                            showUploadList={false}
+                            accept=".png,.jpg,.jpeg,.webp"
+                            disabled={busy || questionBusy || uploadingImageQuestionId === q.id}
+                          >
+                            <Button
+                              size="small"
+                              loading={uploadingImageQuestionId === q.id}
+                              disabled={busy || questionBusy}
+                            >
+                              重传图片
+                            </Button>
+                          </Upload>
+                          <Popconfirm
+                            title="删除这道小题？"
+                            description="删除后不可恢复（其图片一并级联清理）。"
+                            okText="删除"
+                            cancelText="取消"
+                            okButtonProps={{ danger: true }}
+                            onConfirm={() => void handleDeleteQuestion(q.id)}
+                          >
+                            <Button
+                              size="small"
+                              danger
+                              loading={deletingQuestionId === q.id}
+                              disabled={busy || questionBusy}
+                            >
+                              删除
+                            </Button>
+                          </Popconfirm>
+                        </Space>
+                      </Space>
+                      {pending && pendingImageReasons[q.id] !== undefined && (
+                        <Text type="danger" style={{ fontSize: 12 }}>
+                          图片上传失败原因：{pendingImageReasons[q.id]}（题目已保留，点「重传图片」补传）
+                        </Text>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+
+              {inlineMode !== 'closed' && (
+                <Card
+                  size="small"
+                  style={{ marginTop: 8 }}
+                  title={inlineFormTitle}
+                >
+                  <InlineQuestionForm
+                    key={inlineKey}
+                    mode={inlineMode}
+                    question={editingQuestion}
+                    groupDifficulty={difficulty}
+                    chapterTitle={chapters.find((c) => c.id === chapterId)?.title}
+                    knowledgePoints={knowledgePoints}
+                    defaultKnowledgePointIds={kpIds}
+                    existingImageCount={editingQuestion?.image_count ?? 0}
+                    galleryKey={questionGalleryKey}
+                    disabled={creatingQuestion || savingQuestion}
+                    onCancel={closeInline}
+                    onImagesChanged={() => {
+                      const gid = currentGroupId
+                      if (gid !== null) void refreshQuestions(gid)
+                    }}
+                    onSubmit={
+                      inlineMode === 'create'
+                        ? handleCreateQuestion
+                        : handleEditQuestion
+                    }
+                  />
+                </Card>
+              )}
+            </Space>
+          )}
         </Card>
       </Space>
     </Drawer>

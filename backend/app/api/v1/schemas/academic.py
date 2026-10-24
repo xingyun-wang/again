@@ -799,13 +799,33 @@ class QuestionGroupDetail(QuestionGroupRead):
 
 
 class QuestionGroupQuestionCreate(BaseModel):
-    """POST /question-groups/{id}/questions 请求 body（挂小题）。
+    """POST /question-groups/{id}/questions 请求 body（**组内新建小题**）。
 
-    - question_id：要挂的小题
-    - group_order：题组内题序（0 起；与 group_id 组成唯一约束，丙-3）
+    ⭐ **语义已改**（1c-2 commit2 · 2026-10-24 星轨 15:50 裁决 · brief §10.2 勘误）：
+    1a-2 的「挂一道**已存在**的题」被废除 —— 小题与题库无关，
+    「挂已有题」是误用入口（调一次，题库里一道题就变成组内小题、从题库消失）。
+    ⇒ 现在是**在组内新建**一道小题：章节/难度**从组继承**，
+      题序 `group_order` 由**后端 `max+1`** 分配，建题 + 挂组**同一事务**。
+
+    - content：题干（min_length=1）
+    - type：题型（choice 必传 choices；非 choice 不能传 choices）
+    - points：分值（默认 2.0）
+    - answer_text：答案正文（可空）
+    - choices：选项（仅 choice 类型）
+    - knowledge_point_ids：知识点（可空；必须属于**本题组章节**）
+
+    ⚠️ **没有 `group_order`**：后端 `max+1` 分配（前端不传）。
+    ⚠️ **没有 `chapter_id` / `difficulty`**：从题组继承
+      （`extra="forbid"` ⇒ 前端传了直接 **422**）。
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    question_id: int = Field(..., description="要挂入的小题 id")
-    group_order: int = Field(..., ge=0, description="题组内题序（0 起）")
+    content: str = Field(..., min_length=1, description="题干")
+    type: QuestionType = Field(..., description="题型")
+    points: float = Field(default=2.0, ge=0, le=999.9, description="分值（默认 2.0）")
+    answer_text: str | None = Field(default=None, description="答案正文（fill / subjective 用）")
+    choices: list[ChoiceBase] = Field(default_factory=list, description="选项（仅 choice 类型）")
+    knowledge_point_ids: list[int] = Field(
+        default_factory=list, description="知识点 id 列表（可空；须属本题组章节）"
+    )

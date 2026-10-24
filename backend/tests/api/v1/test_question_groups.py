@@ -261,13 +261,20 @@ def test_f1_create_and_read_group(client: TestClient, chapter: Any) -> None:
 def test_f2_group_small_questions_and_total_points(
     client: TestClient, chapter: Any, mock_db_session: Any
 ) -> None:
-    """F2：挂 3 小题（分值 3/5/2）⇒ count=3、total_points=10.0（D3(a) 计数口径）。"""
+    """F2：组内**新建** 3 小题（分值 3/5/2）⇒ count=3、total_points=10.0（D3(a) 计数口径）。
+
+    ⭐ 语义已改（1c-2 commit2 · brief §10.2 + 裁决②）：端点由「挂已有题」改为
+    「组内建题」—— 章节/难度从组继承、题序后端 `max+1` 分配、**前端不传 group_order**。
+    """
     gid = _create_group(client, chapter.id)
-    for i, pts in enumerate([3.0, 5.0, 2.0]):
-        q = _make_question(mock_db_session, chapter.id, points=pts)
+    for pts in [3.0, 5.0, 2.0]:
         r = client.post(
             f"/api/v1/academic/question-groups/{gid}/questions",
-            json={"question_id": q.id, "group_order": i},
+            json={
+                "content": f"组内新建小题 {pts}",
+                "type": "subjective",
+                "points": pts,
+            },
             headers={"X-User-Id": "1"},
         )
         assert r.status_code == 200, r.text
@@ -278,10 +285,15 @@ def test_f2_group_small_questions_and_total_points(
     assert data["small_question_count"] == 3
     assert data["total_points"] == 10.0
     assert len(data["questions"]) == 3
-    # 题序按 group_order 升序
-    assert [q["id"] for q in data["questions"]] == sorted(
-        [q["id"] for q in data["questions"]]
-    )
+    # 题序：**API 响应模型里没有 group_order** ⇒ 直接查库断言（库里 0 起）
+    orders = [
+        row[0]
+        for row in mock_db_session.query(Question.group_order)
+        .filter(Question.group_id == gid)
+        .order_by(Question.group_order.asc())
+        .all()
+    ]
+    assert orders == [0, 1, 2], orders
 
 
 # ────────────────────────────── F3 材料三块混排（判据 5） ──────────────────────────────
@@ -342,12 +354,12 @@ def test_f5_delete_group_cascades(
 ) -> None:
     """F5：删组 ⇒ 材料块 + 小题 + 组图一起消失（**分三条 SQL 查残留**）。"""
     gid = _create_group(client, chapter.id)
-    q = _make_question(mock_db_session, chapter.id)
-    client.post(
+    r = client.post(
         f"/api/v1/academic/question-groups/{gid}/questions",
-        json={"question_id": q.id, "group_order": 0},
+        json={"content": "待删小题", "type": "subjective", "points": 2.0},
         headers={"X-User-Id": "1"},
     )
+    assert r.status_code == 200, r.text
     client.put(
         f"/api/v1/academic/question-groups/{gid}",
         json={"blocks": [{"block_type": "text", "text_content": "待删材料"}]},
@@ -429,20 +441,24 @@ def test_r1_delete_group_requires_force(client: TestClient, chapter: Any) -> Non
 def test_f6_difficulty_derived_from_group(
     client: TestClient, chapter: Any, mock_db_session: Any
 ) -> None:
-    """F6：挂题时难度继承组；改组难度 ⇒ 组内小题同步（组是唯一写入源）。"""
-    gid = _create_group(client, chapter.id, difficulty="C")
-    q = _make_question(mock_db_session, chapter.id, difficulty=QuestionDifficulty.D)
+    """F6：组内建题时难度**继承组**；改组难度 ⇒ 组内小题同步（组是唯一写入源）。
 
+    ⭐ 语义已改（1c-2 commit2）：不再是「挂一道已有题」⇒ 不存在「保留原难度」这回事，
+    小题从诞生起就是组难度的派生值。
+    """
+    gid = _create_group(client, chapter.id, difficulty="C")
     r = client.post(
         f"/api/v1/academic/question-groups/{gid}/questions",
-        json={"question_id": q.id, "group_order": 0},
+        json={"content": "继承难度的小题", "type": "subjective", "points": 2.0},
         headers={"X-User-Id": "1"},
     )
     assert r.status_code == 200, r.text
+    qid = r.json()["id"]
 
-    # 挂题后小题难度 = 组难度（派生，不是保留原值）
-    mock_db_session.refresh(q)
-    assert q.difficulty == QuestionDifficulty.C, f"挂题后难度 {q.difficulty}"
+    # 建题后小题难度 = 组难度（派生，不是保留原值）
+    q = mock_db_session.get(Question, qid)
+    assert q is not None
+    assert q.difficulty == QuestionDifficulty.C, f"建题后难度 {q.difficulty}"
 
     # 改组难度 ⇒ 同事务同步组内小题
     r = client.put(
@@ -599,73 +615,100 @@ def test_r7_orphan_image_rejected_by_check(
 # ────────────────────────────── R2 跨章节挂题（判据 15） ──────────────────────────────
 
 
-def test_r2_attach_question_from_other_chapter(
-    client: TestClient, chapter: Any, chapter_other: Any, mock_db_session: Any
+def test_r2_group_question_kp_from_other_chapter_rejected(
+    client: TestClient, chapter: Any, chapter_other: Any, kp_other: Any
 ) -> None:
-    """R2：挂别章节的小题 ⇒ 409「不在同一章节」。"""
+    """R2（语义已改）：组内建题时传**别章节的知识点** ⇒ 422「不在题组章节内」。
+
+    ⭐ 旧版这条是「挂别章节的小题 ⇒ 409」—— 端点改成「组内新建」后，
+    小题章节**从组继承** ⇒ 跨章节的小题**根本构造不出来**；
+    ⇒ 跨章节的口径转移到**知识点**上（小题章节 = 组章节 ⇒ KP 也不能跨章）。
+    """
     gid = _create_group(client, chapter.id)
-    q = _make_question(mock_db_session, chapter_other.id)
     r = client.post(
         f"/api/v1/academic/question-groups/{gid}/questions",
-        json={"question_id": q.id, "group_order": 0},
+        json={
+            "content": "带别章节知识点的小题",
+            "type": "subjective",
+            "points": 2.0,
+            "knowledge_point_ids": [kp_other.id],
+        },
         headers={"X-User-Id": "1"},
     )
-    assert r.status_code == 409, r.text
-    assert "同一章节" in r.json()["message"]
+    assert r.status_code == 422, r.text
+    assert "不在题组章节内" in r.json()["message"]
 
 
 # ────────────────────────────── R3 重复题序（判据 15） ──────────────────────────────
 
 
-def test_r3_duplicate_group_order(
+def test_r3_three_group_questions_get_strict_order(
     client: TestClient, chapter: Any, mock_db_session: Any
 ) -> None:
-    """R3：同一 group_order 插两次 ⇒ 409（走 DB 唯一约束）。"""
+    """R3（语义已改 · 裁决②）：连建 3 题 ⇒ `group_order` **严格 0/1/2、无重复**。
+
+    ⭐ 旧版这条是「同一 group_order 插两次 ⇒ 409」—— **已按裁决删除**：
+      前端不再传 `group_order`（后端 `max+1` 分配）⇒ 那条用例的前置条件不存在了。
+    ⚠️ **删用例 ≠ 删防线**：DB 的 `UNIQUE(group_id, group_order)` 与 API 的
+      `IntegrityError → 409` 兜底**保留不动**；并发撞唯一约束的新风险由
+      **算 max+1 前锁组行（SELECT ... FOR UPDATE）** 消除。
+      ⇒ 本条改为固化「连建 3 题 ⇒ 题序严格递增、无重复、无空洞」。
+    """
     gid = _create_group(client, chapter.id)
-    q1 = _make_question(mock_db_session, chapter.id)
-    q2 = _make_question(mock_db_session, chapter.id)
+    for i in range(3):
+        r = client.post(
+            f"/api/v1/academic/question-groups/{gid}/questions",
+            json={"content": f"第 {i} 题", "type": "subjective", "points": 2.0},
+            headers={"X-User-Id": "1"},
+        )
+        assert r.status_code == 200, r.text
 
-    r = client.post(
-        f"/api/v1/academic/question-groups/{gid}/questions",
-        json={"question_id": q1.id, "group_order": 0},
-        headers={"X-User-Id": "1"},
-    )
-    assert r.status_code == 200, r.text
-
-    r = client.post(
-        f"/api/v1/academic/question-groups/{gid}/questions",
-        json={"question_id": q2.id, "group_order": 0},
-        headers={"X-User-Id": "1"},
-    )
-    assert r.status_code == 409, r.text
-    assert "题序" in r.json()["message"]
+    orders = [
+        row[0]
+        for row in mock_db_session.query(Question.group_order)
+        .filter(Question.group_id == gid)
+        .order_by(Question.group_order.asc())
+        .all()
+    ]
+    assert orders == [0, 1, 2], orders
 
 
 # ────────────────────────────── R6 一题挂两组（丙-3 第 4 步） ──────────────────────────────
 
 
-def test_r6_question_cannot_join_two_groups(
-    client: TestClient, chapter: Any, mock_db_session: Any
+def test_r6_cannot_specify_group_id_or_group_order(
+    client: TestClient, chapter: Any
 ) -> None:
-    """R6：一题已在一组 ⇒ 再挂另一组 409（message 区分「其他题组」）。"""
-    gid1 = _create_group(client, chapter.id)
-    gid2 = _create_group(client, chapter.id)
-    q = _make_question(mock_db_session, chapter.id)
+    """R6（语义已改 · 裁决②）：建题 body 里传 `group_id` / `group_order` ⇒ **422**。
 
+    ⭐ 旧版这条是「一题挂两组 ⇒ 409」—— 端点改成「组内新建」后
+    **不再接受外部指定归属**：归属由 URL 的 group_id 决定
+    ⇒ 传 `group_id` 是越权尝试、`group_order` 前端不传 ⇒ `extra="forbid"` 直接 422。
+    """
+    gid = _create_group(client, chapter.id)
     r = client.post(
-        f"/api/v1/academic/question-groups/{gid1}/questions",
-        json={"question_id": q.id, "group_order": 0},
+        f"/api/v1/academic/question-groups/{gid}/questions",
+        json={
+            "content": "越权指定归属",
+            "type": "subjective",
+            "points": 2.0,
+            "group_id": gid + 999,
+        },
         headers={"X-User-Id": "1"},
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 422, r.text
 
-    r = client.post(
-        f"/api/v1/academic/question-groups/{gid2}/questions",
-        json={"question_id": q.id, "group_order": 0},
+    r2 = client.post(
+        f"/api/v1/academic/question-groups/{gid}/questions",
+        json={
+            "content": "越权指定题序",
+            "type": "subjective",
+            "points": 2.0,
+            "group_order": 7,
+        },
         headers={"X-User-Id": "1"},
     )
-    assert r.status_code == 409, r.text
-    assert "其他题组" in r.json()["message"]
+    assert r2.status_code == 422, r2.text
 
 
 # ────────────────────────────── R4 非法块类型（判据 16） ──────────────────────────────
@@ -1078,32 +1121,36 @@ def test_r11_cross_user_put_group_is_404(
     assert r.json()["difficulty"] == "C", r.text
 
 
-def test_r12_cross_user_attach_question_is_404(
+def test_r12_cross_user_create_group_question_is_404(
     client: TestClient, chapter: Any, user2: Any, mock_db_session: Any
 ) -> None:
-    """R12：user2 往 user1 的题组挂小题 ⇒ 404（且小题没被挂上）。
+    """R12（语义已改）：user2 往 **user1 的题组**里建小题 ⇒ 404（且**没有建出题**）。
 
-    ⚠️ ⭐ **必须用 user2 自己的题**（owner_id=2），不能用 user1 的题：
-    用 user1 的题时，404 是被**「题归属」守卫**（`question.owner_user_id != user_id`）
-    拦下的 —— 那时**组归属**守卫根本轮不到执行 ⇒ 这条用例**守不住它该守的边界**。
-    ⭐ 我第一版就写错了（用 user1 的题）⇒ fail-open 实测时它**照样通过** ⇒
-    等于没测。改成 user2 的题后，题归属这道关**本来就过**，
-    **只有组归属守卫**能拦下 ⇒ fail-open 时必 FAIL ⇒ 用例才可证伪。
+    ⚠️ 与旧版的差别：旧版必须「用 user2 自己的题」才能证明守的是**组归属**
+    （用 user1 的题时 404 是被「题归属」守卫拦下的，组归属那关根本没轮到执行）。
+    现在端点是「组内新建」⇒ **题由本次请求现建** ⇒ 输入里根本没有别人的题
+    ⇒ 唯一可能的归属守卫就是**组归属** ⇒ 直接测即可（且要断言**没有建出题**）。
     """
-    gid = _create_group(client, chapter.id)
-    # user2 **自己的**题（挂在 user1 的章节下 —— 数据库不禁止，题目归属独立于章节归属）
-    q = _make_question(mock_db_session, chapter.id, owner_id=2)
-    assert q.owner_user_id == 2
+    gid = _create_group(client, chapter.id)  # owner = user1
+    n_before = (
+        mock_db_session.query(Question)
+        .filter(Question.owner_user_id == 2)
+        .count()
+    )
 
     r = client.post(
         f"/api/v1/academic/question-groups/{gid}/questions",
-        json={"question_id": q.id, "group_order": 0},
+        json={"content": "user2 越权建题", "type": "subjective", "points": 2.0},
         headers={"X-User-Id": "2"},
     )
     assert r.status_code == 404, r.text
 
-    row = mock_db_session.get(Question, q.id)
-    assert row.group_id is None, "user2 的挂题生效了"
+    n_after = (
+        mock_db_session.query(Question)
+        .filter(Question.owner_user_id == 2)
+        .count()
+    )
+    assert n_after == n_before, "user2 的建题生效了"
 
 
 def test_r13_cross_user_group_image_endpoints_all_404(
@@ -1168,3 +1215,134 @@ def test_r13_cross_user_group_image_endpoints_all_404(
     )
     assert r.status_code == 200, r.text
     assert [i["id"] for i in r.json()] == [image_id], "user1 的图被误删了"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 1c-2 commit2 新增用例（2026-10-24 · 星轨 OUTBOX #6 的 4 条裁决）
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# ────────────────────────────── C1 反向用例：改不了章节（裁决①） ──────────────────────────────
+
+
+def test_c1_patch_question_rejects_chapter_id_422(
+    client: TestClient, chapter: Any, mock_db_session: Any
+) -> None:
+    """C1（裁决①的**替代动作**，必做）：`PATCH /questions/{id}` 传 `chapter_id` ⇒ **422**。
+
+    ⭐ 为什么是这条而不是加 409 守卫：
+      brief §10.3 原写「单题接口能绕过同章节约束」—— **该前提已被证伪**：
+      `QuestionUpdate` **没有 `chapter_id` 字段** + `extra="forbid"` ⇒ 传了直接 422。
+      ⇒ 「组在 A、小题被改成 B」这个状态**构造不出来** ⇒ 加 409 是永远触发不到的死代码。
+      ⇒ 改为**固化「改不了」这个事实**：将来有人给 `QuestionUpdate` 加 `chapter_id`，
+      这条用例会立刻红 ⇒ 提醒他补同章节守卫（brief §10.3 写了复活条件）。
+    """
+    q = _make_question(mock_db_session, chapter.id)
+    r = client.patch(
+        f"/api/v1/academic/questions/{q.id}",
+        json={"chapter_id": chapter.id},
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 422, r.text
+    # 题目本身没被改
+    mock_db_session.refresh(q)
+    assert q.chapter_id == chapter.id
+
+
+# ────────────────────────────── C2 判据 J：组内小题不进题库列表 ──────────────────────────────
+
+
+def test_c2_group_questions_excluded_from_question_list(
+    client: TestClient, chapter: Any, mock_db_session: Any
+) -> None:
+    """C2（判据 J）：组内小题**不出现在题库列表**，`total` 也不计入。
+
+    ⭐ 为什么（brief §10.1）：「小题属于题组、与题库无关」⇒ 组内题混进题库会：
+      ① 列表页同一道题显示两处；② `total` 虚增 ⇒ 分页与「共 N 题」全错；
+      ③ 被抽题逻辑当题池抽到（没有材料的废题）—— 正是 D1(a) 要防的。
+    """
+    gid = _create_group(client, chapter.id)
+    r = client.post(
+        f"/api/v1/academic/question-groups/{gid}/questions",
+        json={
+            "content": "组内小题（不该出现在题库）",
+            "type": "subjective",
+            "points": 2.0,
+        },
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 200, r.text
+    qid = r.json()["id"]
+
+    r = client.get(
+        "/api/v1/academic/questions",
+        params={"chapter_id": chapter.id},
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert qid not in [q["id"] for q in data["items"]], "组内小题出现在题库列表里了"
+
+    # total 口径 = 该章节**非组内**的题数（不信前端算，查库对账）
+    n_expected = (
+        mock_db_session.query(Question)
+        .filter(
+            Question.chapter_id == chapter.id,
+            Question.group_id.is_(None),
+        )
+        .count()
+    )
+    assert data["total"] == n_expected, (data["total"], n_expected)
+
+
+# ────────────────────────────── P2-3 孤儿图回收 ──────────────────────────────
+
+
+def test_p2_3_orphan_image_reclaimed_on_block_replace(
+    client: TestClient, chapter: Any, mock_db_session: Any, tmp_path: Any
+) -> None:
+    """P2-3：整体替换材料块 ⇒ 「旧块引用、新块不引用」的孤儿图**行 + 磁盘文件**一起回收。
+
+    ⭐ 为什么必须有这条（`docs/review-debt.md` P2-3 · 触发时机 = 1c-2 commit2 之前）：
+      原本整体替换**只删块不删图** ⇒ 旧块引用的图在新块里没出现 ⇒ 那张图没人引用了，
+      但行还在 `question_images`（**计数虚高** ⇒ 撞 10 张上限时
+      「明明只用 3 张却报已达 10 张」）+ 文件留在磁盘（孤儿文件）。
+      ⇒ 本笔兑现：替换时算孤儿 ⇒ 删行 + commit 后 unlink 磁盘文件。
+    """
+    from pathlib import Path
+
+    gid = _create_group(client, chapter.id)
+    image_id = _upload_group_image(client, gid, tmp_path)
+
+    img_row = mock_db_session.get(QuestionImage, image_id)
+    assert img_row is not None
+    disk_path = img_row.storage_path
+    assert disk_path and Path(disk_path).exists(), disk_path
+
+    # 先把图挂进材料块
+    r = client.put(
+        f"/api/v1/academic/question-groups/{gid}",
+        json={"blocks": [{"block_type": "image", "image_id": image_id}]},
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 200, r.text
+
+    # 再整体替换成纯文字 ⇒ 图变孤儿
+    r = client.put(
+        f"/api/v1/academic/question-groups/{gid}",
+        json={"blocks": [{"block_type": "text", "text_content": "不引用图了"}]},
+        headers={"X-User-Id": "1"},
+    )
+    assert r.status_code == 200, r.text
+
+    # 行没了
+    assert mock_db_session.get(QuestionImage, image_id) is None, "孤儿图行没回收"
+    # 磁盘文件也没了
+    assert not Path(disk_path).exists(), f"孤儿图文件还在：{disk_path}"
+    # 计数不再虚高
+    imgs = client.get(
+        f"/api/v1/academic/question-groups/{gid}/images",
+        headers={"X-User-Id": "1"},
+    )
+    assert imgs.status_code == 200, imgs.text
+    assert imgs.json() == [], imgs.json()

@@ -26,11 +26,15 @@
 import { apiClient } from './client'
 import {
   AUTH_HEADERS,
+  type ChoiceInput,
   type ContentBlockInput,
   type QuestionDifficulty,
   type QuestionGroupDetail,
   type QuestionGroupRead,
+  type QuestionImageRead,
   type QuestionImageSummary,
+  type QuestionRead,
+  type QuestionType,
 } from './questionTypes'
 
 /** POST /question-groups 请求体（后端 QuestionGroupCreate） */
@@ -140,4 +144,76 @@ export async function deleteGroupImage(groupId: number, imageId: number): Promis
   await apiClient.delete(`/academic/question-groups/${groupId}/images/${imageId}`, {
     headers: AUTH_HEADERS,
   })
+}
+
+// ──────────────── 1c-2 commit 2：组内新建小题 + 小题图 ────────────────
+
+/**
+ * POST /question-groups/{group_id}/questions 请求体（**本轮语义已变**）。
+ *
+ * ⚠️ 三个「不许带」的字段（后端 extra="forbid" ⇒ 带了就是 422）：
+ * - `group_order`：后端自己按 max+1 分配（裁决 ②）⇒ 前端**不传**；
+ * - `chapter_id`  / `difficulty`：后端从题组继承（题组是唯一写入源）⇒ 前端**不传**。
+ */
+export interface GroupQuestionCreateBody {
+  content: string
+  type: QuestionType
+  points: number
+  answer_text?: string
+  choices?: ChoiceInput[]
+  knowledge_point_ids?: number[]
+}
+
+/**
+ * POST /academic/question-groups/{group_id}/questions → QuestionRead（组内新建小题）。
+ *
+ * ⚠️ body **不含** group_order（后端 max+1 分配；extra="forbid" ⇒ 传了就是 422）
+ * ⚠️ body **不含** chapter_id / difficulty（后端从题组继承）
+ * ⚠️ choices 用后端 **ChoiceBase** 的形状（label / content / is_correct / order_index）：
+ *    brief §3.1 写的是「ChoiceBase = content + is_correct」，但**实际后端源码**
+ *    （schemas/academic.py 的 ChoiceBase + DB 列 choices.label NOT NULL）
+ *    的 label 是**必填** ⇒ 前端按实际源码发全 4 字段
+ *    （与 1c-1 QuestionDrawer 的 POST /questions 同一口径）。
+ */
+export async function createGroupQuestion(
+  groupId: number,
+  body: GroupQuestionCreateBody,
+): Promise<QuestionRead> {
+  const resp = await apiClient.post<QuestionRead>(
+    `/academic/question-groups/${groupId}/questions`,
+    body,
+    { headers: AUTH_HEADERS },
+  )
+  return resp.data
+}
+
+/**
+ * POST /academic/questions/{question_id}/images（multipart）→ QuestionImageRead。
+ *
+ * ⚠️ **不要**手写 'multipart/form-data'（手写值不带 boundary，浏览器 XHR 不会替你补
+ *    ⇒ FastAPI 收不到 multipart ⇒ 422，见 api/client.ts 的注释）。
+ * ⚠️ timeout 放宽到 60s（apiClient 全局 10s ⇒ 5MB 图在慢链路上会被前端先掐断）。
+ * ⚠️ 后端校验顺序：owner → 存在性 → 格式 → 单题 ≤ 10 张 → ≤ 5MB（详见 router）。
+ *
+ * 📌 **为什么放在 questionGroups.ts 而不是 api/images.ts**：
+ *    本笔 brief 的可改文件清单只有 5 个，`api/images.ts` 不在其中
+ *    ⇒ 不新建、不修改它；小题图的上传封装落在这里，题组抽屉与内联表单共用。
+ */
+export async function uploadQuestionImage(
+  questionId: number,
+  file: File,
+  fileExt: string,
+  orderIndex: number,
+): Promise<QuestionImageRead> {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('file_ext', fileExt)
+  form.append('order_index', String(orderIndex))
+  form.append('source', 'self_built')
+  const resp = await apiClient.post<QuestionImageRead>(
+    `/academic/questions/${questionId}/images`,
+    form,
+    { headers: AUTH_HEADERS, timeout: 60000 },
+  )
+  return resp.data
 }

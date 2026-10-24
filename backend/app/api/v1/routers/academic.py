@@ -1291,7 +1291,14 @@ def list_questions(
     keyword（M3-1b brief §1 改动 1）：
     - 用 SQLAlchemy .ilike()（跨 PG/SQLite 自动降级），不写裸 ILIKE SQL
     """
-    query = db.query(Question).filter(Question.owner_user_id == user_id)
+    # ⭐ **组内小题不进题库列表**（brief §10.1 · 1c-2 commit2）。
+    #    「小题属于题组、与题库无关」⇒ 组内题不该出现在题库里（会重复、total 虚增、
+    #    还会被抽题逻辑当题池抽到——那正是 D1(a) 要防的废题）。
+    #    要查组内小题一律走 GET /question-groups/{id}。
+    query = db.query(Question).filter(
+        Question.owner_user_id == user_id,
+        Question.group_id.is_(None),
+    )
     if chapter_id is not None:
         query = query.filter(Question.chapter_id == chapter_id)
     if difficulty is not None:
@@ -2001,7 +2008,7 @@ def _replace_group_blocks(
     db: Session,
     group: QuestionGroup,
     blocks: list[ContentBlockInput],
-) -> None:
+) -> list[str]:
     """整体替换题组材料块（brief §1：材料是序列，替换比增量安全）。
 
     ⚠️ content_blocks **无 FK** ⇒ 必须显式删旧块（补遗 §乙-2）。
@@ -2010,9 +2017,36 @@ def _replace_group_blocks(
 
     🔴 **校验先于删除**（星轨审查 P1-1）：`_check_group_image_ownership` 在
     删旧块**之前**跑 ⇒ 校验不过时旧块一根汗毛都不动（连 flush 都没发生）。
+
+    🔴 **P2-3：同时回收「旧块引用 ∧ 新块不再引用」的孤儿图**
+    （`docs/review-debt.md` P2-3 · 触发时机 = 1c-2 commit2 之前，已在本笔兑现）：
+    整体替换原本**只删块不删图** ⇒ 旧块引用的图在新块里没出现 ⇒ 那张图
+    **没人引用了**，但行还在 `question_images`（**计数虚高** ⇒ 撞 10 张上限时
+    「明明只用 3 张却报已达 10 张」）+ 文件还留在磁盘（孤儿文件）。
+    ⇒ 替换前算出该 image_id 集合，确认**全库**无块引用后删行；
+      **磁盘文件由调用方在 commit 成功后 unlink**（先落定 DB，再动磁盘）。
+
+    返回：待删的磁盘文件路径列表（调用方负责 commit 后 unlink）。
     """
     # ── 校验先行（不写库）──
     _check_group_image_ownership(db, group, blocks)
+
+    # ── 算孤儿图：旧块引用 ∧ 新块不引用 ──
+    old_image_ids = {
+        row[0]
+        for row in db.query(ContentBlock.image_id)
+        .filter(
+            ContentBlock.owner_type == "group",
+            ContentBlock.owner_id == group.id,
+            ContentBlock.image_id.isnot(None),
+        )
+        .all()
+        # ⚠️ SQLAlchemy 的 `.isnot(None)` **不窄化 Python 类型**（行类型仍是 int | None）
+        #    ⇒ 这里必须显式滤掉 None，否则 mypy 会拒绝 sorted(int | None)。
+        if row[0] is not None
+    }
+    new_image_ids = {b.image_id for b in blocks if b.image_id is not None}
+    orphan_image_ids = old_image_ids - new_image_ids
 
     db.execute(
         delete(ContentBlock).where(
@@ -2034,6 +2068,28 @@ def _replace_group_blocks(
                 meta=b.meta,
             )
         )
+
+    # ── 删孤儿图行（磁盘文件留给调用方 commit 后 unlink）──
+    storage_paths: list[str] = []
+    for image_id in sorted(orphan_image_ids):
+        # 全库兜底：仍有**任何**块引用它 ⇒ 不删
+        # （删图会触发 content_blocks.image_id 的 FK CASCADE，把那块连带删掉）
+        still_referenced = (
+            db.query(ContentBlock.id)
+            .filter(ContentBlock.image_id == image_id)
+            .count()
+        )
+        if still_referenced:
+            continue
+        img = db.get(QuestionImage, image_id)
+        if img is None:
+            continue
+        if img.storage_path:
+            storage_paths.append(img.storage_path)
+        db.delete(img)
+    if storage_paths:
+        db.flush()
+    return storage_paths
 
 
 @router.post(
@@ -2220,10 +2276,19 @@ def update_question_group(
         group.knowledge_points = kps
         db.flush()
 
+    orphan_storage_paths: list[str] = []
     if body.blocks is not None:
-        _replace_group_blocks(db, group, body.blocks)
+        orphan_storage_paths = _replace_group_blocks(db, group, body.blocks)
 
     db.commit()
+    # P2-3：孤儿图的**磁盘文件**在 DB commit **之后**才删（先落定，再动磁盘）
+    for path in orphan_storage_paths:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError as e:  # noqa: BLE001
+            logger.warning(
+                "清理已删除组材料图的磁盘文件失败 %s: %s（孤儿文件）", path, e
+            )
     db.refresh(group)
     return get_question_group(group_id, db, user_id)
 
@@ -2358,78 +2423,108 @@ def delete_question_group(
 @router.post(
     "/question-groups/{group_id}/questions",
     response_model=QuestionRead,
-    summary="挂小题到题组（brief §1 1a-2-2 + 丙-3 校验顺序 + 乙-4 难度派生）",
+    summary="在题组内新建小题（brief §10.2 · 组内建题，非「挂已有题」）",
     tags=["academic"],
 )
-def attach_question_to_group(
+def create_group_question(
     group_id: int,
     body: QuestionGroupQuestionCreate,
     db: Annotated[Session, Depends(get_db)],
     user_id: Annotated[int, Depends(get_current_user_id)],
 ) -> Question:
-    """POST /api/v1/academic/question-groups/{id}/questions — 挂小题。
+    """POST /api/v1/academic/question-groups/{id}/questions — **组内新建小题**。
 
-    校验顺序（丙-3，**不得调换**）：
-    1. group → 404 / owner 404
-    2. question → 404 / owner 404
-    3. question.chapter_id != group.chapter_id ⇒ 409「不在同一章节」
-    4. question.group_id is not None ⇒ 409（已在本组也走这里，message 区分）
-    5. UNIQUE(group_id, group_order) 命中 ⇒ 409「题序已被占用」
-    6. 写入三字段（group_id / group_order / difficulty）—— difficulty 由组派生（乙-4）
+    ⭐ 语义（1c-2 commit2 改 · brief §10.2 + 星轨 2026-10-24 15:50 裁决）：
+    旧实现是「挂一道**已存在**的题」⇒ 那是误用入口（调一次，题库里一道题就变成
+    组内小题、从题库消失）。现在改为**在组内新建**：
+    **建题 + 挂组同一事务** ⇒ 前端只调一次，
+    不存在「建了题没挂上」的中间态（brief §11 的风险直接消失）。
+
+    继承（写死，防绕过）：
+    - chapter_id  ← 题组章节
+    - difficulty  ← 题组难度（组是唯一写入源，乙-4）
+    - group_order ← 组内 `max+1`（**前端不传**；传了 = 422）
+
+    🔴 **算 `max+1` 前必须锁住组行**（星轨 10-24 15:50 裁决 · 必做补丁）：
+    前端不传 `group_order` 后，唯一还能撞 `UNIQUE(group_id, group_order)` 的路径
+    变成**并发** —— 两个请求同时读到 `max=2` 都给 `3` ⇒ 用户会看到
+    「题序已被占用」这种**他根本没做错任何事**的错。
+    ⇒ `SELECT ... FOR UPDATE` 串行化（比捕获 IntegrityError 重试更简单、更确定）。
     """
-    # 1. group
+    # 1. group（不存在 / 跨用户 ⇒ 404，不暴露存在性）
     group = _get_group_or_404(db, group_id, user_id)
 
-    # 2. question
-    question = db.get(Question, body.question_id)
-    if question is None:
+    # 2. 🔴 锁组行（串行化 max+1）
+    locked = (
+        db.query(QuestionGroup)
+        .filter(QuestionGroup.id == group.id)
+        .with_for_update()
+        .one_or_none()
+    )
+    if locked is None:  # 理论上不可达（上面已 404 过）—— 但不留 None 崩溃路径
         raise HTTPException(
-            status_code=404, detail=f"question_id {body.question_id} 不存在"
-        )
-    if question.owner_user_id != user_id:
-        raise HTTPException(
-            status_code=404, detail=f"question_id {body.question_id} 不存在"
-        )
-
-    # 3. 同章节守卫
-    if question.chapter_id != group.chapter_id:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"小题与题组不在同一章节"
-                f"（小题 chapter_id={question.chapter_id}，"
-                f"题组 chapter_id={group.chapter_id}）"
-            ),
+            status_code=404, detail=f"question_group {group_id} 不存在"
         )
 
-    # 4. 一题只能挂一组
-    if question.group_id is not None:
-        same = question.group_id == group.id
+    # 3. type 与 choices 一致性（与 create_question 同口径）
+    if body.type == QuestionType.CHOICE and not body.choices:
         raise HTTPException(
-            status_code=409,
-            detail=(
-                f"小题已在{'本' if same else '其他'}题组内"
-                f"（group_id={question.group_id}）"
-            ),
+            status_code=400, detail="choice 类型题目必须传 choices"
+        )
+    if body.type != QuestionType.CHOICE and body.choices:
+        raise HTTPException(
+            status_code=400, detail=f"{body.type.value} 类型题目不能传 choices"
         )
 
-    # 5. 题序唯一（走 DB 唯一约束，不是靠先查后插 —— 丙-3）
-    question.group_id = group.id
-    question.group_order = body.group_order
+    # 4. 知识点归属 + 必须属于**本题组章节**（小题章节 = 组章节 ⇒ KP 不能跨章）
+    kps = _check_knowledge_point_ownership(db, body.knowledge_point_ids, user_id)
+    for kp in kps:
+        if kp.chapter_id != group.chapter_id:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"知识点 {kp.id} 不在题组章节内"
+                    f"（题组 chapter_id={group.chapter_id}）"
+                ),
+            )
+
+    # 5. 题序 = 组内 max+1（**必须在锁行之后算**，见上）
+    max_order = (
+        db.query(func.max(Question.group_order))
+        .filter(Question.group_id == group.id)
+        .scalar()
+    )
+    group_order = 0 if max_order is None else int(max_order) + 1
+
+    # 6. 建题（章节/难度继承组）+ 挂组（同一事务）
+    q = Question(
+        owner_user_id=user_id,
+        chapter_id=group.chapter_id,
+        content=body.content,
+        difficulty=group.difficulty,
+        type=ORMQuestionType(body.type.value),
+        points=body.points,
+        answer_text=body.answer_text,
+        group_id=group.id,
+        group_order=group_order,
+    )
+    for c in body.choices:
+        q.choices.append(Choice(**c.model_dump()))
+    if kps:
+        q.knowledge_points = kps
+    db.add(q)
     try:
         db.flush()
     except IntegrityError as e:
+        # DB 唯一约束兜底（丙-3 防线**保留不动**：删用例 ≠ 删防线）
         db.rollback()
         raise HTTPException(
             status_code=409, detail="题序已被占用（group_id + group_order 唯一）"
         ) from e
 
-    # 6. 难度派生（组是唯一写入源）—— 与改组难度共用 _sync_group_difficulty
-    _sync_group_difficulty(db, group)
-
     db.commit()
-    db.refresh(question)
-    return question
+    db.refresh(q)
+    return q
 
 
 # ────────────── 组侧图片 4 端点（补遗 §乙-1；D4(a) 落地必需） ──────────────

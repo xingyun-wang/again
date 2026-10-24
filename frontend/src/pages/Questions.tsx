@@ -27,6 +27,7 @@ import {
   Row,
   Select,
   Space,
+  Spin,
   Table,
   Tag,
   Tooltip,
@@ -40,18 +41,37 @@ import QuestionDrawer from '../components/QuestionDrawer'
 import QuestionGroupDrawer from '../components/QuestionGroupDrawer'
 import QuestionImages from '../components/QuestionImages'
 import {
+  deleteQuestionGroup,
+  getQuestionGroup,
+  listQuestionGroups,
+} from '../api/questionGroups'
+import {
   DIFFICULTY_LABEL,
   TYPE_LABEL,
   TYPE_OPTIONS,
   errorMessageOf,
   type ChapterSummary,
+  type GroupQuestionRead,
   type KnowledgePointDetail,
+  type QuestionGroupDetail,
+  type QuestionGroupRead,
   type QuestionListResponse,
   type QuestionRead,
   type TextbookSummary,
 } from '../api/questionTypes'
 
 const { Title, Paragraph, Text } = Typography
+
+// ──────────────── 行模型（题组行 + 单题行同表） ────────────────
+//
+// ⚠️ **题组与单题是两张表、两套分页口径**（裁决 ③）：
+//   - 单题：分页（pagination 只管它，total 也只算它）
+//   - 题组：全量列（后端 GET /question-groups 无分页、无 total）
+//   ⇒ 合并到同一张展示表，但**分页与 total 绝不含题组**。
+type Row =
+  | { kind: 'question'; key: string; question: QuestionRead }
+  | { kind: 'group'; key: string; group: QuestionGroupRead }
+
 
 // ──────────────── 类型与显示名映射 ────────────────
 // 类型定义 / label 映射已抽到 api/questionTypes.ts（1c-1a 抽屉组件共用，避免两份定义漂移）
@@ -97,6 +117,14 @@ export default function Questions() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
 
+  // M3-1c-2 commit 2：题组列表（**独立 state**；全量、不分页、不并入单题 total）。
+  const [groups, setGroups] = useState<QuestionGroupRead[]>([])
+  const [groupsLoading, setGroupsLoading] = useState(false)
+  /** 展开题组行时懒加载的题组详情（小题摘要用） */
+  const [groupDetails, setGroupDetails] = useState<Record<number, QuestionGroupDetail>>({})
+  const [groupDetailLoadingId, setGroupDetailLoadingId] = useState<number | null>(null)
+  const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null)
+
   const [loading, setLoading] = useState(false)
   const [filterLoading, setFilterLoading] = useState(false)
   const [deletingId, setDeletingId] = useState<number | null>(null)
@@ -132,6 +160,9 @@ export default function Questions() {
   //    状态一次性归零。递增点只在 openGroupDrawer 里，关闭时不变。
   const [groupDrawerOpen, setGroupDrawerOpen] = useState(false)
   const [groupDrawerKey, setGroupDrawerKey] = useState(0)
+  // commit 2：题组抽屉的**编辑态入口**（列表页题组行 → mode="edit" + groupId）
+  const [groupDrawerMode, setGroupDrawerMode] = useState<'create' | 'edit'>('create')
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null)
 
   // ──────────────── 题目列表 ────────────────
 
@@ -166,6 +197,101 @@ export default function Questions() {
   useEffect(() => {
     void fetchQuestions()
   }, [fetchQuestions])
+
+  // ──────────────── 题组列表（1c-2 commit 2） ────────────────
+  //
+  // ⚠️ **与单题列表分开管理**（裁决 ③）：
+  //   - 独立 state（groups），**不并入** items / total / pagination；
+  //   - 后端 GET /question-groups **全量返回**（无分页、无 total）；
+  //   - 筛选只按 chapter_id（当前章节）；未选章节 = 不传该参数（全部题组）。
+
+  const fetchGroups = useCallback(async () => {
+    setGroupsLoading(true)
+    try {
+      const list = await listQuestionGroups(
+        chapterId === undefined ? undefined : { chapter_id: chapterId },
+      )
+      setGroups(list)
+    } catch (err) {
+      setGroups([])
+      setError(errorMessageOf(err, '题组列表加载失败'))
+    } finally {
+      setGroupsLoading(false)
+    }
+  }, [chapterId])
+
+  useEffect(() => {
+    void fetchGroups()
+  }, [fetchGroups])
+
+  /** 刷新两张表（题组 + 单题） */
+  const refreshAll = useCallback(async () => {
+    await Promise.all([fetchQuestions(), fetchGroups()])
+  }, [fetchQuestions, fetchGroups])
+
+  /** 展开题组行时懒加载题组详情（拿小题摘要；只读） */
+  const loadGroupDetail = useCallback(async (groupId: number) => {
+    setGroupDetailLoadingId(groupId)
+    try {
+      const detail = await getQuestionGroup(groupId)
+      setGroupDetails((prev) => ({ ...prev, [groupId]: detail }))
+    } catch (err) {
+      message.error(errorMessageOf(err, '题组小题加载失败'))
+    } finally {
+      setGroupDetailLoadingId(null)
+    }
+  }, [])
+
+  /**
+   * 删题组（二次确认，判据 D）。
+   *
+   * 1. 先 DELETE（**不带 force**）；
+   * 2. 409 ⇒ 弹确认框，**把后端 message 原样透出**（含小题数/材料图数/材料块数三个计数，
+   *    **前端不许自己算**）；
+   * 3. 用户确认后再 DELETE ...?force=true；
+   * 4. 成功后刷新题组列表 + 单题列表。
+   */
+  const onDeleteGroup = async (groupId: number) => {
+    setDeletingGroupId(groupId)
+    try {
+      await deleteQuestionGroup(groupId)
+      message.success('题组已删除')
+      await refreshAll()
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 409) {
+        // 后端 409 的 body.message 里带三个计数 ⇒ 原样透出
+        const backendMessage = errorMessageOf(err, '题组非空')
+        Modal.confirm({
+          title: '确认删除该题组？',
+          content: (
+            <Space direction="vertical" size={4}>
+              <Text>{backendMessage}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                删除后不可恢复（小题、材料图、材料块一并删除）。
+              </Text>
+            </Space>
+          ),
+          okText: '确认删除',
+          cancelText: '取消',
+          okButtonProps: { danger: true },
+          onOk: async () => {
+            try {
+              await deleteQuestionGroup(groupId, true)
+              message.success('题组已删除')
+              await refreshAll()
+            } catch (err2) {
+              message.error(errorMessageOf(err2, '删除题组失败'))
+            }
+          },
+        })
+      } else {
+        setError(errorMessageOf(err, '题组删除失败'))
+      }
+    } finally {
+      setDeletingGroupId(null)
+    }
+  }
 
   // ──────────────── 教材 / 章节 / 知识点 级联 ────────────────
 
@@ -280,52 +406,84 @@ export default function Questions() {
     }
   }
 
-  // ──────────────── 表格 9 列 ────────────────
+  // ──────────────── 表格 9 列（题组行 + 单题行同表） ────────────────
 
-  const columns: TableColumnsType<QuestionRead> = [
-    { title: 'ID', dataIndex: 'id', key: 'id', width: 72 },
+  const columns: TableColumnsType<Row> = [
+    {
+      title: 'ID',
+      key: 'id',
+      width: 150,
+      render: (_, record) =>
+        record.kind === 'group' ? (
+          <Space size="small">
+            <Tag color="blue">题组</Tag>
+            <Text>题组（{record.group.small_question_count} 小题）</Text>
+          </Space>
+        ) : (
+          <Text>{record.question.id}</Text>
+        ),
+    },
     {
       title: '题干摘要',
-      dataIndex: 'content',
       key: 'content',
       ellipsis: true,
-      render: (content: string) => (
-        <Tooltip title={content}>
-          <span>{previewOf(content)}</span>
-        </Tooltip>
-      ),
+      render: (_, record) =>
+        record.kind === 'group' ? (
+          <Tooltip title={`题组 #${record.group.id}`}>
+            <span>{`题组 #${record.group.id}（材料 + ${record.group.small_question_count} 道小题）`}</span>
+          </Tooltip>
+        ) : (
+          <Tooltip title={record.question.content}>
+            <span>{previewOf(record.question.content)}</span>
+          </Tooltip>
+        ),
     },
     {
       title: '题型',
-      dataIndex: 'type',
       key: 'type',
       width: 96,
-      render: (t: QuestionRead['type']) => TYPE_LABEL[t] ?? t,
+      render: (_, record) =>
+        record.kind === 'group' ? (
+          <Text type="secondary">—</Text>
+        ) : (
+          TYPE_LABEL[record.question.type] ?? record.question.type
+        ),
     },
     {
       title: '难度',
-      dataIndex: 'difficulty',
       key: 'difficulty',
       width: 110,
-      render: (d: QuestionRead['difficulty']) => (
-        <Tag color={d === 'A' ? 'purple' : d === 'B' ? 'orange' : d === 'C' ? 'blue' : 'green'}>
-          {DIFFICULTY_LABEL[d] ?? d}
-        </Tag>
-      ),
+      render: (_, record) => {
+        const d = record.kind === 'group' ? record.group.difficulty : record.question.difficulty
+        return (
+          <Tag color={d === 'A' ? 'purple' : d === 'B' ? 'orange' : d === 'C' ? 'blue' : 'green'}>
+            {DIFFICULTY_LABEL[d] ?? d}
+          </Tag>
+        )
+      },
     },
     {
       title: '分值',
-      dataIndex: 'points',
       key: 'points',
       width: 80,
       align: 'right',
+      render: (_, record) =>
+        record.kind === 'group' ? record.group.total_points : record.question.points,
     },
     {
       title: '知识点标签',
-      dataIndex: 'knowledge_point_names',
       key: 'knowledge_point_names',
-      render: (names: string[] | undefined) => {
-        const list = names ?? []
+      render: (_, record) => {
+        if (record.kind === 'group') {
+          // 题组只返 knowledge_point_ids（无名字）⇒ 如实报个数，不编名字
+          const n = record.group.knowledge_point_ids?.length ?? 0
+          return n === 0 ? (
+            <Text type="secondary">—</Text>
+          ) : (
+            <Text type="secondary">{n} 个知识点</Text>
+          )
+        }
+        const list = record.question.knowledge_point_names ?? []
         return list.length === 0 ? (
           <Text type="secondary">—</Text>
         ) : (
@@ -341,63 +499,181 @@ export default function Questions() {
     },
     {
       title: '图片数',
-      dataIndex: 'image_count',
       key: 'image_count',
       width: 90,
       align: 'right',
       // 区分「0 张」与「字段缺失」：缺失显示 —，0 仍显示 0（不谎报）
-      render: (n: number | undefined) =>
-        n === undefined ? <Text type="secondary">—</Text> : n,
+      render: (_, record) => {
+        if (record.kind === 'group') {
+          // QuestionGroupRead **没有** image_count 字段（后端 schema）⇒ 不编数字
+          return <Text type="secondary">—</Text>
+        }
+        const n = record.question.image_count
+        return n === undefined ? <Text type="secondary">—</Text> : n
+      },
     },
     {
       title: '更新时间',
-      dataIndex: 'updated_at',
       key: 'updated_at',
       width: 150,
-      render: (v: string) => formatTime(v),
+      render: (_, record) =>
+        formatTime(record.kind === 'group' ? record.group.updated_at : record.question.updated_at),
     },
     {
       title: '操作',
       key: 'actions',
-      width: 220,
-      render: (_, record) => (
-        <Space size="small">
-          <Button
-            size="small"
-            disabled={loading || deletingId !== null}
-            onClick={() => {
-              setDrawerMode('edit')
-              setEditingQuestion(record)
-              // 每次打开 = 新会话 ⇒ 重挂载（见 drawerKey 注释）
-              setDrawerKey((k) => k + 1)
-              setDrawerOpen(true)
-            }}
-          >
-            编辑
-          </Button>
-          <Button
-            size="small"
-            disabled={loading || deletingId !== null}
-            onClick={() => setGalleryQuestionId(record.id)}
-          >
-            看图
-          </Button>
-          <Popconfirm
-            title="删除该题目？"
-            description="删除后不可恢复（选项与知识点关联级联清理）。"
-            okText="删除"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-            onConfirm={() => onDelete(record.id)}
-          >
-            <Button size="small" danger loading={deletingId === record.id} disabled={loading}>
+      width: 260,
+      render: (_, record) =>
+        record.kind === 'group' ? (
+          <Space size="small">
+            <Button
+              size="small"
+              disabled={loading || groupsLoading || deletingGroupId !== null}
+              onClick={() => {
+                // 编辑态入口（commit 1 缺的那个）：沿用 groupDrawerKey 重挂载
+                setGroupDrawerMode('edit')
+                setEditingGroupId(record.group.id)
+                setGroupDrawerKey((k) => k + 1)
+                setGroupDrawerOpen(true)
+              }}
+            >
+              编辑
+            </Button>
+            {/* ⚠️ **不套 Popconfirm**：按 brief §3.4 第 1 条，
+                「用户点题组行的删除 ⇒ 先 DELETE（不带 force）」；
+                二次确认由后端 409 ⇒ Modal.confirm 承担（判据 D）。
+                （单题删除仍用 Popconfirm —— 那是既有行为，未动。） */}
+            <Button
+              size="small"
+              danger
+              loading={deletingGroupId === record.group.id}
+              disabled={loading || groupsLoading}
+              onClick={() => void onDeleteGroup(record.group.id)}
+            >
               删除
             </Button>
-          </Popconfirm>
-        </Space>
-      ),
+          </Space>
+        ) : (
+          <Space size="small">
+            <Button
+              size="small"
+              disabled={loading || deletingId !== null}
+              onClick={() => {
+                setDrawerMode('edit')
+                setEditingQuestion(record.question)
+                // 每次打开 = 新会话 ⇒ 重挂载（见 drawerKey 注释）
+                setDrawerKey((k) => k + 1)
+                setDrawerOpen(true)
+              }}
+            >
+              编辑
+            </Button>
+            <Button
+              size="small"
+              disabled={loading || deletingId !== null}
+              onClick={() => setGalleryQuestionId(record.question.id)}
+            >
+              看图
+            </Button>
+            <Popconfirm
+              title="删除该题目？"
+              description="删除后不可恢复（选项与知识点关联级联清理）。"
+              okText="删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => onDelete(record.question.id)}
+            >
+              <Button
+                size="small"
+                danger
+                loading={deletingId === record.question.id}
+                disabled={loading}
+              >
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        ),
     },
   ]
+
+  // ──────────────── 表格数据（题组行在前，单题行在后） ────────────────
+
+  const rows: Row[] = [
+    ...groups.map((g) => ({ kind: 'group' as const, key: `group-${g.id}`, group: g })),
+    ...items.map((q) => ({ kind: 'question' as const, key: `q-${q.id}`, question: q })),
+  ]
+
+  /** 题组行展开 ⇒ 内嵌小题摘要（只读） */
+  const expandedRowRender = (record: Row) => {
+    if (record.kind !== 'group') return null
+    const detail = groupDetails[record.group.id]
+    if (detail === undefined) {
+      return (
+        <Space>
+          <Spin size="small" />
+          <Text type="secondary">
+            {groupDetailLoadingId === record.group.id ? '加载小题…' : '暂无小题数据'}
+          </Text>
+        </Space>
+      )
+    }
+    const subQuestions = detail.questions ?? []
+    return (
+      <Table<QuestionRead>
+        size="small"
+        rowKey="id"
+        dataSource={subQuestions}
+        pagination={false}
+        columns={[
+          {
+            title: '题序',
+            key: 'order',
+            width: 90,
+            render: (_, q, idx) => {
+              const g = q as GroupQuestionRead
+              const order = typeof g.group_order === 'number' ? g.group_order : idx
+              return `第 ${order + 1} 题`
+            },
+          },
+          {
+            title: '题干',
+            dataIndex: 'content',
+            key: 'content',
+            ellipsis: true,
+            render: (c: string) => (
+              <Tooltip title={c}>
+                <span>{previewOf(c)}</span>
+              </Tooltip>
+            ),
+          },
+          {
+            title: '题型',
+            dataIndex: 'type',
+            key: 'type',
+            width: 96,
+            render: (t: QuestionRead['type']) => TYPE_LABEL[t] ?? t,
+          },
+          {
+            title: '分值',
+            dataIndex: 'points',
+            key: 'points',
+            width: 80,
+            align: 'right',
+          },
+          {
+            title: '图数',
+            dataIndex: 'image_count',
+            key: 'image_count',
+            width: 80,
+            align: 'right',
+            render: (n: number | undefined) =>
+              n === undefined ? <Text type="secondary">—</Text> : n,
+          },
+        ]}
+      />
+    )
+  }
 
   return (
     <>
@@ -425,6 +701,8 @@ export default function Questions() {
             disabled={loading}
             onClick={() => {
               // 每次打开 = 新会话 ⇒ 重挂载（见 groupDrawerKey 注释）
+              setGroupDrawerMode('create')
+              setEditingGroupId(null)
               setGroupDrawerKey((k) => k + 1)
               setGroupDrawerOpen(true)
             }}
@@ -551,14 +829,25 @@ export default function Questions() {
       )}
 
       <Card size="small">
-        <Table<QuestionRead>
-          rowKey="id"
+        <Table<Row>
+          rowKey="key"
           columns={columns}
-          dataSource={items}
-          loading={loading}
+          dataSource={rows}
+          loading={loading || groupsLoading}
           size="middle"
           scroll={{ x: 1200 }}
+          expandable={{
+            // 只有题组行可展开（单题行不展开）
+            rowExpandable: (record) => record.kind === 'group',
+            expandedRowRender,
+            onExpand: (expanded, record) => {
+              if (expanded && record.kind === 'group') {
+                void loadGroupDetail(record.group.id)
+              }
+            },
+          }}
           pagination={{
+            // ⚠️ pagination **只管单题**：total 不含题组（裁决 ③ / 判据 J）
             current: page,
             pageSize,
             total,
@@ -597,14 +886,14 @@ export default function Questions() {
       />
       {/* M3-1c-2 commit 1：题组抽屉（材料层）。
           key 变化 = 整体重挂载 = 状态归零（见 groupDrawerKey 注释）。
-          commit 2 会在这里再挂一个编辑态入口（列表页题组行）。 */}
+          commit 2：mode / groupId 由列表页的「新建题组」与题组行「编辑」驱动。 */}
       <QuestionGroupDrawer
         key={groupDrawerKey}
         open={groupDrawerOpen}
-        mode="create"
-        groupId={null}
+        mode={groupDrawerMode}
+        groupId={editingGroupId}
         onClose={() => setGroupDrawerOpen(false)}
-        onSaved={() => void fetchQuestions()}
+        onSaved={() => void refreshAll()}
       />
     </>
   )

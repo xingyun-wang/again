@@ -37,6 +37,23 @@ export interface ChoiceRead {
   order_index: number
 }
 
+/**
+ * 选项**输入**类型（后端 ChoiceBase，schemas/academic.py:435）。
+ *
+ * ⚠️ **与 brief 的字面表述有出入（已核源）**：
+ *    brief §3.1 写「后端 ChoiceBase = content + is_correct」，但**实际源码**的
+ *    ChoiceBase 是 4 字段：label（**必填**，DB 列 String(8) NOT NULL）/ content（必填）
+ *    / is_correct（默认 false）/ order_index（默认 0）。
+ *    ⇒ 这里按**实际源码**定义（label 必填），前端两条路径都发 label；
+ *      「只发 content+is_correct」的兜底重试见 api/questionGroups.ts 的 createGroupQuestion。
+ */
+export interface ChoiceInput {
+  label: string
+  content: string
+  is_correct: boolean
+  order_index?: number
+}
+
 /** GET /questions → QuestionRead */
 export interface QuestionRead {
   id: number
@@ -62,6 +79,25 @@ export interface QuestionListResponse {
   total: number
 }
 
+/** 题型（后端 QuestionType 字面量：choice / fill / subjective） */
+export type QuestionType = QuestionRead['type']
+
+/**
+ * 组内小题（后端 QuestionRead + 题组字段）。
+ *
+ * ⚠️ **与 brief 的字面表述有出入（已核源）**：
+ *    brief §1 说「QuestionRead 里已有 group_id / group_order 字段」，但
+ *    - 前端 `QuestionRead`（本文件）**没有**这两个字段；
+ *    - 后端 `QuestionRead`（schemas/academic.py:502）**也没有**（响应模型不带）。
+ *    ⇒ 按「只许新增类型，不许改已有类型的字段」的约束，这里用**新类型**承载，
+ *      不动 QuestionRead 本体；group_order 缺失时按数组下标兜底
+ *      （后端 GET /question-groups/{id} 已按 group_order 升序返回）。
+ */
+export interface GroupQuestionRead extends QuestionRead {
+  group_id?: number | null
+  group_order?: number | null
+}
+
 /**
  * GET /questions/{id}/images → QuestionImageSummary（1c-1c 裁决）。
  * 🔴 刻意只 4 字段：后端不返 storage_path / oss_object_key /
@@ -81,6 +117,15 @@ export interface QuestionImageSummary {
  * storage_path / oss_object_key / desensitization_status / uploaded_by_user_id
  * 等内部字段，后端 schema 就是这个形状 ⇒ 前端照抄，不要自己"精简"。
  */
+/**
+ * 后端 QuestionImageRead（**题图上传**返回体）。
+ *
+ * 📌 与上面的 QuestionGroupImageRead 是**同一个后端 schema**
+ *    （schemas/academic.py 的 QuestionImageRead，题图 / 组图上传共用）⇒
+ *    这里只是换个名字便于按「题图」语义引用，不是新结构。
+ */
+export type QuestionImageRead = QuestionGroupImageRead
+
 export interface QuestionGroupImageRead {
   id: number
   order_index: number
