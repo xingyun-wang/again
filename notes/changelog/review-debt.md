@@ -62,3 +62,53 @@
 > 门禁第 9/10 项**不受影响**（本文件不含 `backend/app/...:行号` 形式的 mypy 引用）。
 >
 > **来源**：星轨 OUTBOX #2（T3）+ 星云 2026-10-23 23:19 四问答复 + 宿主/容器实测
+
+---
+
+> **【2026-10-24 23:5x 变更说明 · docs/review-debt.md（批 1 六条欠账全部销账）】**
+>
+> **修订范围**：批 1 全部 **6 条**（P2 × 5 + P3 × 1）划「已修」+ 各条补修法与回归网指针 + 新增顶部「销账状态」段
+>
+> 1. **⭐ 顶部新增「销账状态（2026-10-24 22:xx）」段** —— 明写 **6 条全部已修**：
+>    P2-3 + P3-1 在 `4450007`；P2-1 + P2-2 + P2-4 + P2-5 在本笔。
+>    并列出**回归网入口**（4 条新用例在 `backend/tests/api/v1/test_review_debt_p2.py`）与证据文件指针。
+>
+> 2. **P2-1（删组漏 unlink 小题题图）** —— 补修法：删组前**同时**收两批 `storage_path`
+>    （`group_id` 侧组图 + `question_id` 侧小题题图）⇒ commit 后逐个 unlink；
+>    两批不重复由 XOR CHECK（`ck_question_images_owner_not_null`）保证；
+>    题组删除仍走 DB 级 `ON DELETE CASCADE`（**不走 ORM de-associate**）。
+>    回归网：`test_p2_1_delete_group_reclaims_group_question_image_file`。
+>
+> 3. **P2-2（5xx 拼 `{e}`）** —— 补修法（`INTERNAL_ERROR_MESSAGE` 固定文案 + 细节只进 `logger.exception`）
+>    + **核源真值表**（AST 全量统计，容器 py3.11）：
+>    `academic.py` 的「5xx 且 detail 含异常文本」**改前 15 → 改后 0**，HTTPException 总数 90 → 90（只换文案不删站点）；
+>    残留 6 处 4xx 含 `str(e)` 全是**受控业务文案** ⇒ 按本文件「4xx 保留业务信息」口径保留。
+>    ⇒ 改前 15 与本条登记的「实测 15 处」**完全对上**（星轨报告的 9 处 / 我登记的修正数均得到复核）。
+>    回归网：`test_p2_2_5xx_message_must_not_leak_internal_details`。
+>
+> 4. **P2-4（删题不 unlink 题图）** —— 补修法 + **⭐ 记录一个新踩的坑**：
+>    `Question.images` 是 `lazy="selectin"` ⇒ 集合被**缓存**在 identity map；session `expire_on_commit=False` ⇒ commit 不刷新它；
+>    上传端点先 `db.get(Question,...)`（集合此刻为空）再 `db.add(image)` 直插行（**不进集合**）
+>    ⇒ 删题时读 `q.images` 拿到**陈旧空集合** ⇒ 磁盘文件永远不删。
+>    ⇒ 修法：**显式 query** 取路径。**这条坑不在原台账上，是本轮新踩的** ⇒ 写进台账免得下次重犯。
+>    回归网：`test_p2_4_delete_question_reclaims_question_image_file`（本轮当场抓出我第一版的错）。
+>
+> 5. **P2-5（大小上限共用常量）** —— 补修法：拆成 `MAX_QUESTION_IMAGE_BYTES` / `MAX_GROUP_IMAGE_BYTES`
+>    （值相同 5MB 但**不是彼此的别名**），组图路径改用后者。
+>    ⚠️ 注明**本条当前无功能差异** ⇒ 页面级看不出变化 ⇒ 只能核代码常量。
+>    回归网：`test_p2_5_question_and_group_image_size_limits_are_separate_constants`。
+>
+> 6. **⭐ P3-1 台账失实更正** —— 本条原写「星轨已受理，1c-2 commit2 已列入改造范围」（= 仍欠账），
+>    但**代码真值** `academic.py:1303` 已有 `Question.group_id.is_(None)`，
+>    `git log -S` 唯一命中 **`4450007`** ⇒ **P3-1 早已修完，是台账漏划** ⇒ 本轮补记并划「已修」。
+>    ⇒ 连带更正上轮 `STATE.md` 里「P2-1/P2-4/P2-5 + P3-1 仍在」的同样失实。
+>    （纪律：行号会漂，**以代码为准** ⇒ 台账与代码不一致时按代码改台账。）
+>
+> **影响范围**：
+> - `docs/review-debt.md` 批 1 段：6 条全部划「已修」+ 补修法与回归网。
+> - 门禁第 9/10 项**不受影响**（本文件不含 `backend/app/...:行号` 形式的 mypy 引用）。
+>
+> **来源**：星轨 OUTBOX #7（2026-10-24 21:10）+《欠账-1c-2 验收未过项（2026-10-24）》+
+> 载曜逐条核源（AST 统计在容器 py3.11 跑的）+ 独立只读审计子代理报告（27 站点分类）
+> + 页面级自检（Playwright + Chromium，WSL）
+> **证据**：`交付物/运行时证据-1c-2 P2P3 + 批1 P2 清账（2026-10-24）.md`

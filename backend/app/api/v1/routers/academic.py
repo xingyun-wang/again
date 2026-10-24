@@ -75,6 +75,7 @@ from app.api.v1.schemas.academic import (
     TextbookSummary,
     TextbookUploadResponse,
 )
+from app.core.errors import INTERNAL_ERROR_MESSAGE
 from app.core.llm.factory import get_llm_provider
 from app.core.llm.provider import LLMProvider
 from app.db.session import get_db
@@ -294,7 +295,7 @@ def upload_textbook(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:  # noqa: BLE001
         logger.exception("PDF 文件读取失败: filename=%s", file.filename)
-        raise HTTPException(status_code=400, detail=f"文件读取失败：{e}") from e
+        raise HTTPException(status_code=400, detail="文件读取失败，请检查文件后重试") from e
 
     # 2. 流式落盘（magic bytes 已被消费；前缀写到文件头）+ 500MB cap
     pending_path: Path | None = None
@@ -336,7 +337,7 @@ def upload_textbook(
         if pending_path is not None and pending_path.exists():
             with contextlib.suppress(OSError):
                 pending_path.unlink()
-        raise HTTPException(status_code=500, detail=f"教材上传失败：{e}") from e
+        raise HTTPException(status_code=500, detail=INTERNAL_ERROR_MESSAGE) from e
 
     return TextbookUploadResponse(
         textbook_id=textbook.id,
@@ -519,8 +520,8 @@ def extract_chapter(
         logger.exception("chapter extract LLM call failed: chapter_id=%s", chapter_id)
         # 422 业务错误（解析失败）；500 上游错误
         if isinstance(e, ValueError):
-            raise HTTPException(status_code=422, detail=f"LLM 返回结构异常：{e}") from e
-        raise HTTPException(status_code=502, detail=f"LLM 调用失败：{e}") from e
+            raise HTTPException(status_code=422, detail="AI 返回内容格式异常，请重试") from e
+        raise HTTPException(status_code=502, detail=INTERNAL_ERROR_MESSAGE) from e
 
     model_name = getattr(llm, "_chat_model", "deepseek-chat")
     now = datetime.now(timezone.utc)  # noqa: UP017 (3.8 兼容)
@@ -560,7 +561,7 @@ def extract_chapter(
     except Exception as e:
         db.rollback()
         logger.exception("chapter extract DB write failed: chapter_id=%s", chapter_id)
-        raise HTTPException(status_code=500, detail=f"DB write failed: {e}") from e
+        raise HTTPException(status_code=500, detail=INTERNAL_ERROR_MESSAGE) from e
 
     return ChapterExtractResponse(
         chapter_id=chapter.id,
@@ -768,7 +769,7 @@ def review_chapter(
     except Exception as e:
         db.rollback()
         logger.exception("chapter review DB write failed: chapter_id=%s", chapter_id)
-        raise HTTPException(status_code=500, detail=f"DB write failed: {e}") from e
+        raise HTTPException(status_code=500, detail=INTERNAL_ERROR_MESSAGE) from e
 
     return ChapterReviewResponse(
         review_id=latest_review.id,
@@ -932,7 +933,7 @@ def generate_lesson_plan(
         )
     except RuntimeError as e:
         logger.exception("lesson-plan LLM call failed: chapter_id=%s", body.chapter_id)
-        raise HTTPException(status_code=502, detail=f"LLM 调用失败：{e}") from e
+        raise HTTPException(status_code=502, detail=INTERNAL_ERROR_MESSAGE) from e
 
     model_name = getattr(llm, "_chat_model", "deepseek-chat")
     now = datetime.now(timezone.utc)  # noqa: UP017 (3.8 兼容)
@@ -957,7 +958,7 @@ def generate_lesson_plan(
     except Exception as e:
         db.rollback()
         logger.exception("lesson-plan DB write failed: chapter_id=%s", body.chapter_id)
-        raise HTTPException(status_code=500, detail=f"DB write failed: {e}") from e
+        raise HTTPException(status_code=500, detail=INTERNAL_ERROR_MESSAGE) from e
 
     return LessonPlanResponse(
         id=lp.id,
@@ -1066,7 +1067,7 @@ def review_lesson_plan(
     except Exception as e:
         db.rollback()
         logger.exception("lesson-plan review DB write failed: lesson_plan_id=%s", lesson_plan_id)
-        raise HTTPException(status_code=500, detail=f"DB write failed: {e}") from e
+        raise HTTPException(status_code=500, detail=INTERNAL_ERROR_MESSAGE) from e
 
     return LessonPlanReviewResponse(
         id=lp.id,
@@ -1421,6 +1422,11 @@ def delete_question(
 
     Choice rows 由 cascade 自动清理（all, delete-orphan）。
     question_knowledge_points 关联表由 FK CASCADE 自动清理。
+
+    ⚠️ P2-4（review-debt 批 1）：题图行随 Question 的 delete-orphan 级联被删
+    ⇒ **磁盘文件**却留着（孤儿文件）。
+    ⇒ 删前记下 storage_path，commit 之后再 unlink（先落定 DB，再动磁盘）。
+    （对照：DELETE /questions/{id}/images/{image_id} 早就有 unlink。）
     """
     q = db.get(Question, question_id)
     if q is None:
@@ -1428,8 +1434,33 @@ def delete_question(
             status_code=404, detail=f"question_id {question_id} 不存在"
         )
     _enforce_owner_or_404(q, user_id)
+    # 记路径（ORM 级联会删行，但不会删磁盘文件）
+    #
+    # ⚠️ **必须用显式 query，不能用 `q.images` 关系集合**：
+    #    `Question.images` 是 lazy="selectin" ⇒ 首次访问就把集合**加载并缓存**在
+    #    identity map 里；测试/业务用的 session 是 expire_on_commit=False ⇒
+    #    后续 commit **不刷新**它。
+    #    而上传端点是先 `db.get(Question, ...)`（此刻集合 = 空）→ 再 `db.add(image)`
+    #    直插 QuestionImage 行（**不进集合**）⇒ 删题时读 `q.images` 拿到的是
+    #    **陈旧的空集合** ⇒ storage_paths 为空 ⇒ 磁盘文件永远不删。
+    #    显式 query 永远打 DB ⇒ 拿到真值。
+    storage_paths = [
+        row.storage_path
+        for row in db.query(QuestionImage)
+        .filter(QuestionImage.question_id == question_id)
+        .all()
+        if row.storage_path
+    ]
     db.delete(q)
     db.commit()
+    # best-effort unlink 磁盘文件（DB 已 commit；删失败只 log，不抛 5xx）
+    for storage_path in storage_paths:
+        try:
+            Path(storage_path).unlink(missing_ok=True)
+        except OSError as e:  # noqa: BLE001
+            logger.warning(
+                "清理已删题目的题图磁盘文件失败 %s: %s（孤儿文件）", storage_path, e
+            )
 
 
 # ─────────────── M2-A.1 题目图片承载 3 endpoint（v0.5 §3.4 + brief §5） ────────
@@ -1455,7 +1486,14 @@ def delete_question(
 
 
 # 5MB 限制（brief §5.3；与 nginx client_max_body_size 同步）
+#
+# ⚠️ P2-5（review-debt 批 1）：原来只有 MAX_QUESTION_IMAGE_BYTES，**组图也用它** ⇒
+#    命名与语义不符（「QUESTION」却管着 group 的图）⇒ 将来调「单题图 10MB」会**误伤组图**。
+#    ⇒ 拆成两个**各自独立**的常量（当前同值 5MB；日后各调各的，互不影响）。
+#    （前端 ContentBlockEditor / InlineQuestionForm / QuestionDrawer 同样是两个独立常量。）
 MAX_QUESTION_IMAGE_BYTES = 5 * 1024 * 1024
+# 组材料图上限（题组材料的图片；与单题图各自可调）
+MAX_GROUP_IMAGE_BYTES = 5 * 1024 * 1024
 
 # 单题最多 10 张图（brief §5.3；50→10 降一档降落地复杂度）
 MAX_IMAGES_PER_QUESTION = 10
@@ -1600,7 +1638,7 @@ def upload_question_image(
             "QuestionImage INSERT flush failed: question_id=%s", question_id
         )
         raise HTTPException(
-            status_code=500, detail=f"DB write failed: {e}"
+            status_code=500, detail=INTERNAL_ERROR_MESSAGE
         ) from e
 
     # 7. 路径模板 + 写文件（仿 service 模式：D-28 第 4 条可证伪 = 流式 + 5MB cap）
@@ -1623,8 +1661,9 @@ def upload_question_image(
         target_path.parent.mkdir(parents=True, exist_ok=True)
     except OSError as e:
         db.rollback()
+        logger.exception("创建图片目录失败: path=%s", target_path.parent)
         raise HTTPException(
-            status_code=500, detail=f"创建目录失败 {target_path.parent}: {e}"
+            status_code=500, detail=INTERNAL_ERROR_MESSAGE
         ) from e
 
     bytes_written = 0
@@ -1649,8 +1688,9 @@ def upload_question_image(
         with contextlib.suppress(OSError):
             target_path.unlink(missing_ok=True)
         db.rollback()
+        logger.exception("写入图片文件失败: path=%s", target_path)
         raise HTTPException(
-            status_code=500, detail=f"文件写入失败 {target_path}: {e}"
+            status_code=500, detail=INTERNAL_ERROR_MESSAGE
         ) from e
 
     # 8. commit + refresh
@@ -1664,7 +1704,7 @@ def upload_question_image(
         logger.exception(
             "QuestionImage commit failed: image_id=%s", image.id
         )
-        raise HTTPException(status_code=500, detail=f"DB write failed: {e}") from e
+        raise HTTPException(status_code=500, detail=INTERNAL_ERROR_MESSAGE) from e
 
     # checksum 暂不强制校验（本阶段 M2-A.1；M3+ 加服务端校验）
     _ = checksum  # noqa: F841  # 避免未用警告
@@ -1880,7 +1920,7 @@ def delete_question_image(
         logger.exception(
             "QuestionImage DELETE commit failed: image_id=%s", image_id
         )
-        raise HTTPException(status_code=500, detail=f"DB write failed: {e}") from e
+        raise HTTPException(status_code=500, detail=INTERNAL_ERROR_MESSAGE) from e
 
     # best effort 删磁盘文件（DB 已 commit；删失败只 log，不抛 500）
     if storage_path:
@@ -2368,6 +2408,17 @@ def delete_question_group(
         )
 
     # 3. 记录 storage_path 供后面 unlink（DB 已 commit 后才删文件）
+    #
+    # ⚠️ P2-1（review-debt 批 1）：**组内小题自己的题图**（question_id 侧）也要收 ——
+    #    组被删 ⇒ questions 被 DB 级 CASCADE 带走 ⇒ 它们的 question_images 行
+    #    也被 CASCADE 带走（行没了）⇒ **磁盘文件却留下** ⇒ 孤儿文件只涨不跌。
+    #    原来只收 group_id 侧（组图）⇒ 小题题图全漏。
+    #
+    #    （XOR CHECK 保证 question_id 侧与 group_id 侧互斥 ⇒ 两批路径不重复。）
+    group_question_ids = [
+        row[0]
+        for row in db.query(Question.id).filter(Question.group_id == group.id).all()
+    ]
     storage_paths = [
         row.storage_path
         for row in db.query(QuestionImage)
@@ -2375,6 +2426,14 @@ def delete_question_group(
         .all()
         if row.storage_path
     ]
+    if group_question_ids:
+        storage_paths += [
+            row.storage_path
+            for row in db.query(QuestionImage)
+            .filter(QuestionImage.question_id.in_(group_question_ids))
+            .all()
+            if row.storage_path
+        ]
 
     # 4. 显式删块（无 FK，只能靠应用层）
     db.execute(
@@ -2629,7 +2688,7 @@ def upload_group_image(
             "QuestionImage INSERT flush failed: group_id=%s", group_id
         )
         raise HTTPException(
-            status_code=500, detail=f"DB write failed: {e}"
+            status_code=500, detail=INTERNAL_ERROR_MESSAGE
         ) from e
 
     # 落盘路径：{UPLOAD_ROOT}/{chapter_id}/group_{group_id}/{image_id}.{ext}
@@ -2645,8 +2704,9 @@ def upload_group_image(
         target_path.parent.mkdir(parents=True, exist_ok=True)
     except OSError as e:
         db.rollback()
+        logger.exception("创建图片目录失败: path=%s", target_path.parent)
         raise HTTPException(
-            status_code=500, detail=f"创建目录失败 {target_path.parent}: {e}"
+            status_code=500, detail=INTERNAL_ERROR_MESSAGE
         ) from e
 
     bytes_written = 0
@@ -2657,9 +2717,9 @@ def upload_group_image(
                 if not chunk:
                     break
                 bytes_written += len(chunk)
-                if bytes_written > MAX_QUESTION_IMAGE_BYTES:
+                if bytes_written > MAX_GROUP_IMAGE_BYTES:
                     raise UploadTooLargeError(
-                        f"文件超出 {MAX_QUESTION_IMAGE_BYTES // (1024 * 1024)} MB 上限"
+                        f"文件超出 {MAX_GROUP_IMAGE_BYTES // (1024 * 1024)} MB 上限"
                     )
                 f.write(chunk)
     except UploadTooLargeError as e:
@@ -2671,8 +2731,9 @@ def upload_group_image(
         with contextlib.suppress(OSError):
             target_path.unlink(missing_ok=True)
         db.rollback()
+        logger.exception("写入图片文件失败: path=%s", target_path)
         raise HTTPException(
-            status_code=500, detail=f"文件写入失败 {target_path}: {e}"
+            status_code=500, detail=INTERNAL_ERROR_MESSAGE
         ) from e
 
     try:
@@ -2685,7 +2746,7 @@ def upload_group_image(
         logger.exception(
             "QuestionImage commit failed: image_id=%s", image.id
         )
-        raise HTTPException(status_code=500, detail=f"DB write failed: {e}") from e
+        raise HTTPException(status_code=500, detail=INTERNAL_ERROR_MESSAGE) from e
 
     return image
 
@@ -2805,7 +2866,7 @@ def delete_group_image(
         logger.exception(
             "QuestionImage DELETE commit failed: image_id=%s", image_id
         )
-        raise HTTPException(status_code=500, detail=f"DB write failed: {e}") from e
+        raise HTTPException(status_code=500, detail=INTERNAL_ERROR_MESSAGE) from e
 
     if storage_path:
         try:

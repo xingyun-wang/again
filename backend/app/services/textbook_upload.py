@@ -269,14 +269,15 @@ def upload_textbook_with_extraction(
     try:
         # ───────── 1. magic bytes 校验（全量读 5 字节；C 工地可能改流式） ─────────
         if not pending_path.exists():
-            raise TextbookUploadError(f"PDF 文件不存在: {file_path}")
+            raise TextbookUploadError("PDF 文件不存在")
         if not pending_path.is_file():
-            raise TextbookUploadError(f"PDF 路径不是文件: {file_path}")
+            raise TextbookUploadError("PDF 路径不是文件")
         try:
             with open(pending_path, "rb") as f:
                 head = f.read(len(PDF_MAGIC_PREFIX))
         except OSError as e:  # noqa: BLE001
-            raise TextbookUploadError(f"PDF 文件读取失败：{e}") from e
+            logger.exception("PDF 文件读取失败: path=%s", pending_path)
+            raise TextbookUploadError("PDF 文件读取失败") from e
         if len(head) < len(PDF_MAGIC_PREFIX):
             raise TextbookUploadError(
                 f"文件过小（{len(head)} bytes），不是有效 PDF"
@@ -294,7 +295,8 @@ def upload_textbook_with_extraction(
                 extractor.extract_chapter_structure_with_source(str(pending_path))
             )
         except (FileNotFoundError, ValueError, RuntimeError) as e:
-            raise TextbookUploadError(f"PDF 解析失败：{e}") from e
+            logger.exception("PDF 解析失败: path=%s", pending_path)
+            raise TextbookUploadError("PDF 解析失败") from e
         if not structure.chapters:
             raise TextbookUploadError("PDF 解析未识别到任何章节（文档可能损坏或为空）")
         chapters_struct = structure.chapters
@@ -312,8 +314,13 @@ def upload_textbook_with_extraction(
                     str(pending_path), cs.page_range
                 )
             except (ValueError, RuntimeError) as e:
+                logger.exception(
+                    "章节正文抽取失败: chapter_number=%s path=%s",
+                    cs.chapter_number,
+                    pending_path,
+                )
                 raise TextbookUploadError(
-                    f"章节 {cs.chapter_number} 正文抽取失败：{e}"
+                    f"章节 {cs.chapter_number} 正文抽取失败"
                 ) from e
             text = "\n".join(p.text for p in pages).strip()
             if not text:
@@ -352,7 +359,8 @@ def upload_textbook_with_extraction(
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
         except OSError as e:  # noqa: BLE001
-            raise TextbookUploadError(f"创建 uploads 目录失败 {target_dir}：{e}") from e
+            logger.exception("创建 uploads 目录失败: dir=%s", target_dir)
+            raise TextbookUploadError("创建上传目录失败") from e
 
         original_name = pending_path.name
         target_path = target_dir / original_name
@@ -371,7 +379,8 @@ def upload_textbook_with_extraction(
         try:
             shutil.move(str(pending_path), str(target_path))
         except OSError as e:  # noqa: BLE001
-            raise TextbookUploadError(f"PDF 落盘失败：{e}") from e
+            logger.exception("PDF 落盘失败: path=%s", target_path)
+            raise TextbookUploadError("PDF 落盘失败") from e
 
         # ───────── 7. 更新 file_path + 写入 Chapter 行 ─────────
         textbook.file_path = (
@@ -388,10 +397,15 @@ def upload_textbook_with_extraction(
             # — 上传响应里 source='detected' 但没真经过 extractor；verify 段 B
             # 门槛抓不到但本质错。此处显式 raise：让 fail-open 实现立刻暴露。
             if src is None:
-                raise TextbookUploadError(
-                    f"chapter {cs.chapter_number}: extraction_source 是 None，"
-                    "service 必须显式传 extraction_source（D-37 G2 fail-closed）"
+                # ⚠️ P2-2 收尾（review-debt 批 1）：这条消息原样进 400 响应体 ⇒
+                #    会把**内部设计**（字段名 + 规则号 + fail-closed 实现口径）
+                #    透给客户端 ⇒ 内部细节只进日志，客户端拿受控文案。
+                logger.error(
+                    "extraction_source is None: chapter_number=%s "
+                    "service 必须显式传 extraction_source（D-37 G2 fail-closed）",
+                    cs.chapter_number,
                 )
+                raise TextbookUploadError("教材上传失败，请稍后重试")
             ch = Chapter(
                 textbook_id=textbook.id,
                 chapter_number=cs.chapter_number,
@@ -430,7 +444,8 @@ def upload_textbook_with_extraction(
             db.commit()
         except Exception as e:  # noqa: BLE001
             db.rollback()
-            raise TextbookUploadError(f"DB 写入失败：{e}") from e
+            logger.exception("教材 DB 写入失败: textbook_id=%s", textbook.id)
+            raise TextbookUploadError("数据保存失败，请稍后重试") from e
 
         # ───────── 8. refresh 拿到 created_at + id ─────────
         db.refresh(textbook)
@@ -457,4 +472,4 @@ def upload_textbook_with_extraction(
         db.rollback()
         _cleanup_files(target_path, pending_path)
         logger.exception("教材上传意外失败: name=%s", name)
-        raise TextbookUploadError(f"教材上传失败：{e}") from e
+        raise TextbookUploadError("教材上传失败，请稍后重试") from e

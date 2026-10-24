@@ -1504,3 +1504,110 @@ subagent silent failure 锁定）。
 
 `WAKEUP.md`｜`notes/milestones.md`（§12/§13）｜`notes/changelog/STATE.md`｜`docs/review-debt.md`
 ｜`交付物/运行时证据-*.md`（L1–L4）｜`zaiyao-memory`
+
+## §15 1c-2 欠账 P2/P3 + 审查批 1 六条欠账清账（2026-10-24 23:5x STATE.md 主体迁出 · D-77 承接）
+> **迁出原因**：本轮更新后 STATE 再次超软上限（3072 B）⇒ 按 D-77 迁出主体，保留指针。
+> 下列正文为**迁出前 STATE.md 的原文（一字未删）**。
+
+## 一、当前状态
+
+| 项 | 状态 | 关键事实 |
+|---|---|---|
+| **1a-2 题组+块表+API** | ✅ 完成 | 3 新表 + 10 端点 |
+| **审查批 1** | ✅ **2×P1 + 5×P2 + 1×P3 全清** | 0×P0 |
+| **1c-2 commit1 前端材料层** | ✅ 星轨已签收 | 7 文件；C/H 过 |
+| **1c-2 T1 P1（取消⇒孤儿图）** | ✅ 星轨已核（双绿） | 2 前端文件；取消后 `GET /images`=0 |
+| **1c-2 commit2** | ✅ 代码落地，**页面级待星轨** | 后端 3 处 + 内联小题 + 题组行 + 删组确认；pytest 379 passed |
+| **1c-2 欠账 P2/P3** | ✅ 代码落地，**页面级待星轨** | P2 列表刷新 + P3 裁 `?force=true`；pytest 383 passed |
+| **P2 欠账** | ✅ **批 1 六条全清** | `docs/review-debt.md`（P2-1/2/4/5 本笔；P2-3+P3-1 上笔） |
+
+## 二、硬约束（全文见 §15）
+
+1. **未知 `block_type` 绝不能写回** —— `PUT` 的 blocks 是**整体替换** ⇒ 写回 = **静默改写数据**。
+2. **pytest 只能在容器内跑** —— 宿主 py3.8 因 PEP 585 在**收集期**炸，**报错在 `app/models/`** ⇒ 长得像「我炸了**。
+3. **删材料图前先看服务端有没有块引用它** —— `content_blocks.image_id` 有 **FK CASCADE**
+   ⇒ 删被引用的图 = **连带删掉已落库材料块**（数据丢失）⇒ 判据按服务端真值。
+4. **清理测试数据只删本次记录下来的 id** —— 不按列表全量删（星轨 #4 事故 ⇒ `review-debt.md` 规则 5）。
+5. **组内小题：前端不传 `group_order`/`chapter_id`/`difficulty`** —— 后端 `max+1` + 从组继承
+   ⇒ 多传任一个 = **422**；算 `max+1` 前**锁组行**（FOR UPDATE）。
+6. **5xx 对外只回固定文案** —— `INTERNAL_ERROR_MESSAGE`；异常细节只进 `logger.exception`。
+7. **ORM 关系集合可能是陈旧缓存** —— `lazy="selectin"` + `expire_on_commit=False`
+   ⇒ 回收资源前用**显式 query** 取路径，**别读 `q.images`**（P2-4 首版就栽在这）。
+
+## 三、下一步（Y）
+
+1. **等星轨的页面级结论**（commit2 + 欠账 P2/P3）⇒ 我已自检 17/17 + 2/2，**结论仍归星轨**。
+2. **星云**：确认 `docs/PROJECT-CHARTER.md` 超限（5753B/5120B）是否处理（属大事件，我未动）。
+3. **第 2 步可开**：P2 欠账已修完 ⇒ 星轨原话「P2 必须在第 2 步真正开始用题组数据之前修完」**已满足**。
+4. **并发压测**：组内建题的 FOR UPDATE 串行化只验了串行路径 ⇒ 并发未压测。
+5. **P2-1 真 PG 端到端**：回归网跑在 SQLite ⇒ 真 PG 未复跑（未覆盖项）。
+
+## 四、开放问题（Z）
+
+- **题组 >500 行时一次性渲染会慢**（裁决③ 明确接受；组列表全量不分页）。
+- **`GET /question-groups` 的 response_model 未改**（改 `{items,total}` 是破坏性变更 ⇒ 裁决③ 不做）。
+- **`ContentBlockRead.block_type` 是裸 `str`** ⇒ 前端已兜；建议后端改 Literal。
+- **`docs/PROJECT-CHARTER.md` 5753B / 5120B 超限** ⇒ 「改 = 大事件需用户确认」⇒ **我没动，待星云拍板**。
+
+## 五、承载体
+
+`WAKEUP.md`｜`notes/milestones.md`（§12/§13/§14/§15）｜`notes/changelog/STATE.md`｜`docs/review-debt.md`
+｜`交付物/运行时证据-*.md`（L1–L4）｜`zaiyao-memory`
+
+---
+
+## §15.1 本轮（§15 对应的）过程详史
+
+### 后端：批 1 四条 P2 的修法要点
+
+- **P2-1（删组漏 unlink 小题题图）**：删组前**同时**收两批 `storage_path` ——
+  ① `QuestionImage.group_id == group.id`（组图）② `QuestionImage.question_id IN (组内小题 id 列表)`（小题题图）
+  ⇒ DB commit 之后逐个 best-effort `Path.unlink(missing_ok=True)`。
+  两批**不重复**：`question_images` 有 XOR CHECK（`ck_question_images_owner_not_null`）⇒ 两侧互斥。
+  题组删除仍用 `db.execute(delete(QuestionGroup).where(...))` 走 DB 级 `ON DELETE CASCADE` ——
+  **不走 ORM de-associate**（那会把小题「移出组」从而触发 `ck_question_images_owner_not_null`）。
+- **P2-2（5xx 拼 `{e}`）**：`core/errors.py` 加 `INTERNAL_ERROR_MESSAGE = "服务暂时不可用，请稍后重试"`（`:43`）
+  ⇒ **全部 5xx 站点改用该常量**，异常细节只进 `logger.exception`。
+  额外收尾：`textbook_upload.py` 9 处 `f"...：{e}"` ⇒ 受控文案 + 日志留细节；
+  连 `TextbookUploadError` 里把**内部设计**（字段名 `extraction_source` + 规则号 D-37 + fail-closed 口径）透给客户端的那条也改掉。
+- **P2-4（删题不 unlink 题图）**：见硬约束 ⑦（首版栽在 ORM 陈旧集合上，被本轮新增回归网当场抓住）。
+- **P2-5（大小上限共用常量）**：拆成 `MAX_QUESTION_IMAGE_BYTES`（`:1494`）/ `MAX_GROUP_IMAGE_BYTES`（`:1496`），
+  组图路径改用后者（`:2720`）⇒ 值相同但**不是彼此的别名** ⇒ 将来单独调一个不误伤另一个。
+
+**核源真值（容器 py3.11 AST 遍历全量 `raise HTTPException`）**：
+`academic.py` 的「5xx 且 detail 含异常文本」**改前 15 → 改后 0**（HTTPException 总数 90 → 90，未减少只换文案）；
+残留 6 处 4xx 含 `str(e)` 全是**受控业务文案**（`:295` `:311` `:333` `:1686` `:2729` ＋ `assignments.py:153`）⇒ 按台账口径保留。
+
+### 前端：P2 的修法选了「第三种」
+
+星轨给了 A（内联建题/编辑/删除成功后调 `onSaved?.()`）与 B（`onClose` 里也 `refreshAll()`），
+OUTBOX #7 硬约束 1 允许第三种但要说明。
+**我选：凡是改变服务端数据的动作，一律通知列表页** ⇒ 在**建组** + **内联建题** + **内联编辑小题** + **内联删小题** 四处调 `onSaved?.()`。
+**为什么不只做 A**：星轨描述的现象是「新建题组 → 内联建 3 道小题 → 点取消 → 列表页看不到这个组」，
+但**建组那一步**同样落库、同样不通知列表页 ⇒ 只按 A 修的话，「建组后不建题直接关闭」仍会造出**看不见的组**
+⇒ 用户以为没建成 ⇒ 重做 ⇒ **产生重复题组**（正是星轨担心的那条风险）⇒ 按**语义**修而非按**位置**修。
+
+### ⭐ 台账失实更正（P3-1）
+
+台账写 P3-1「仍在」，但代码真值 `academic.py:1303` 已有 `Question.group_id.is_(None)`，
+`git log -S` 唯一命中 **`4450007`** ⇒ **P3-1 早已修完，是台账漏划** ⇒ 本轮补记（顺带更正上轮 `STATE.md` 里的同样失实）。
+
+### 本轮自检（L1 原始输出在证据文件）
+
+- 后端三关（容器 builder = CI 等价物）：`ruff` ✅ ／ `mypy app` ✅（40 文件 0 问题）／ `pytest -q` **383 passed, 16 skipped**（基线 379 ⇒ +4 新用例真跑）。
+  ⭐ 中间那次 build 是**红的**：P2-4 用例当场抓出我第一版用 `q.images` 陈旧集合 ⇒ 改显式 query 后转绿。
+- 前端三关：lint ✅（0 warning）／ `tsc -b` ✅ ／ `vite build` ✅（3112 modules / 7.46s）。
+- 镜像重建 ⇒ served bundle `/assets/index-VN8PkviC.js`（**1,291,927 B**）；旧的是 `index-BfTW2vqR.js`（1,291,731 B）。
+  新 bundle 独有串 `/force/i`（本轮新增 `toUserFacingDeleteHint` 里的正则）⇒ 星轨可据此核「服务的是新产物」。
+- 页面级**自检**（Playwright + Chromium，WSL）：**P2 ✅ PASS**（关抽屉后不按 F5，列表页立即出现「题组（1 小题）」）／
+  **P3 ✅ PASS**（含三个计数、不含 `force=true`、不含 ASCII `?`）；`pageerror` 无；只删本次 id。
+
+### 未覆盖（留给星轨）
+
+- **验收结论未签**（实施方自检；页面验收权不转移）。
+- 我的自检环境（WSL chromium 130.0.6723.31 headless）≠ 星轨的（Windows playwright 1.64 + 系统 Edge）⇒ 我的 PASS 不等于他的 PASS。
+- 回归网跑在 **SQLite in-memory**（`PRAGMA foreign_keys=ON`）⇒ **真 PG 未复跑**。
+- P2-2 的**全局兜底 handler**（`core/errors.py` 的 `Exception` handler）仍回英文 `Internal server error` ——
+  它不含任何内部细节 ⇒ 不构成泄漏 ⇒ 未改（`tests/test_errors.py:176,245` 断言了它）。
+- P2-1/P2-4 的 **unlink 失败路径**未造故障实测（失败时只 `logger.warning` 记孤儿文件，文件仍留磁盘）。
+- P2-5 当前**无功能差异**（值相同 5MB）⇒ 页面级看不出变化 ⇒ 只能核代码常量。

@@ -44,6 +44,7 @@ import {
   deleteQuestionGroup,
   getQuestionGroup,
   listQuestionGroups,
+  toUserFacingDeleteHint,
 } from '../api/questionGroups'
 import {
   DIFFICULTY_LABEL,
@@ -261,7 +262,12 @@ export default function Questions() {
       const status = (err as { response?: { status?: number } })?.response?.status
       if (status === 409) {
         // 后端 409 的 body.message 里带三个计数 ⇒ 原样透出
-        const backendMessage = errorMessageOf(err, '题组非空')
+        // ⚠️ 但要裁掉后半句「；确认删除请加 ?force=true」——
+        //    那是给开发者看的 API 用法，老师看不懂（星轨 1c-2 欠账 P3）。
+        //    前半句「题组含 N 道小题、M 张材料图、K 个材料块」必须保留（= 告诉用户在删什么）。
+        const backendMessage = toUserFacingDeleteHint(
+          errorMessageOf(err, '题组非空'),
+        )
         Modal.confirm({
           title: '确认删除该题组？',
           content: (

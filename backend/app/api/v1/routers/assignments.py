@@ -39,6 +39,7 @@ from app.api.v1.schemas.assignments import (
     AssignmentReviewResponse,
     ReviewStatusLiteral,
 )
+from app.core.errors import INTERNAL_ERROR_MESSAGE
 from app.db.session import get_db
 from app.models import (
     Chapter,
@@ -300,7 +301,7 @@ def review_assignment(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"DB write failed: {e}",
+            detail=INTERNAL_ERROR_MESSAGE,
         ) from e
 
     return AssignmentReviewResponse(

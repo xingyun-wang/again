@@ -24,8 +24,15 @@
 > 审查结论：**0 × P0 ｜ 2 × P1 ｜ 5 × P2 ｜ 1 × P3**
 > 两个 P1 已当轮返工完毕（见 `交付物/运行时证据-代码审查批1 修复（2026-10-23）.md`）。
 > 本节只记 **P2 × 5 + P3 × 1**。
+>
+> **⭐ 销账状态（2026-10-24 22:xx）**：**6 条全部已修** ——
+> P2-3 + P3-1（`4450007`）／P2-1 + P2-2 + P2-4 + P2-5（本笔）。
+> 回归网：`backend/tests/api/v1/test_review_debt_p2.py`（P2-1/2/4/5 四条）
+> ＋ `backend/tests/api/v1/test_question_groups.py::test_p2_3_orphan_image_reclaimed_on_block_replace`（P2-3）
+> ＋ `backend/tests/api/v1/test_question_groups.py::test_c2_判据 J`（P3-1）。
+> 证据：`交付物/运行时证据-1c-2 P2P3 + 批1 P2 清账（2026-10-24）.md`。
 
-### P2-1 · 删组只 unlink 组图，小题自己的图全留在磁盘
+### P2-1 · 删组只 unlink 组图，小题自己的图全留在磁盘 — ✅ **已修（2026-10-24 本笔）**
 
 - **位置**：`backend/app/api/v1/routers/academic.py:2306`（`delete_question_group` 内 `storage_paths` 收集）
 - **现状**：
@@ -47,8 +54,16 @@
   建议改法：删组时**先**收集组内小题的图路径（`question_id IN (组内小题)`），
   一并纳入 unlink 列表。
 - **核源**：✅ 星轨的机制描述与代码一致（`e11de97:2228` 同款逻辑，仅行号因本轮修复位移）。
+- **✅ 修法（2026-10-24 本笔）**：删组前**同时**收两批 `storage_path` ——
+  ① `QuestionImage.group_id == group.id`（组图）② `QuestionImage.question_id IN (组内小题 id 列表)`（小题题图）
+  ⇒ DB commit 之后逐个 best-effort `Path.unlink(missing_ok=True)`。
+  两批不重复：`question_images` 有 XOR CHECK（`ck_question_images_owner_not_null`）⇒ group_id 侧与 question_id 侧**互斥**。
+  题组删除仍用 `db.execute(delete(QuestionGroup).where(...))` 走 DB 级 `ON DELETE CASCADE`（不走 ORM de-associate，
+  避免 ORM 把小题**移出组**从而触发 `ck_question_images_owner_not_null`）。
+- **✅ 回归网**：`backend/tests/api/v1/test_review_debt_p2.py::test_p2_1_delete_group_reclaims_group_question_image_file`
+  （断言**小题题图行没了 + 磁盘文件没了** + 题组行没了三件事）。
 
-### P2-2 · 500 响应体拼 `{e}` ⇒ 客户端能看到 SQL / 表名 / 约束名
+### P2-2 · 500 响应体拼 `{e}` ⇒ 客户端能看到 SQL / 表名 / 约束名 — ✅ **已修（2026-10-24 本笔）**
 
 - **位置**：`backend/app/core/errors.py:119` 是放大器 —— `detail` 被直接当 `message` 返回：
   ```python
@@ -69,6 +84,22 @@
   客户端只看到固定文案（如「服务暂时不可用，请稍后重试」）。
   ⚠️ 注意 `core/errors.py:121-124` 会吞掉 `details` ⇒ 业务计数类信息要写进
   `detail`/`message` 字符串，别指望 `details`（这条已在 MEMORY.md 记过）。
+- **✅ 修法（2026-10-24 本笔）**：
+  1. `backend/app/core/errors.py` 新增固定文案常量
+     `INTERNAL_ERROR_MESSAGE = "服务暂时不可用，请稍后重试"`（`:43`）；
+  2. **全部 5xx 站点改用该常量**（**原始异常细节只进 `logger.exception(...)` 服务端日志**）；
+  3. `backend/app/services/textbook_upload.py` 里 9 处 `f"...：{e}"` ⇒ 受控文案 + 日志留细节；
+  4. 额外收尾：连 `TextbookUploadError` 里把**内部设计**（字段名 `extraction_source` + 规则号 D-37 + fail-closed 口径）
+     透给客户端的那条也改掉（细节进 `logger.error`，客户端拿受控文案）。
+- **✅ 核源真值（AST 遍历 `raise HTTPException(...)` 全量统计，容器 py3.11）**：
+  | 指标 | 改前 | 改后 |
+  |---|---|---|
+  | `academic.py`：**5xx 且 detail 含异常文本** | **15** | **0** |
+  | `academic.py`：HTTPException（带 `detail=`）总数 | 90 | 90（**未减少，只换文案**） |
+  | 残留 4xx 且 detail 含 `str(e)`（业务文案，按台账口径**保留**） | — | 6 处（`:295` `:311` `:333` `:1686` `:2729` ＋ `assignments.py:153`） |
+  ⇒ 改前 15 与本条登记的 15 处**完全对上**（星轨报告写 9 处、实测 15 处的修正数得到复核）。
+- **✅ 回归网**：`backend/tests/api/v1/test_review_debt_p2.py::test_p2_2_5xx_message_must_not_leak_internal_details`
+  （哨兵异常文本含 `psycopg2` / `unique constraint` ⇒ 断言 500 的 `message` 不含哨兵/约束名，且 == 固定文案）。
 
 ### P2-3 · 替换材料块后，无引用的图留在库里也留在磁盘 — ✅ **已修（1c-2 commit2 · `4450007`）**
 
@@ -89,7 +120,7 @@
 - **建议改法**：替换前算出「旧块引用但新块不再引用」的 image_id 集合，
   确认组内无其他块引用后删行 + unlink。
 
-### P2-4 · `delete_question` 只删行不 unlink 题图（pre-existing）
+### P2-4 · `delete_question` 只删行不 unlink 题图（pre-existing） — ✅ **已修（2026-10-24 本笔）**
 
 - **位置**：`backend/app/api/v1/routers/academic.py:1408`（`delete_question`）
 - **现状**：题图随 `questions` CASCADE 删行，但**磁盘文件留下**。
@@ -97,8 +128,17 @@
 - **影响**：与 P2-1 同族；删组时放大（P2-1 会把组内小题的图也留下）。
 - **归属**：载曜
 - **触发时机**：与 P2-1 一起修（同一处逻辑，抽公共函数最省）。
+- **✅ 修法（2026-10-24 本笔）**：`db.delete(q)` 前用**显式 query** 收 `storage_path` ⇒ `db.commit()` 之后 unlink。
+  - ⚠️ **不能用 `q.images` 关系集合**：`Question.images` 是 `lazy="selectin"` ⇒ 首次访问就把集合**加载并缓存**在
+    identity map 里；而 session 是 `expire_on_commit=False` ⇒ 后续 commit **不刷新**它。
+    上传端点又是先 `db.get(Question, ...)`（此刻集合 = **空**）→ 再 `db.add(image)` 直插 `question_images` 行
+    （**不进集合**）⇒ 删题时读 `q.images` 拿到的是**陈旧的空集合** ⇒ `storage_paths` 为空 ⇒ 磁盘文件永远不删。
+    （这是我第一版的真 bug，被本笔新增的回归网当场抓住 ⇒ 已在证据文件 §1.1 留档。）
+  - unlink 抛 `OSError` ⇒ 只 `logger.warning` 记「孤儿文件」⇒ **不返 5xx**（删除本身的成功语义不变）。
+- **✅ 回归网**：`backend/tests/api/v1/test_review_debt_p2.py::test_p2_4_delete_question_reclaims_question_image_file`
+  （断言**题图行没了 + 磁盘文件没了**）。
 
-### P2-5 · `MAX_QUESTION_IMAGE_BYTES` 被组图复用（命名与语义不符）
+### P2-5 · `MAX_QUESTION_IMAGE_BYTES` 被组图复用（命名与语义不符） — ✅ **已修（2026-10-24 本笔）**
 
 - **位置**：常量定义 `backend/app/api/v1/routers/academic.py:1451`；
   单题使用 `:1631`；**组图复用** `:2565`
@@ -108,11 +148,30 @@
 - **归属**：载曜
 - **触发时机**：任一次调整图片大小上限时**必须先拆常量**。
 - **建议改法**：拆成 `MAX_IMAGE_BYTES`（共用）+ 若需分开再各自派生。
+- **✅ 修法（2026-10-24 本笔）**：拆成**两个独立常量**（值相同 5MB，但**不是彼此的别名**）：
+  ```python
+  MAX_QUESTION_IMAGE_BYTES = 5 * 1024 * 1024   # 单题题图（:1494）
+  MAX_GROUP_IMAGE_BYTES   = 5 * 1024 * 1024   # 题组材料图（:1496）
+  ```
+  组材料图上传流改用 `MAX_GROUP_IMAGE_BYTES`（`:2720`）⇒ 将来单独调其中一个**不会误伤**另一个。
+- **✅ 回归网**：`backend/tests/api/v1/test_review_debt_p2.py::test_p2_5_question_and_group_image_size_limits_are_separate_constants`
+  （两个常量都在、**不是彼此的别名**、且组常量**真被组图路径用到**）。
+- ⚠️ **本条当前无功能差异**（值相同 5MB）⇒ **页面级看不出任何变化** ⇒ 星轨若要从页面核 P2-5，只能核代码常量。
 
-### P3-1 · `GET /questions` 不排除组内小题
+### P3-1 · `GET /questions` 不排除组内小题 — ✅ **已修（`4450007`，台账漏划，本笔补记）**
 
-- **状态**：星轨已受理，**1c-2 commit2 已列入改造范围** ⇒ 此处只登记，不重复计。
-- **归属**：星轨已排期（1c-2 commit2）。
+- **原状态**：星轨已受理，**1c-2 commit2 已列入改造范围** ⇒ 此处只登记，不重复计。
+- **✅ 核源更正（2026-10-24 本笔）**：本条**代码早已修完**，是**台账漏划** ⇒ 按「行号会漂，以代码为准」同源原则补记。
+  - 代码真值：`backend/app/api/v1/routers/academic.py:1303`
+    ```python
+    query = db.query(Question).filter(
+        Question.owner_user_id == user_id,
+        Question.group_id.is_(None),   # ← 组内小题不进题库列表
+    )
+    ```
+  - 出处：`git log -S "Question.group_id.is_(None)"` ⇒ 唯一命中 **`4450007`**（1c-2 commit2）。
+  - ⇒ **本条不是欠账，是台账失实**（我上一轮收工时按台账原样抄进了 `STATE.md`「P2-1/P2-4/P2-5 + P3-1 仍在」⇒ 一并更正）。
+- **回归网**：`backend/tests/api/v1/test_question_groups.py`（判据 J 用例）。
 
 ---
 

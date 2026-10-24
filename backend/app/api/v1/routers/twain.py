@@ -211,7 +211,7 @@ def _save_scan_file(file: UploadFile, upload_root: Path) -> tuple[Path, int, str
         logger.exception("扫描文件落盘失败: filename=%s", file.filename)
         with contextlib.suppress(OSError):
             dst.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail=f"扫描文件读取失败：{e}") from e
+        raise HTTPException(status_code=400, detail="扫描文件读取失败，请重试") from e
     finally:
         # 关 UploadFile（释放 spooled temp / 真实文件 fd）
         with contextlib.suppress(OSError):

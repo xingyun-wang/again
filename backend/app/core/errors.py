@@ -32,6 +32,16 @@ from app.core.context import request_id_contextvar
 
 logger = logging.getLogger(__name__)
 
+# 5xx 对客户端的**固定文案**（review-debt 批 1 · P2-2）。
+#
+# 为什么固定：5xx 的 detail 若拼了原始异常对象（`{e}`），客户端就能读到
+# 表名 / 约束名 / SQL 片段 / 磁盘路径 / 上游响应片段（信息泄漏）。
+# ⇒ 5xx 一律只回这句；**原始异常细节只进服务端日志**（logger.exception）。
+#
+# ⚠️ 4xx 不用它：4xx 的 detail 是**业务信息**（如 409 删组时「题组含 N 道小题…」），
+#    那是用户/调用方真正需要的 ⇒ 保留原样（台账 P2-2 备注同此意）。
+INTERNAL_ERROR_MESSAGE = "服务暂时不可用，请稍后重试"
+
 
 class ErrorResponse(BaseModel):
     """统一错误响应 schema。

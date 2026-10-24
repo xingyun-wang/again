@@ -525,6 +525,9 @@ export default function QuestionGroupDrawer({
       })
       setCurrentGroupId(resp.id)
       setServerImageCount(0)
+      // ⭐ 建组即落库 ⇒ 列表页必须知道多了一个组（否则用户看不到 ⇒ 重做一遍 ⇒ 重复组）
+      //   （星轨 1c-2 欠账 P2：内联建题不刷新的同族根因，这里一并堵住）
+      onSaved?.()
       message.success(`题组 #${resp.id} 已创建，可继续编辑材料`)
     } catch (err) {
       setError(errorMessageOf(err, '创建题组失败'))
@@ -783,6 +786,9 @@ export default function QuestionGroupDrawer({
       }
       // 回读服务端（题序 / 图数以服务端为准）
       await refreshQuestions(gid)
+      // ⭐ 小题已落库 ⇒ 通知列表页刷新（题组行的「N 小题」计数变了）
+      //   （星轨 1c-2 欠账 P2：数据已落库但列表看不到 ⇒ 用户以为没建成 ⇒ 重做 ⇒ 重复题组）
+      onSaved?.()
     } finally {
       setCreatingQuestion(false)
     }
@@ -846,6 +852,8 @@ export default function QuestionGroupDrawer({
       setQuestionGalleryKey((k) => k + 1)
       const gid = currentGroupId
       if (gid !== null) await refreshQuestions(gid)
+      // ⭐ 小题已改 ⇒ 通知列表页刷新（同上；题组行的计数/摘要可能变了）
+      onSaved?.()
     } finally {
       setSavingQuestion(false)
     }
@@ -862,6 +870,8 @@ export default function QuestionGroupDrawer({
       clearPendingImage(questionId)
       const gid = currentGroupId
       if (gid !== null) await refreshQuestions(gid)
+      // ⭐ 小题已删 ⇒ 通知列表页刷新（题组行的「N 小题」计数变了）
+      onSaved?.()
     } catch (err) {
       message.error(errorMessageOf(err, '删除小题失败'))
     } finally {

@@ -123,6 +123,31 @@ export async function deleteQuestionGroup(
   })
 }
 
+/**
+ * 把后端 409 的 message 裁成人能读的话（**只用于展示**）。
+ *
+ * 后端 message 形如：
+ *   「题组含 3 道小题、0 张材料图、0 个材料块；确认删除请加 ?force=true」
+ * ⇒ 前半句是**给用户看的**（我到底在删什么）⇒ 必须保留；
+ *   后半句是**给开发者看的 API 用法**（`?force=true`）⇒ 老师看不懂，
+ *   还把内部调用细节暴露出去 ⇒ 展示前裁掉。
+ *
+ * ⚠️ 只在后半句确实含 force 指引时才裁 —— 后端以后改措辞时，
+ *    不该把「用户在删什么」那半句也一起裁掉。
+ *
+ * 注：**后端 message 不改** —— 对 API 调用方而言「加 ?force=true」是有用信息，
+ *    改后端会破坏既有契约（backend/tests/api/v1/test_question_groups.py 也断言了它）。
+ *    裁剪只发生在**前端展示层**。
+ */
+export function toUserFacingDeleteHint(message: string): string {
+  const sep = message.indexOf('；')
+  if (sep < 0) return message
+  const head = message.slice(0, sep).trim()
+  const tail = message.slice(sep + 1)
+  if (!/force/i.test(tail)) return message
+  return head.length > 0 ? head : message
+}
+
 /** GET /question-groups/{id}/images → QuestionImageSummary[]（4 字段；空组返 []） */
 export async function listGroupImages(groupId: number): Promise<QuestionImageSummary[]> {
   const resp = await apiClient.get<QuestionImageSummary[]>(
