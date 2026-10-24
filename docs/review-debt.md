@@ -70,7 +70,7 @@
   ⚠️ 注意 `core/errors.py:121-124` 会吞掉 `details` ⇒ 业务计数类信息要写进
   `detail`/`message` 字符串，别指望 `details`（这条已在 MEMORY.md 记过）。
 
-### P2-3 · 替换材料块后，无引用的图留在库里也留在磁盘 — ✅ **已修（1c-2 commit2）**
+### P2-3 · 替换材料块后，无引用的图留在库里也留在磁盘 — ✅ **已修（1c-2 commit2 · `4450007`）**
 
 - **位置**：`backend/app/api/v1/routers/academic.py`（`_replace_group_blocks`）
 - **修法**：替换前算出「旧块引用 ∧ 新块不引用」的 `image_id` 集合 ⇒ 确认**全库**无块引用
