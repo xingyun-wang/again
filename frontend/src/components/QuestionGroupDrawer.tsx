@@ -22,7 +22,7 @@
  *    「每次打开 = 一次全新会话」（1c-1 的血泪：漏清一个 state 就复现上一题的数据）。
  *    本组件内部只用 useEffect **加载**数据，不用它**清理**状态。
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Alert,
   Button,
@@ -123,6 +123,22 @@ export default function QuestionGroupDrawer({
    *    ⇒ 顺序必须是：先 PUT（整体替换块）→ 再删图。
    */
   const [pendingDeleteImageIds, setPendingDeleteImageIds] = useState<number[]>([])
+  /**
+   * 本次会话**新上传**成功的材料图 id（取消/关闭时用来回收孤儿图）。
+   *
+   * 🔴 星轨 OUTBOX #5 · T1（P1）：上传图后点「取消」⇒ 图留在库里
+   *    ⇒ 反复「选图→取消」能吃满 10 张配额 ⇒ 这组再也传不了图，
+   *      且块编辑器没有「未引用图」入口 ⇒ 用户看不见也删不掉。
+   *
+   * ⭐ 用 **ref** 而不是 state：回收是异步的，回收期间组件可能已卸载
+   *    ⇒ 不能依赖 state 读「最新值」（state 会是闭包里的旧值）。
+   *    父组件每次打开用 key 重挂载 ⇒ ref 天然按会话归零。
+   */
+  const sessionUploadedImageIdsRef = useRef<number[]>([])
+  /** 回收中（关闭前先回收孤儿图，期间锁住交互） */
+  const [cleaning, setCleaning] = useState(false)
+  /** 最近一次成功保存的时刻（T3：显示「已保存 HH:MM」，免得用户反复点） */
+  const [savedAtLabel, setSavedAtLabel] = useState<string | null>(null)
 
   const imageCountTotal = serverImageCount + sessionImageCount
   /** 题组已落库 ⇒ 章节/教材只读（后端 PUT 不接受 chapter_id） */
@@ -258,6 +274,74 @@ export default function QuestionGroupDrawer({
     })
   }
 
+  /** 登记「本次会话新上传的图」（取消/关闭时按它算孤儿） */
+  const registerSessionImage = useCallback((imageId: number) => {
+    sessionUploadedImageIdsRef.current = sessionUploadedImageIdsRef.current.includes(imageId)
+      ? sessionUploadedImageIdsRef.current
+      : [...sessionUploadedImageIdsRef.current, imageId]
+  }, [])
+
+  /**
+   * 删除「本次会话上传、但服务端已无块引用」的图。
+   *
+   * @param referenced 服务端当前仍被块引用的 image_id 集合
+   */
+  const deleteSessionImagesNotIn = useCallback(
+    async (gid: number, referenced: Set<number>): Promise<void> => {
+      const ids = sessionUploadedImageIdsRef.current
+      if (ids.length === 0) return
+      for (const imageId of ids) {
+        if (referenced.has(imageId)) continue
+        try {
+          await deleteGroupImage(gid, imageId)
+        } catch (err) {
+          // 404 = 已被别处删掉（如保存后清 pendingDelete 队列）⇒ 不算失败
+          const status = (err as { response?: { status?: number } })?.response?.status
+          if (status !== 404) {
+            message.warning(`材料图 #${imageId} 回收失败：${errorMessageOf(err, '删除失败')}`)
+          }
+        }
+      }
+      // 只留下仍被服务端引用的（其余已回收或已不存在）
+      sessionUploadedImageIdsRef.current = ids.filter((id) => referenced.has(id))
+    },
+    [],
+  )
+
+  /**
+   * 回收「本次会话上传、但服务端已无块引用」的孤儿图。
+   *
+   * 🔴 **判据是「服务端当前有没有块引用它」，不是「本次有没有保存成功」** ——
+   *    字面口径（未成功保存 ⇒ 全删）会**误删已落库的材料**：
+   *    上传 A → 保存（落库）→ 本地删掉 A 的块（还没再保存）→ 取消
+   *    ⇒ 服务端那块仍引用 A，此时删 A 会被 `content_blocks.image_id` 的
+   *      **FK CASCADE 连带删掉已保存的材料块** ⇒ 数据丢失。
+   *    逐张图按服务端真值判断 ⇒ 既清得掉真孤儿，又不碰已落库材料。
+   *
+   * ⚠️ 读不到服务端真值时**不删**（宁可留孤儿，也不误删已落库材料）。
+   */
+  const cleanupOrphanSessionImages = useCallback(
+    async (gid: number): Promise<void> => {
+      if (sessionUploadedImageIdsRef.current.length === 0) return
+      let referenced = new Set<number>()
+      try {
+        const detail = await getQuestionGroup(gid)
+        referenced = new Set(
+          (detail.blocks ?? [])
+            .map((b) => b.image_id)
+            .filter((x): x is number => typeof x === 'number'),
+        )
+      } catch (err) {
+        message.warning(
+          `材料图回收已跳过（无法确认服务端状态）：${errorMessageOf(err, '读取题组失败')}`,
+        )
+        return
+      }
+      await deleteSessionImagesNotIn(gid, referenced)
+    },
+    [deleteSessionImagesNotIn],
+  )
+
   /** 排入待删图片（不立刻删，理由见 pendingDeleteImageIds 注释） */
   const scheduleImageDelete = (imageId: number) => {
     setPendingDeleteImageIds((prev) => (prev.includes(imageId) ? prev : [...prev, imageId]))
@@ -296,6 +380,8 @@ export default function QuestionGroupDrawer({
     try {
       const imageId = await uploadMaterialImage(currentGroupId, file, imageCountTotal)
       setSessionImageCount((c) => c + 1)
+      // ⭐ 登记本次会话上传的图 ⇒ 取消/关闭时可回收（星轨 OUTBOX #5 · T1 P1）
+      registerSessionImage(imageId)
       setBlocks((prev) => [...prev, createImageBlock(imageId)])
       message.success('图片已上传')
     } catch (err) {
@@ -305,6 +391,26 @@ export default function QuestionGroupDrawer({
     }
     return false
   }
+
+  /**
+   * 关闭抽屉（取消按钮 / 右上角 X / 遮罩点击都走这里）。
+   *
+   * 🔴 **先回收孤儿图，再关闭**（星轨 OUTBOX #5 · T1 P1）：
+   *    上传图后直接点「取消」⇒ 图已落库但没有任何块引用它 ⇒ 留在库里吃配额，
+   *    且块编辑器没有「未引用图」入口 ⇒ 用户看不见也删不掉。
+   */
+  const handleClose = useCallback(async () => {
+    if (cleaning) return
+    setCleaning(true)
+    try {
+      if (currentGroupId !== null) {
+        await cleanupOrphanSessionImages(currentGroupId)
+      }
+    } finally {
+      setCleaning(false)
+      onClose()
+    }
+  }, [cleaning, currentGroupId, cleanupOrphanSessionImages, onClose])
 
   // ──────────────── 提交 ────────────────
 
@@ -392,6 +498,11 @@ export default function QuestionGroupDrawer({
       }
 
       message.success('题组已保存')
+      // T3：保存成功显示时刻（**不改按钮文案**，避免打断验收脚本的选择器）
+      const now = new Date()
+      setSavedAtLabel(
+        `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+      )
       onSaved?.()
       // ⚠️ **保存后不自动关闭抽屉**（与 QuestionDrawer 不同）：
       //    新建即落库 ⇒ 这个抽屉本来就是「建组 → 编辑材料 → 保存」的连续工作区；
@@ -430,6 +541,16 @@ export default function QuestionGroupDrawer({
       setServerImageCount(imgs.length)
       setSessionImageCount(0)
       setPendingDeleteImageIds([])
+      // ⭐ 「重新加载」= **丢弃本地草稿** ⇒ 本次会话新传、但没落库的图同样变孤儿
+      //    ⇒ 同源清理（否则「传图→重新加载」也是一条漏路）。
+      await deleteSessionImagesNotIn(
+        detail.id,
+        new Set(
+          (detail.blocks ?? [])
+            .map((b) => b.image_id)
+            .filter((x): x is number => typeof x === 'number'),
+        ),
+      )
       message.success('已从服务端重新加载')
     } catch (err) {
       setError(errorMessageOf(err, '重新加载失败'))
@@ -446,18 +567,18 @@ export default function QuestionGroupDrawer({
     return '全部知识点'
   })()
 
-  const busy = loading || saving || creating
+  const busy = loading || saving || creating || cleaning
 
   return (
     <Drawer
       title={mode === 'edit' ? '编辑题组' : '新建题组'}
       width={880}
       open={open}
-      onClose={onClose}
+      onClose={() => void handleClose()}
       destroyOnClose
       extra={
         <Space>
-          <Button onClick={onClose} disabled={busy}>
+          <Button onClick={() => void handleClose()} disabled={busy}>
             取消
           </Button>
           {currentGroupId === null ? (
@@ -470,9 +591,16 @@ export default function QuestionGroupDrawer({
               创建题组
             </Button>
           ) : (
-            <Button type="primary" loading={saving} disabled={busy} onClick={() => void handleSave()}>
-              保存
-            </Button>
+            <Space>
+              <Button type="primary" loading={saving} disabled={busy} onClick={() => void handleSave()}>
+                保存
+              </Button>
+              {/* T3（星轨 OUTBOX #5）：保存成功后显示时刻 ⇒ 用户知道存没存，不用反复点。
+                  ⚠️ **不改按钮文案**（「保存」→「已保存 15:23」会打断验收脚本的选择器）。 */}
+              {savedAtLabel !== null && (
+                <Tag color="green">已保存 {savedAtLabel}</Tag>
+              )}
+            </Space>
           )}
         </Space>
       }
@@ -618,7 +746,11 @@ export default function QuestionGroupDrawer({
                       onMoveDown={() => moveBlock(b.key, 1)}
                       onRemove={() => removeBlock(b.key)}
                       onScheduleImageDelete={scheduleImageDelete}
-                      onImageUploaded={() => setSessionImageCount((c) => c + 1)}
+                      onImageUploaded={(imageId: number) => {
+                        setSessionImageCount((c) => c + 1)
+                        // ⭐ 换图也会新上传一张 ⇒ 同样要登记（否则取消时漏回收）
+                        registerSessionImage(imageId)
+                      }}
                     />
                   ))
                 )}

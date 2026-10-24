@@ -251,8 +251,13 @@ export interface ContentBlockEditorProps {
   onRemove: () => void
   /** 换图：把旧 image_id 交给上层排「待删队列」（保存成功后由上层删） */
   onScheduleImageDelete: (imageId: number) => void
-  /** 上传成功回调（上层用来累加本次会话图数） */
-  onImageUploaded: () => void
+  /**
+   * 上传成功回调（上层用来累加本次会话图数 + 登记新图 id）。
+   *
+   * ⚠️ **必须回传 imageId**：换图也会新上传一张图，
+   *    上层要靠它登记「本次会话新传的图」⇒ 取消时才能回收（星轨 OUTBOX #5 T1）。
+   */
+  onImageUploaded: (imageId: number) => void
 }
 
 export default function ContentBlockEditor({
@@ -322,7 +327,7 @@ export default function ContentBlockEditor({
         onScheduleImageDelete(block.image_id)
       }
       onChange({ image_id: newId })
-      onImageUploaded()
+      onImageUploaded(newId)
       message.success(replace ? '图片已替换' : '图片已上传')
     } catch (err) {
       message.error(errorMessageOf(err, '图片上传失败'))
